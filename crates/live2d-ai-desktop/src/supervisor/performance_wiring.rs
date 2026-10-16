@@ -53,6 +53,9 @@ pub struct DirectorTakeover {
     pub staging_model: String,
     /// 二路密钥的**变量名**（空 = 与主 LLM 同名；**永不读值、永不落日志**）。
     pub staging_api_key_env: String,
+    /// 表演倾向（2026-10-13 执行单 T3）：克制 / 平常 / 主动，缺省平常。
+    /// 只影响按句清洗的提示词子句与「空数组是否回退规则表」。
+    pub motion_bias: live2d_ai_mod_director::motion_bias::MotionBias,
 }
 
 impl DirectorTakeover {
@@ -82,6 +85,12 @@ impl DirectorTakeover {
             staging_base_url: text("staging_base_url"),
             staging_model: text("staging_model"),
             staging_api_key_env: text("staging_api_key_env"),
+            // 表演倾向（2026-10-13 执行单 T3）：缺键 / 未知 / 空 = 平常。
+            motion_bias: live2d_ai_mod_director::motion_bias::MotionBias::parse(
+                config
+                    .and_then(|value| value.get("motion_bias"))
+                    .and_then(serde_json::Value::as_str),
+            ),
         }
     }
 

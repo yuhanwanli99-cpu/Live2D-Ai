@@ -766,6 +766,10 @@ fn late_finish_cross_epoch_is_neutralized_via_supervisor() {
 /// 真机表现（2026-09-13，TTS 指着死端口）：WS 上只有 `error` + `turn_state`，
 /// 一个字都没有；界面上是「（生成失败）」而不是正文。修法见 `turn.rs` Stage A 末尾
 /// 的「生成返回后排空通道」循环。
+///
+/// **2026-10-15 执行单 §2 之后**：TTS 的**单句**状态码 / 传输 / 解码失败都不再致命
+/// （走静音句、轮次继续），所以本测试改用仍属致命那一档的 `InvalidBaseUrl`
+/// （base_url 解析不出来）来造失败轮——上面那条排空时序的回归一个字没变。
 #[test]
 fn failed_turn_delivers_generated_text_via_text_fallback() {
     let llm_bodies: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
@@ -776,10 +780,11 @@ fn failed_turn_delivers_generated_text_via_text_fallback() {
     .to_owned();
     let llm_base = spawn_llm_mock(llm_bodies.clone(), sse);
 
-    // TTS 指向本机 discard 端口：**传输层**失败（与上游 5xx 是不同的错误路径）。
+    // TTS 的 base_url 解析不出绝对 http(s) URL → `Error::InvalidBaseUrl`，仍是**致命**
+    // 那一档（单句的状态码 / 传输 / 解码失败自 2026-10-15 起都不再终结本轮）。
     let client = live2d_ai_runtime::OpenAiClient::new(
         live2d_ai_runtime::LlmConfig::new(llm_base, "test-model"),
-        live2d_ai_runtime::TtsConfig::new("http://127.0.0.1:9/v1", "alloy"),
+        live2d_ai_runtime::TtsConfig::new("not a url", "alloy"),
     )
     .expect("client");
 

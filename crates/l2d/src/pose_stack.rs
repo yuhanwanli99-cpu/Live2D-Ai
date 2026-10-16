@@ -31,6 +31,11 @@ pub const BREATH_PARAM: &str = "ParamBreath";
 /// 头部摆动参数 ID（给物理一个可见输入；缺失时跳过）。
 pub const ANGLE_Z_PARAM: &str = "ParamAngleZ";
 
+/// 手势占槽时，待机摆头**让开**的追平时间（秒）：目标 `0 → 1` 用 200ms。
+pub const SWAY_SUPPRESS_ATTACK_S: f32 = 0.200;
+/// 手势结束后摆头**缓回**的追平时间（秒）：目标 `1 → 0` 用 350ms。
+pub const SWAY_SUPPRESS_RELEASE_S: f32 = 0.350;
+
 /// 非法 dt：非有限（NaN / ±Inf）或 <= 0。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InvalidDt(pub f32);
@@ -80,6 +85,14 @@ pub struct PoseStack {
     /// idle 开关（默认 true）：false 时 **idle 层整体停写**——不写呼吸正弦，
     /// 也不写 `ParamAngleZ` 的 ±3° 摆头。`IdleState` / `apply_idle_life` 共用同一开关。
     idle_enabled: bool,
+    /// 摆头抑制的**当前值**（0 = 全幅摆头，1 = 完全让开）。
+    ///
+    /// 只作用在 idle 层的 `ParamAngleZ` 摆头上（呼吸正弦照写）。手势占槽时
+    /// 追向 1（[SWAY_SUPPRESS_ATTACK_S]），手势结束后追回 0
+    /// （[SWAY_SUPPRESS_RELEASE_S]）；`elapsed` 不动，松手后相位接着走。
+    sway_suppress: f32,
+    /// 摆头抑制的**目标值**（0 / 1；由渲染面按手势槽占位与否写入）。
+    sway_suppress_target: f32,
     elapsed: f32,
 }
 
@@ -103,6 +116,8 @@ impl PoseStack {
             angle_key: pose::Key::param(ANGLE_Z_PARAM),
             has_angle_z,
             idle_enabled: true,
+            sway_suppress: 0.0,
+            sway_suppress_target: 0.0,
             elapsed: 0.0,
         }
     }
@@ -155,6 +170,20 @@ impl PoseStack {
         self.idle_enabled
     }
 
+    /// 设置摆头抑制的**目标**（`true` = 手势占槽 → 让开）。
+    ///
+    /// 实际值由 [Self::update] 用本帧 `dt` 追向目标：`0 → 1` 用
+    /// [SWAY_SUPPRESS_ATTACK_S]，`1 → 0` 用 [SWAY_SUPPRESS_RELEASE_S]。
+    /// 只影响 idle 层的 `ParamAngleZ` 摆头——呼吸正弦不受影响。
+    pub fn set_idle_sway_suppressed(&mut self, suppressed: bool) {
+        self.sway_suppress_target = if suppressed { 1.0 } else { 0.0 };
+    }
+
+    /// 当前摆头抑制值（0 = 全幅摆头，1 = 完全让开）。
+    pub fn idle_sway_suppress(&self) -> f32 {
+        self.sway_suppress
+    }
+
     /// 向 **input 层**写入参数（优先级高于 idle、低于 physics/final_override）。
     ///
     /// 模型没有该参数时返回 `false` 且状态不变。
@@ -196,6 +225,15 @@ impl PoseStack {
         let time = self.elapsed;
         self.elapsed += dt;
 
+        // ---- 摆头抑制：用本帧 dt 线性追向目标（不碰 elapsed，相位不断）----
+        // 手势占槽 → 0→1（200ms 追满）；手势结束 → 1→0（350ms 缓回）。
+        let target = self.sway_suppress_target;
+        if target > self.sway_suppress {
+            self.sway_suppress = (self.sway_suppress + dt / SWAY_SUPPRESS_ATTACK_S).min(target);
+        } else if target < self.sway_suppress {
+            self.sway_suppress = (self.sway_suppress - dt / SWAY_SUPPRESS_RELEASE_S).max(target);
+        }
+
         // ---- idle 层：每帧从零重算（独立层，不再被其他层的历史值污染）----
         // `idle_enabled == false` 时整层停写：呼吸/摆头都回到 base 默认值。
         let mut idle = pose::Pose::with_map(Arc::clone(&self.map));
@@ -209,7 +247,11 @@ impl PoseStack {
                 // P3.1 修复：i32 截断会让正弦在峰值（导数≈0）处连续多帧停在同
                 // 一整数再跳变——表现为"摆到最左/最右卡一下"。改为连续 f32；
                 // 幅度 15°→3°（轻微摇晃，py 版生命体征同级），周期放慢一倍。
-                let wave = (time * std::f32::consts::PI / 2.0).sin() * 3.0;
+                //
+                // 2026-10-14：手势占槽时按 (1 - 抑制) 让开（抑制追到 1 = 完全
+                // 不摆头），手势结束后缓回；呼吸正弦**不乘**这个系数。
+                let wave =
+                    (time * std::f32::consts::PI / 2.0).sin() * 3.0 * (1.0 - self.sway_suppress);
                 idle.set(&self.angle_key, wave);
             }
         }
@@ -278,6 +320,8 @@ impl fmt::Debug for PoseStack {
             .field("breath", &self.breath_range.is_some())
             .field("angle_z", &self.has_angle_z)
             .field("idle_enabled", &self.idle_enabled)
+            .field("sway_suppress", &self.sway_suppress)
+            .field("sway_suppress_target", &self.sway_suppress_target)
             .finish_non_exhaustive()
     }
 }
@@ -644,6 +688,100 @@ mod tests {
             on.get_parameter("ParamHairFront").unwrap(),
             off_small.get_parameter("ParamHairFront").unwrap(),
             "final_override（5.0，未触钳位）应赢过 idle 的 ±3°：两条轨迹必须逐位相等"
+        );
+    }
+
+    /// **待机摆头让开（回归 1，2026-10-14）**：目标 → 1 之后连续几帧
+    /// `ParamAngleZ` 保持默认，而**呼吸仍离开默认**——证明让开的只是摆头，
+    /// 不是把整个 idle 层停掉（那是 `idle_enabled = false` 的语义）。
+    #[test]
+    fn suppressed_idle_sway_holds_default_while_breath_keeps_running() {
+        let mut stack = PoseStack::from_pose_map(synthetic_map(true, true));
+        // 先跑几帧让摆头真的动起来（否则「保持默认」可能是假绿灯）。
+        for _ in 0..8 {
+            stack.update(FIXED_DT_60HZ).unwrap();
+        }
+        assert_ne!(
+            stack.get_parameter(ANGLE_Z_PARAM),
+            Some(0.0),
+            "让开之前摆头应当在动"
+        );
+
+        stack.set_idle_sway_suppressed(true);
+        stack.update(FIXED_DT_60HZ).unwrap();
+        let step = FIXED_DT_60HZ / SWAY_SUPPRESS_ATTACK_S;
+        assert!(
+            (stack.idle_sway_suppress() - step).abs() < 1e-6,
+            "0→1 应按 200ms 追满（单帧步长 {step}，实得 {}）",
+            stack.idle_sway_suppress()
+        );
+        for _ in 0..12 {
+            stack.update(FIXED_DT_60HZ).unwrap();
+        }
+        assert_eq!(stack.idle_sway_suppress(), 1.0, "让开应在 200ms 内追到 1");
+
+        for _ in 0..10 {
+            stack.update(FIXED_DT_60HZ).unwrap();
+            assert_eq!(
+                stack.get_parameter(ANGLE_Z_PARAM),
+                Some(0.0),
+                "让开期间 ParamAngleZ 必须保持默认"
+            );
+            assert_ne!(
+                stack.get_parameter(BREATH_PARAM),
+                Some(0.0),
+                "让开只让摆头，呼吸仍须离开默认"
+            );
+        }
+    }
+
+    /// **待机摆头缓回（回归 2，2026-10-14）**：目标回到 0 后，摆头在 350ms 内离开
+    /// 默认，且恢复后的正弦与「从未抑制、同一 `elapsed`」的对照**逐位同相**
+    /// （抑制只压幅值，不重置相位）。
+    #[test]
+    fn idle_sway_returns_within_release_time_and_keeps_its_phase() {
+        let mut suppressed = PoseStack::from_pose_map(synthetic_map(true, true));
+        let mut reference = PoseStack::from_pose_map(synthetic_map(true, true));
+
+        let attack_frames = 14; // > 200ms，抑制稳到 1
+        suppressed.set_idle_sway_suppressed(true);
+        for _ in 0..attack_frames {
+            suppressed.update(FIXED_DT_60HZ).unwrap();
+            reference.update(FIXED_DT_60HZ).unwrap();
+        }
+        assert_eq!(suppressed.idle_sway_suppress(), 1.0);
+        assert_eq!(suppressed.get_parameter(ANGLE_Z_PARAM), Some(0.0));
+        // 对照仍在摆头——证明上一条不是「这条参数本来就不动」的假绿灯。
+        assert_ne!(reference.get_parameter(ANGLE_Z_PARAM), Some(0.0));
+
+        // 松手：目标回 0，按 350ms 追回；第一帧的步长 = dt / 350ms。
+        suppressed.set_idle_sway_suppressed(false);
+        suppressed.update(FIXED_DT_60HZ).unwrap();
+        reference.update(FIXED_DT_60HZ).unwrap();
+        let step = FIXED_DT_60HZ / SWAY_SUPPRESS_RELEASE_S;
+        assert!(
+            (suppressed.idle_sway_suppress() - (1.0 - step)).abs() < 1e-6,
+            "1→0 应按 350ms 追回（实得 {}）",
+            suppressed.idle_sway_suppress()
+        );
+        assert_ne!(
+            suppressed.get_parameter(ANGLE_Z_PARAM),
+            Some(0.0),
+            "松手第一帧摆头就该离开默认（在 350ms 之内）"
+        );
+
+        // 多跑几帧越过 350ms，确保收敛到**恰好** 0（躲开 f32 残差）。
+        for _ in 0..30 {
+            suppressed.update(FIXED_DT_60HZ).unwrap();
+            reference.update(FIXED_DT_60HZ).unwrap();
+        }
+        assert_eq!(suppressed.idle_sway_suppress(), 0.0, "缓回应收敛到 0");
+        let got = suppressed.get_parameter(ANGLE_Z_PARAM);
+        assert_ne!(got, Some(0.0), "缓回后摆头应重新离开默认");
+        assert_eq!(
+            got,
+            reference.get_parameter(ANGLE_Z_PARAM),
+            "恢复后必须与「从未抑制、同一 elapsed」的正弦同相"
         );
     }
 }

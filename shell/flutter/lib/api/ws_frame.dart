@@ -118,6 +118,26 @@ class TextFallbackEvent extends WsEvent {
   final String? text;
 }
 
+/// `user_line`：服务端把**这一轮喂给模型的输入正文**广播回来（2026-10-14）。
+///
+/// 来历：弹幕（external-input Mod）经 sidecar 直接 `POST /api/v1/external/chat`，
+/// **浏览器没有参加那次发送**——主链已经跑了，前端会话存档里却没有那句用户话。
+/// 服务端在「`say` 被取到、投递 `TurnPrompt` 的同一处」补广播这一帧，
+/// 必定在该轮任何 [TextDeltaEvent] 之前；[text] 与该轮喂给模型的 text 逐字相同。
+///
+/// 形状（`seq`/`ts` 由 per-connection 包装加在**根**上，与 [TextFallbackEvent]
+/// 同构）：`{"type":"user_line","data":{"epoch":N,"text":"…"}}`。
+/// 旧页面遇到不认识的 type 会落到 [UnknownWsEvent] 并忽略——向后兼容。
+class UserLineEvent extends WsEvent {
+  const UserLineEvent({required this.epoch, this.text, super.seq, super.ts});
+
+  /// 该轮的业务代次（与 `turn_state` / `text_delta` 同源）。
+  final int epoch;
+
+  /// **本轮输入正文**；缺字段 / 非字符串 → `null`（调用方据此不写空话）。
+  final String? text;
+}
+
 /// 一条导演动作 cue（action_cue.payload.cues[] 的元素）。
 ///
 /// # v1 表演字段：**只增不改**（协议 §11 / V11）
@@ -474,6 +494,15 @@ WsEvent? parseWsFrame(String raw) {
       // 未知 type 在旧客户端被忽略，所以这是向后兼容的新增帧。
       return TextFallbackEvent(
         epoch: _intOrNull(data['epoch']),
+        text: _str(data['text']),
+        seq: seq,
+        ts: ts,
+      );
+
+    case 'user_line':
+      // 同 reasoning_delta / text_fallback：新增 type，旧客户端忽略 = 兼容。
+      return UserLineEvent(
+        epoch: _int(data['epoch']),
         text: _str(data['text']),
         seq: seq,
         ts: ts,

@@ -438,6 +438,8 @@ fn build_sentence_cleaner(
     let llm = client.llm();
     let motion = motion_on(director);
     let allowed = || live2d_ai_mod_director::presets::accepted_preset_ids();
+    // 表演倾向（2026-10-13 执行单 T3）：真源 = director 的 `motion_bias`，两条派生值。
+    let motion_bias = director.motion_bias.to_runtime_bias(&allowed().join(", "));
     let cleaner = match clean_endpoint(director) {
         // 动作门 Own：这一次按句清洗改用 staging 端点。密钥变量名空则复用主 LLM
         // 的**已解析**密钥；否则经 `secrets::lookup`（永不落日志）。
@@ -456,12 +458,13 @@ fn build_sentence_cleaner(
                 motion,
                 allowed(),
             )
+            .with_bias(motion_bias)
         }
         // 复用对话模型（或动作门没开）：端点仍是主 LLM。
         CleanEndpoint::Conversation => {
             let base = SentenceCleaner::from_llm(llm);
             if motion {
-                base.with_motion(allowed())
+                base.with_motion(allowed(), motion_bias)
             } else {
                 base
             }
@@ -473,6 +476,7 @@ fn build_sentence_cleaner(
     tracing::info!(
         model = cleaner.model(),
         motion = cleaner.motion(),
+        bias = director.motion_bias.as_str(),
         "二路按句清洗已装配（动作门；请求体显式关思考）"
     );
     Some(Arc::new(cleaner))
@@ -770,11 +774,10 @@ async fn run_forever(
                     handlers::forward_effects(root.epoch.get(), &effects, audio.as_deref(), &emit);
                 }
             }
-            // 2026-09-12（rc.2）：原「Mod 边界 / 外部触发」的 `action_rx` 分支已删除。
-            // 那条路径是**唯一**会把 `RootEvent::Action` 送进 core reducer 的实现，
-            // 而动作在产品路径上不存在（`docs/architecture/core-chain-baseline.md` §3.3）。
-            // core 的 action/performance 子系统仍保留但**无驱动方**——待机生命体征
-            // （`IdleState` 呼吸/眨眼）与动作是两套机制，不受此影响。
+            // 2026-09-12（rc.2）：原「Mod 边界 / 外部触发」的 `action_rx` 分支已删除——
+            // 它是**唯一**会把 `RootEvent::Action` 送进 core reducer 的实现，而动作在
+            // 产品路径上不存在（`core-chain-baseline.md` §3.3）；core 的 action/performance
+            // 子系统仍保留但**无驱动方**（待机生命体征 `IdleState` 是另一套机制）。
             request = say_rx.recv() => match request {
                 Some(request) => {
                     let SayRequest { text, session } = request;
@@ -807,6 +810,8 @@ async fn run_forever(
                         // 哪个线程先跑到读表点是竞态）。
                         f(ModEventTopic::TurnPrompt, &text, session.as_deref());
                     }
+                    // 本轮输入正文先于任何 text_delta 给前端（执行单 2026-10-14 §3）。
+                    handlers::emit_user_line(&emit, epoch, &text);
 
                     // **L1 会话绑定**：本轮 system_prompt 的**唯一**决议点。
                     //
@@ -821,8 +826,7 @@ async fn run_forever(
                     engine.set_system_prompt_override(
                         session_scopes.prompt_for(session.as_deref()),
                     );
-                    // 对话历史按会话换桶。人设槽已经按会话决议；历史此前是
-                    // 进程里的一份，换会话会把上一会话的轮次喂进模型。
+                    // 对话历史按会话换桶（前为进程一份，换会话会串上一会话轮次）。
                     histories.install(&mut engine, session.as_deref());
                     // P1WS-1：开轮前镜像 epoch。Stop 事务推进 epoch 后会再次
                     // 同步写；UserSubmitted 不动 epoch（root 现状保持），但

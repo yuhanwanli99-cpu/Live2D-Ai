@@ -53,13 +53,12 @@ pub(crate) fn handle_engine_event(
     emit: &Emit,
 ) {
     match ev {
-        EngineEvent::TextDelta { text, .. } => {
-            print!("{text}");
-            use std::io::Write as _;
-            let _ = std::io::stdout().flush();
+        EngineEvent::TextDelta { .. } => {
             // **不再在此上屏**（2026-09-10 用户裁决：一句一单元，先完整合成再显示）。
             //
-            // 这里仍是「LLM 正文增量」的原始流，只做控制台回显；
+            // 2026-10-15 执行单 §3：**终端也不再回显**——同一句此前会在点火终端
+            // 出现三遍（原始流 + Melo 切句 + tracing）。这里仍是「LLM 正文增量」
+            // 的原始流；
             // 真正推给 UI/WS 的文字由下面的 `SentenceVoiced` 承载 —— 那一刻该句
             // 语音**已经合成完毕**，于是文字与声音同拍，而不是领先好几秒。
             //
@@ -364,6 +363,18 @@ pub(crate) fn drain_residual_events(rx: &mut mpsc::Receiver<EngineEvent>) {
             break;
         }
     }
+}
+
+/// 广播**本轮输入正文**（2026-10-14 执行单 §3）：`user_line` 帧的唯一发射点。
+///
+/// 调用方是 `run_forever` 的 say 分支，位置必须在该轮 `run_one_turn` **之前**
+/// ——那是本轮 `text_delta`（`SentenceVoiced` 投影）的唯一来源，因此这一帧天然
+/// 先于任何正文帧到达页面。收成函数是为了 `supervisor.rs` 的 1000 行硬上限。
+pub(crate) fn emit_user_line(emit: &Emit, epoch: u64, text: &str) {
+    emit(AppEvent::Conversation(ConversationUiEvent::UserLine {
+        epoch,
+        text: text.to_string(),
+    }));
 }
 
 pub(crate) fn gen_outcome(status: TurnStatus) -> GenerationOutcome {

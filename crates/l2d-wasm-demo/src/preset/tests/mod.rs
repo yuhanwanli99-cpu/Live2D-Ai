@@ -46,15 +46,6 @@ fn param_of(spec: &PresetSpec, id: &str) -> Option<f32> {
     spec.params.iter().find(|(k, _)| *k == id).map(|(_, v)| *v)
 }
 
-/// frame_params 里某一通道的值（不存在 → panic）。
-fn at(spec: &'static PresetSpec, p: f64, want: &str) -> f32 {
-    frame_params(spec, p)
-        .into_iter()
-        .find(|(id, _)| *id == want)
-        .unwrap_or_else(|| panic!("{} 缺 {want}", spec.id))
-        .1
-}
-
 /// 最终下发值（identity 倍率、给定 intensity / progress）。
 fn out(spec: &'static PresetSpec, p: f64, i: f32, want: &str) -> f32 {
     frame_params_scaled_by(spec, p, i, PresetScales::default())
@@ -330,131 +321,11 @@ fn expression_packs_carry_face_and_small_head_body() {
     }
 }
 
-// ─────────────────────────────────────────── 包络 / 波形
-
-#[test]
-fn envelope_is_smooth_and_zero_at_both_ends() {
-    assert_eq!(envelope(0.0), 0.0);
-    assert_eq!(envelope(1.0), 0.0);
-    assert!((envelope(0.5) - 1.0).abs() < 1e-6);
-    assert_eq!(envelope(-5.0), 0.0);
-    assert_eq!(envelope(5.0), 0.0);
-}
-
-#[test]
-fn expression_holds_while_motion_follows_the_envelope() {
-    let smile = preset("smile").unwrap();
-    assert_eq!(
-        frame_params(smile, 0.1),
-        frame_params(smile, 0.9),
-        "表情在两个进度上应当同值"
-    );
-    let nod = preset("nod").unwrap();
-    assert_eq!(nod.kind, PresetKind::Motion);
-    assert_eq!(at(nod, 0.0, "ParamAngleY"), 0.0);
-    assert!(at(nod, 0.5, "ParamAngleY").abs() > 0.0, "中途应有幅值");
-    assert_eq!(at(nod, 1.0, "ParamAngleY"), 0.0, "末尾归零，撤销不跳变");
-}
-
-#[test]
-fn progress_is_clamped_to_one() {
-    let nod = preset("nod").unwrap();
-    assert_eq!(progress_at(0.0, nod.duration_ms), 0.0);
-    assert!((progress_at(nod.duration_ms / 2.0, nod.duration_ms) - 0.5).abs() < 1e-9);
-    assert_eq!(progress_at(nod.duration_ms * 10.0, nod.duration_ms), 1.0);
-    assert_eq!(progress_at(0.0, 0.0), 1.0);
-}
-
-#[test]
-fn motion_gain_falls_back_and_stays_bounded() {
-    let bad = motion_gain(MotionWave::Oscillate { cycles: f64::NAN }, 0.125);
-    let good = motion_gain(
-        MotionWave::Oscillate {
-            cycles: SHAKE_CYCLES,
-        },
-        0.125,
-    );
-    assert!((bad - good).abs() < 1e-6, "NaN cycles 应回落缺省");
-    for k in 0..=100 {
-        let p = k as f64 / 100.0;
-        assert!(motion_gain(MotionWave::Oscillate { cycles: 3.0 }, p).abs() <= 1.0 + 1e-6);
-        assert!(motion_gain(MotionWave::Single, p) >= 0.0);
-    }
-    for k in 0..=20 {
-        let p = k as f64 / 20.0;
-        assert_eq!(motion_gain(MotionWave::Single, p), envelope(p));
-    }
-}
-
-#[test]
-fn shake_oscillates_both_ways_with_body_in_phase() {
-    let shake = preset("shake").unwrap();
-    assert_eq!(shake.kind, PresetKind::Motion);
-    assert!(matches!(shake.wave, MotionWave::Oscillate { .. }));
-    assert_eq!(at(shake, 0.0, "ParamAngleX"), 0.0);
-    assert_eq!(at(shake, 1.0, "ParamAngleX"), 0.0);
-    let mut last_sign = 0i32;
-    let mut changes = 0usize;
-    let mut peak = 0.0f32;
-    for k in 0..40 {
-        let p = (k as f64 + 0.5) / 40.0;
-        let h = at(shake, p, "ParamAngleX");
-        let b = at(shake, p, "ParamBodyAngleX");
-        peak = peak.max(h.abs());
-        if h.abs() > 1e-3 {
-            assert!(h.signum() == b.signum(), "身必须与头同相（p={p}）");
-            let ratio = b.abs() / h.abs();
-            assert!(
-                (0.25..=0.55).contains(&ratio),
-                "身幅应约头的 1/3（实得 {ratio}）"
-            );
-        }
-        let s = if h > 1e-3 {
-            1
-        } else if h < -1e-3 {
-            -1
-        } else {
-            last_sign
-        };
-        if last_sign != 0 && s != last_sign {
-            changes += 1;
-        }
-        last_sign = s;
-    }
-    assert!(changes >= 2, "shake 必须左右变号 >=2 次（实得 {changes}）");
-    // 2026-09-24 重标定：主轴表值 22 → 12，峰值（包络上确界 × 1.0）随之 12。
-    assert!(peak >= 10.0, "摇头峰值要肉眼明显（实得 {peak}）");
-}
-
-#[test]
-fn nod_and_look_carry_body_follow() {
-    let hy = param_of(preset("nod").unwrap(), "ParamAngleY").unwrap();
-    let by = param_of(preset("nod").unwrap(), "ParamBodyAngleY").unwrap();
-    assert!(
-        hy.signum() == by.signum(),
-        "nod 身必须与头同向：{hy} / {by}"
-    );
-    let ratio = (by / hy).abs();
-    assert!(
-        (0.3..=0.5).contains(&ratio),
-        "nod 身幅比 {ratio} 应在 0.3~0.5"
-    );
-
-    for id in ["look_left", "look_right"] {
-        let s = preset(id).unwrap();
-        let hx = param_of(s, "ParamAngleX").unwrap();
-        let hz = param_of(s, "ParamAngleZ").unwrap();
-        let bx = param_of(s, "ParamBodyAngleX").unwrap();
-        let bz = param_of(s, "ParamBodyAngleZ").unwrap();
-        assert!(hx.signum() == bx.signum(), "{id} BodyAngleX 必须与头同向");
-        assert!(hz.signum() == bz.signum(), "{id} BodyAngleZ 必须与头同向");
-        assert!(bx.abs() < hx.abs() && bz.abs() < hz.abs());
-    }
-    assert!(param_of(preset("shake").unwrap(), "ParamBodyAngleX").is_some());
-}
-
 mod assets;
 mod fields;
 mod fields_common;
 mod fields_map_tests;
+mod handoff;
+mod motion;
 mod packs;
+mod release;

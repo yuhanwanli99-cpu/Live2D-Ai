@@ -56,7 +56,6 @@ class _PillHost extends StatelessWidget {
     messages: const <Never>[],
     input: TextEditingController(),
     onSend: () {},
-    onStop: () {},
     onRetryConnection: () {},
     volume: 0.8,
     muted: false,

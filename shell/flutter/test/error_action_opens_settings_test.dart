@@ -128,7 +128,6 @@ class _ErrorHostState extends State<_ErrorHost> {
     messages: const <Never>[],
     input: TextEditingController(),
     onSend: () {},
-    onStop: () {},
     onRetryConnection: () {},
     volume: 0.8,
     muted: false,

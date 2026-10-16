@@ -200,3 +200,147 @@ const String kTurnFailedWithoutDetailMessage =
 /// 已有的 error 帧信息更全，绝不覆盖；只有 failed 而没有收到过 error 帧时才补兜底。
 bool needsFailureFallbackCode({required bool failed, required bool hasError}) =>
     failed && !hasError;
+/// 失败轮的正文兜底（`text_fallback`）到达时，该把它写回**哪一条**气泡。
+///
+/// T1（2026-10-13 执行单）修的是第二条：致命错误（TTS / 解码）的 `error` 帧
+/// 先到 → [mustSettleTurnOnError] 让本轮**就地收口**（`_assistant` 清空）；
+/// 随后引擎补发的整段正文到达时，旧实现走「没有气泡就 append 一条新的」，
+/// 于是**同一轮出现两条助手气泡**（一条占位、一条真正文）。
+enum FallbackTarget {
+  /// 本轮还在飞（当前气泡还挂着）：写回当前气泡（既有行为，逐字不变）。
+  current,
+
+  /// 本轮**已经收口**：写回刚落定的那一条并标「未收尾」，**不**新建。
+  settled,
+
+  /// 没有可写回的气泡（服务端主动开口 / 帧先于 HTTP 响应到达）：新建一条。
+  fresh,
+}
+
+/// `text_fallback` 的落点判据（纯逻辑，VM 可测）。
+///
+/// 显式收 [settledInSession] 而不是让调用方自己判：`settleTurn` 可能把那条
+/// 气泡**换成一条系统行**（无文字收口），那时它已经不在会话里，不能当写回对象。
+FallbackTarget fallbackTarget({
+  required bool hasCurrentAssistant,
+  required bool hasSettledAssistant,
+  required bool settledInSession,
+  required int? frameEpoch,
+  required int? settledEpoch,
+}) {
+  if (hasCurrentAssistant) return FallbackTarget.current;
+  if (hasSettledAssistant &&
+      settledInSession &&
+      frameBelongsToCurrentTurn(
+        frameEpoch: frameEpoch,
+        currentEpoch: settledEpoch,
+      )) {
+    return FallbackTarget.settled;
+  }
+  return FallbackTarget.fresh;
+}
+
+/// 直播弹幕的正文前缀（**全角冒号**；与服务端 / sidecar 用的是同一串）。
+///
+/// `user_line` 的 text 以它开头 = 直播间弹幕（执行单 §2，2026-10-14）：那不是
+/// 操作者在输入框打的那一句，所以进历史时写 **`ChatRole.system`**（标签
+/// 「系统」），不写用户句。
+const String kDanmakuPrefix = '弹幕消息：';
+
+/// `user_line` 帧到达时，前端该做什么（2026-10-14 执行单：五选一）。
+///
+/// 来历：弹幕（external-input Mod）经 sidecar 直接 `POST /api/v1/external/chat`，
+/// **浏览器没有参加那次发送**，所以前端会话存档里缺了那句用户话——主链（LLM /
+/// TTS）已经跑完，历史里却没有对应的用户气泡。服务端在「say 被取到、投递
+/// `TurnPrompt` 的同一处」补广播一帧 `user_line`（必在该轮任何 `text_delta`
+/// 之前），前端据此把这一句写进**当前**会话。
+enum UserLineAction {
+  /// ① 没有一轮在飞：这一句就是新一轮的输入 → 走既有的
+  /// `acceptInjectedUserTurn`（上屏 + 落盘 + 把本轮标成进行中）。
+  ///
+  /// **复用**而不是复制它的逻辑：那条路已经处理了空文本、让位旧轮、灭高亮。
+  acceptInjected,
+
+  /// ② 有一轮在飞，而**上一条用户句就是这一句** → 跳过。
+  ///
+  /// 输入框发送（`send` 先上屏再 POST）与语音（`acceptInjectedUserTurn`）
+  /// 都已经写过这一句；再写一次就是同一句话说两遍。
+  skipDuplicate,
+
+  /// ③ 有一轮在飞，但这是**另一句** → 只追加一条用户气泡并落盘。
+  ///
+  /// **不得** `_abandonTurn`、不得清当前助手气泡、不得把 `_streaming` 弄成
+  /// false：这一句属于**另一个**发起方的一轮，正在飞的那一轮照旧。
+  appendOnly,
+
+  /// ④ **直播弹幕**（正文以 [kDanmakuPrefix] 开头）→ 追加一条
+  /// **`ChatRole.system`** 并落盘（2026-10-14 执行单 §2）。
+  ///
+  /// **不得**调用 `acceptInjectedUserTurn`：那会把弹幕写成操作者说的那一句
+  /// （标签「你」），并把这一轮标成「操作者正在说」。与 [appendOnly] 一样，
+  /// 不得动在飞的那一轮（不 `_abandonTurn`、不清助手气泡）。
+  appendSystem,
+
+  /// ⑤ 空文本（或纯空白 / 缺字段）：不写。
+  ignoreEmpty,
+}
+
+/// `user_line` 的判据（纯逻辑，零 Flutter / 零 `package:web`）。
+///
+/// 显式收 `turnInFlight` / `text` / `lastUserText` / `lastMessageText`
+/// 而不是读控制器状态：`chat_controller.dart` 经 `ws_client.dart` 依赖
+/// `package:web`，它里面的分支在 `flutter test` 里跑不到——这些分支「错了就
+/// 静默坏掉」（漏掉一句弹幕、把弹幕写成操作者的话、把在飞那轮作废），恰恰最该
+/// 有回归。
+///
+/// 相等按 `trim()` 判：输入框与语音上屏的都是 trim 过的正文，服务端发回的是
+/// 同一轮的原文——只差首尾空白时仍是同一句。
+UserLineAction userLineAction({
+  required bool turnInFlight,
+  required String? text,
+  required String? lastUserText,
+  required String? lastMessageText,
+}) {
+  final String body = (text ?? '').trim();
+  if (body.isEmpty) return UserLineAction.ignoreEmpty;
+  // **弹幕优先**，且与在不在飞无关：弹幕不是操作者说的那一句，所以它既不占用
+  // 那一轮、也不被拿去和「上一条用户句」比。只按「同一句是不是已经排在最后」
+  // 去重（[lastMessageText] 是当前会话最后一条的正文）。
+  if (body.startsWith(kDanmakuPrefix)) {
+    if (lastMessageText != null && lastMessageText.trim() == body) {
+      return UserLineAction.skipDuplicate;
+    }
+    return UserLineAction.appendSystem;
+  }
+  if (!turnInFlight) return UserLineAction.acceptInjected;
+  if (lastUserText != null && lastUserText.trim() == body) {
+    return UserLineAction.skipDuplicate;
+  }
+  return UserLineAction.appendOnly;
+}
+
+/// [acceptInjectedUserTurn] 进来时：这一句是否**已经在飞的那一轮里上屏过**。
+///
+/// # 现场（2026-10-14，语音把同一句写进历史两遍）
+///
+/// 语音在 `shell_lifecycle_wiring.dart` 里要**等 `/voice/transcript` 的 HTTP
+/// 返回**才调用 `acceptInjectedUserTurn`；而服务端 `say()` 只是入队，
+/// `user_line` 由另一个线程发出——浏览器完全可能**先**收到那一帧。那时还没有
+/// 一轮在飞，控制器先写一条用户气泡并把 `_streaming` 置真；HTTP 回来后再进来，
+/// 若照旧 `_abandonTurn()` + append，同一句话就进了历史两遍，而且在飞的那一轮
+/// 被就地作废。
+///
+/// 判「跳过」**必须**同时满足两条：这一轮已经在飞（[streaming]），且上一条
+/// 用户句就是这句（`trim()` 后逐字相同，与输入框 / 语音上屏前的裁剪一致）。
+///
+/// 不在飞时**即使正文与上一条相同也不跳**：那是用户把同一句又说了一遍，
+/// 历史里必须有第二句。
+bool isDuplicateInjectedUserLine({
+  required bool streaming,
+  required String text,
+  required String? lastUserText,
+}) {
+  if (!streaming) return false;
+  return lastUserText != null && lastUserText.trim() == text.trim();
+}
+

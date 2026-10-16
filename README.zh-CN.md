@@ -1,6 +1,6 @@
 # Live2D-Ai
 
-**v0.2.5-rc.1** — 通用、最小的 **Live2D 形象 ↔ AI 对话** 接入平台。
+**v0.2.6-rc.1** — 通用、最小的 **Live2D 形象 ↔ AI 对话** 接入平台。
 
 Live2D-Ai 只打磨一条核心链路，其余能力放在 Mod 边界之后：
 
@@ -79,8 +79,9 @@ cp live2d-ai.toml.example live2d-ai.toml   # OpenAI 兼容 LLM/TTS
 
 `flutter` 是 `~/flutter` 里的 Flutter SDK（`scripts/ignite.sh` 会把 `$HOME/flutter/bin` 放进 `PATH`）。
 `./scripts/ignite.sh --build` 编的是**调试版后端**并启动；`shell/flutter/build/web/index.html`
-已存在时**不会重编 Flutter**，所以第一行必须先跑。最后一行会 `exec` 进服务、不退出——
-另开终端跑 `./scripts/ignite.sh --check`，浏览器打开 <http://127.0.0.1:18080/app/>。
+已存在时**不会重编 Flutter**，所以第一行必须先跑。脚本会**等全部就绪**——本机 TTS 等到
+`GET {tts}/models` 返回 200、云端或未配置 TTS 等到 `GET /app/` 返回 200——之后才打印地址，
+并用默认浏览器打开；脚本不退出，体检另开终端跑 `./scripts/ignite.sh --check`。
 
 出厂带白（bai）模型，克隆后即可渲染——资产说明见 [`assets/models/README.md`](assets/models/README.md)，
 条约见 [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md)
@@ -107,7 +108,7 @@ cp live2d-ai.toml.example live2d-ai.toml   # OpenAI 兼容 LLM/TTS
 
 `flutter` 是 `~/flutter` 里的 SDK。`./scripts/ignite.sh --build` 编的是**调试版后端**并启动；
 `shell/flutter/build/web/index.html` 已存在时**不会重编 Flutter**——所以第一行必须先跑。
-最后一行 `exec` 进服务、不退出；另开终端做点火体检：
+脚本**等全部就绪**后打印地址并打开默认浏览器；另开终端做点火体检：
 
 ```bash
 ./scripts/ignite.sh --check    # 对**已启动**的服务做点火体检

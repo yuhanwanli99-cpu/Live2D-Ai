@@ -97,6 +97,8 @@ mod engine;
 mod error_code;
 mod events;
 mod queue;
+/// 单句失败续走 / 碎片句的**纯判定**（2026-10-15 执行单 §2 / §3），`worker` 只调用。
+mod speakable;
 mod worker;
 
 pub use engine::ConversationEngine;
@@ -368,9 +370,13 @@ pub enum EngineEvent {
 ///
 /// - [`ErrorKind::Llm`] 不阻断**已生成**内容：已完整切句并入队的句子仍会被
 ///   TTS worker 排空播放；
-/// - [`ErrorKind::Tts`] / [`ErrorKind::Decode`] / [`ErrorKind::Backpressure`]
-///   是生成侧致命错误：立即停止生成，未合成的排队句子被丢弃，发完 `Error`
-///   后以 `Terminal { Failed }` 收场。
+/// - [`ErrorKind::Tts`] / [`ErrorKind::Decode`] **按变体分流**（2026-10-15 执行单）：
+///   `Status` / `Http` / `TruncatedPcm` / `UnsupportedFormat` / `InvalidAudioConfig`
+///   只影响**这一句**（走静音句，worker 不退出、后文继续，轮次不以 `Failed` 收尾）；
+///   `InvalidBaseUrl` / `Sse` / `Json` 仍是生成侧致命错误（发完 `Error` 后
+///   `Terminal { Failed }`）——判定真源见 [`speakable::sentence_error_is_recoverable`]；
+/// - [`ErrorKind::Backpressure`] 仍是生成侧致命错误：立即停止生成，未合成的排队
+///   句子被丢弃，发完 `Error` 后以 `Terminal { Failed }` 收场。
 ///
 /// 2026-09-11 用户裁决后，`IncompleteTools`（残缺工具调用）变体已随工具一起
 /// 删除——不再存在「工具调用」这条可恢复错误路径。
@@ -496,6 +502,64 @@ mod tests {
         let engine = ConversationEngine::new(client, ConversationConfig::new(""));
         let messages = engine.build_messages("hi");
         assert_eq!(messages, vec![crate::llm::ChatMessage::user("hi")]);
+    }
+
+    /// **弹幕解说**（2026-10-14 执行单 §3）：只有 `弹幕消息：` 开头的本轮才多
+    /// 带一句系统说明；正文逐字不改（也是**历史里那一句**，不再加用户名/括号）。
+    ///
+    /// 三条判据：① 出厂空人设 → 这一轮**只有**这一句 system；② 已生效的人设 →
+    /// 解说接在**它后面**而不是取代它；③ 正文中段出现同样字样不算弹幕。
+    #[test]
+    fn danmaku_preface_only_for_prefixed_turn_and_keeps_user_content() {
+        let client = OpenAiClient::new(
+            LlmConfig::new("http://a/v1", "m"),
+            TtsConfig::new("http://b/v1", "v"),
+        )
+        .expect("client");
+        let engine = ConversationEngine::new(client, ConversationConfig::new(""));
+        assert_eq!(
+            engine.build_messages("弹幕消息：你好"),
+            vec![
+                crate::llm::ChatMessage::system(super::engine::DANMAKU_PREFACE),
+                crate::llm::ChatMessage::user("弹幕消息：你好"),
+            ],
+            "出厂空人设：这一轮只有弹幕解说这一句 system，正文原样"
+        );
+
+        let client = OpenAiClient::new(
+            LlmConfig::new("http://a/v1", "m"),
+            TtsConfig::new("http://b/v1", "v"),
+        )
+        .expect("client");
+        let engine = ConversationEngine::new(
+            client,
+            ConversationConfig {
+                system_prompt: "人设".into(),
+                ..ConversationConfig::default()
+            },
+        );
+        let messages = engine.build_messages("弹幕消息：你好");
+        assert_eq!(
+            messages[0],
+            crate::llm::ChatMessage::system(format!("人设\n{}", super::engine::DANMAKU_PREFACE)),
+            "有已生效人设时：解说接在它后面，不覆盖"
+        );
+        assert_eq!(
+            messages.last(),
+            Some(&crate::llm::ChatMessage::user("弹幕消息：你好"))
+        );
+
+        let client = OpenAiClient::new(
+            LlmConfig::new("http://a/v1", "m"),
+            TtsConfig::new("http://b/v1", "v"),
+        )
+        .expect("client");
+        let engine = ConversationEngine::new(client, ConversationConfig::new(""));
+        assert_eq!(
+            engine.build_messages("你好，弹幕消息：不是开头"),
+            vec![crate::llm::ChatMessage::user("你好，弹幕消息：不是开头")],
+            "只看开头：中段出现同样字样不加解说"
+        );
     }
 
     #[test]

@@ -246,6 +246,24 @@ pub enum ConversationUiEvent {
         /// 按句 cue（已校验 / 钳位）。
         cues: Vec<live2d_ai_runtime::performance::PerformanceCue>,
     },
+    /// **本轮输入正文**（用户那一句原文，2026-10-14）：web 路径投影为
+    /// `user_line` 帧。
+    ///
+    /// 为什么要这一帧：外部注入（弹幕 sidecar 直连
+    /// `POST /api/v1/external/chat`）时**浏览器没参加这次发送**，前端只有助手侧
+    /// 的 `text_delta` 可收——历史里于是缺了用户那一句（语音路径靠前端在
+    /// `ok:true` 后自己 `acceptInjectedUserTurn` 补，外部注入没有这个回调）。
+    /// 本事件把**喂给模型的那一句**原样告诉页面，前端据此补上用户气泡并存档。
+    ///
+    /// 与 [`Self::TextDelta`] 的分工：本事件是**用户侧**输入，发点在 supervisor
+    /// 的 say 分支、**必须先于该轮任何 `TextDelta`**；`TextDelta` 是助手侧正文、
+    /// 按句随音频上屏。空文本仍会照发，前端对空文本不写（见执行单 §4）。
+    UserLine {
+        /// 所属业务代次（与同轮 `TextDelta` 的 epoch 相同）。
+        epoch: u64,
+        /// 本轮输入正文（与喂给模型的那一句逐字相同）。
+        text: String,
+    },
 }
 
 #[cfg(test)]

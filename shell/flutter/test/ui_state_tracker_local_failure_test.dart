@@ -8,11 +8,13 @@
 /// `consume(TurnState)` / `markStopped`）**一个都不会被调用**，因为这三条本地
 /// 失败路径后端**不广播任何 WS 帧**（已实读 `chat_routes.rs`）。结果是：
 /// - 状态胶囊**永久**停在「思考中」；
-/// - 发送键**永久**变「停止本轮」。
+/// - 圆键曾被**界面相位**卡成「停止本轮」——现在的圆键只看宿主的三条队列
+///   （`canStopPlayback`），**不读相位**，所以相位卡死不会再把它卡成停止。
 ///
 /// 断言刻意落在**真对象**上（真 tracker 派生相位 + 真泵 `StatePill` 与真
-/// `ChatPanel`），并且断言**具体状态**（「思考中」不再出现、「空闲」出现、
-/// 按钮 tooltip 从「停止本轮」变回「发送（Enter）」）——不做源码字符串扫描。
+/// `ChatPanel`），并且断言**具体状态**（「思考中」不再出现、「空闲」出现；
+/// 状态胶囊从「正在回复」回到「空闲」，圆键在两种相位下都是「发送（Enter）」）
+/// ——不做源码字符串扫描。
 ///
 /// 与「真 `ChatController`」的关系（诚实说明）：`ChatController` 经
 /// `audio_player.dart` 传递依赖 `dart:js_interop`/`package:web`，**VM 的
@@ -40,8 +42,9 @@ Widget _wrap(Widget child) =>
 Future<void> _pumpShell(
   WidgetTester tester,
   UiStateTracker tracker,
-  TextEditingController input,
-) async {
+  TextEditingController input, {
+  bool canStopPlayback = false,
+}) async {
   await tester.pumpWidget(
     _wrap(
       ListenableBuilder(
@@ -55,7 +58,7 @@ Future<void> _pumpShell(
                 phase: tracker.phase,
                 input: input,
                 onSend: () {},
-                onStop: () {},
+                canStopPlayback: canStopPlayback,
                 onDismissError: () {},
                 volume: 1,
                 muted: false,
@@ -72,7 +75,7 @@ Future<void> _pumpShell(
 
 void main() {
   group('本地发送失败 ⇒ 相位回落（真 tracker + 真泵）', () {
-    testWidgets('状态胶囊离开「思考中」、发送键离开「停止本轮」', (WidgetTester tester) async {
+    testWidgets('状态胶囊离开「思考中」，圆键始终是发送', (WidgetTester tester) async {
       final UiStateTracker tracker = UiStateTracker();
       addTearDown(tracker.dispose);
       final TextEditingController input = TextEditingController();
@@ -87,8 +90,10 @@ void main() {
       expect(tracker.phase, UiPhase.thinking);
       // 2026-10-08：相位标签从「思考中」改成「正在回复」（它不是思考开关）。
       expect(find.text('正在回复'), findsOneWidget);
-      expect(find.byTooltip('停止本轮'), findsOneWidget);
-      expect(find.byTooltip('发送（Enter）'), findsNothing);
+      // 圆键**不读相位**：这里 canStopPlayback 缺省 false，所以即使相位是
+      // thinking，它也必须是发送——相位卡死不可能再把它卡成停止。
+      expect(find.byTooltip('发送（Enter）'), findsOneWidget);
+      expect(find.byTooltip('停止'), findsNothing);
 
       // ② 本地失败（`shell_chat._send` 在 await 之后按 `sendFailedLocally` 调）。
       tracker.markTurnFailed();
@@ -102,9 +107,9 @@ void main() {
       expect(find.text('正在回复'), findsNothing);
       expect(find.text('空闲'), findsOneWidget);
       expect(
-        find.byTooltip('停止本轮'),
+        find.byTooltip('停止'),
         findsNothing,
-        reason: '修复前发送键永久变「停止本轮」，用户按了也只能打断一个没开始的轮次',
+        reason: '圆键只读 canStopPlayback：没有可停内容时永远是发送',
       );
       expect(find.byTooltip('发送（Enter）'), findsOneWidget);
     });

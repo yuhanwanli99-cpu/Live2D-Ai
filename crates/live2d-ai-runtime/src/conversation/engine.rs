@@ -27,6 +27,22 @@ use crate::dialogue::{DialogueAssembler, DialogueEvent, SentenceAssembler};
 use crate::llm::{ChatMessage, LlmEvent};
 use crate::performance::PerformanceRuntime;
 
+/// 直播间弹幕的前缀（2026-10-14 执行单 §3）：弹幕经外部端点注入时正文以此开头。
+pub(super) const DANMAKU_PREFIX: &str = "弹幕消息：";
+
+/// 弹幕解说句（执行单 §0 原文，**逐字固定**、不加性格、不进任何配置）。
+pub(super) const DANMAKU_PREFACE: &str =
+    "以「弹幕消息：」开头的内容是直播间弹幕，不是操作者本人说的话。";
+
+/// 本轮是否要带弹幕解说（纯函数，便于单测）。
+///
+/// 只看**开头**：正文中段出现同样的字样不算（那还是操作者自己说的话）。
+pub(super) fn danmaku_preface_for(user_text: &str) -> Option<&'static str> {
+    user_text
+        .starts_with(DANMAKU_PREFIX)
+        .then_some(DANMAKU_PREFACE)
+}
+
 /// 最小异步对话引擎：持有客户端、配置与历史记忆。
 ///
 /// 构造成本低；`run_turn(&mut self, …)` 在单任务内天然互斥，跨任务共享由
@@ -184,11 +200,21 @@ impl ConversationEngine {
     }
 
     /// 组装本轮消息：[system?] + 历史 + 当前输入。
+    ///
+    /// **弹幕解说（2026-10-14 执行单 §3）**：本轮正文以 `弹幕消息：` 开头时，
+    /// 把一句固定说明接在**已生效**的 system prompt 后面（没有 system 消息时，
+    /// 这一轮就只有这一句）。它只在本轮请求里生效——不写 `live2d-ai.toml`、
+    /// 不写 persona / memory 的槽；普通对话一行不加。
     pub(super) fn build_messages(&self, user_text: &str) -> Vec<ChatMessage> {
         let mut out = Vec::with_capacity(2 * self.history.len() + 2);
-        let system = self.effective_system_prompt();
+        let base = self.effective_system_prompt();
+        let system = match danmaku_preface_for(user_text) {
+            None => base.to_string(),
+            Some(preface) if base.is_empty() => preface.to_string(),
+            Some(preface) => format!("{base}\n{preface}"),
+        };
         if !system.is_empty() {
-            out.push(ChatMessage::system(system.to_string()));
+            out.push(ChatMessage::system(system));
         }
         for (user, assistant) in &self.history {
             out.push(ChatMessage::user(user.clone()));
@@ -689,7 +715,8 @@ impl ConversationEngine {
 
 /// 一句原文 → **两份文本 + 这一句的 cue**（`(display, speech, cues)`）；`None` = 期间被取消。
 ///
-/// `cues` 只在动作门（`motion`）开着时非空：模型给了 `cues` 就用模型的（可空 = 这一句不动），
+/// `cues` 只在动作门（`motion`）开着时非空：模型给了 `cues` 就用模型的（可空 = 这一句不动；
+/// **只有「主动」档**例外，空数组且规则表有动作时改用规则表——2026-10-13 执行单 T3），
 /// 模型失败 / 未解析才回退 [`rule`]（**实参只能是这一句一路原文**）。
 ///
 /// 三条口径（2026-10-08，见 `crate::cleaning` 与 `conversation/mod.rs` 的契约）：
@@ -726,8 +753,21 @@ async fn sentence_texts(
         cleaned = cleaner.clean(raw) => cleaned,
     };
     // 成功解析（含空 `cues` = 这一句不动）用模型 cues；失败 / 未解析才回退规则。
+    // 2026-10-13 执行单 T3：**只有「主动」档**的空数组例外——模型交回空数组、
+    // 且表演倾向允许空数组回退（`empty_cues_fall_back`）时，改用已有的按句
+    // 规则表（实参仍是这一句一路原文）。克制 / 平常的空数组仍是成功、不回退。
     let cues = if motion {
         match &cleaned.cue_ids {
+            Some(ids) if ids.is_empty() && cleaner.empty_cues_fall_back() => {
+                let cues = fallback(raw);
+                tracing::info!(
+                    target: "cleaning",
+                    sentence_seq,
+                    cues = cues.len(),
+                    "主动档：模型交回空数组，本句改用规则表"
+                );
+                cues
+            }
             Some(ids) => crate::cleaning::cues_from_ids(ids, sentence_seq),
             None => fallback(raw),
         }

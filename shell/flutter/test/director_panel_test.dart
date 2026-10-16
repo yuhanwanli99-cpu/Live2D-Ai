@@ -16,7 +16,7 @@ import 'package:live2d_ai_shell/settings/mods/mod_panel.dart';
 import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
-/// 与 Rust `director_settings_spec()` **逐键逐 label 对应**的 8 个字段。
+/// 与 Rust `director_settings_spec()` **逐键逐 label 对应**的 9 个字段。
 ModSettingsSpec directorSpec() => const ModSettingsSpec(
   modId: 'director',
   title: '导演',
@@ -30,6 +30,17 @@ ModSettingsSpec directorSpec() => const ModSettingsSpec(
       options: <ModSelectOption>[
         ModSelectOption(value: 'none', label: '不投递'),
         ModSelectOption(value: 'smile', label: '微笑'),
+      ],
+    ),
+    ModSettingField(
+      kind: ModFieldKind.select,
+      key: 'motion_bias',
+      label: '表演倾向（保存并重载后生效）',
+      defaultValue: 'normal',
+      options: <ModSelectOption>[
+        ModSelectOption(value: 'restrained', label: '克制'),
+        ModSelectOption(value: 'normal', label: '平常'),
+        ModSelectOption(value: 'eager', label: '主动'),
       ],
     ),
     ModSettingField(
@@ -204,8 +215,11 @@ void main() {
 
       // 一句话在。
       expect(find.text(kDirectorTakeoverNotice), findsOneWidget);
-      // 8 个 label 一个都不在（含「高级」折叠——它整块不该出现）。
+      // 表演倾向（2026-10-13）：唯一在产品面渲染的配置键，由通用表单画。
+      expect(find.text('表演倾向（保存并重载后生效）'), findsOneWidget);
+      // 其余 8 个 label 一个都不在（含「高级」折叠——它整块不该出现）。
       for (final ModSettingField f in directorSpec().fields) {
+        if (f.key == 'motion_bias') continue;
         expect(find.text(f.label), findsNothing, reason: '${f.key} 不得上屏');
       }
       expect(find.text('高级'), findsNothing);
@@ -215,6 +229,61 @@ void main() {
       expect(find.byType(Switch), findsOneWidget);
       // 通用运行态兜底块不渲染（有专用面板）。
       expect(find.text('运行态（只读）'), findsNothing);
+    });
+
+    testWidgets('真泵 ModsSection：表演倾向下拉可选（缺省平常）', (WidgetTester tester) async {
+      final ModInfo mod = ModInfo(
+        id: 'director',
+        name: '导演',
+        version: '0.1.0',
+        apiVersion: 1,
+        enabled: true,
+        status: 'running',
+        config: const <String, Object?>{},
+        settingsSpec: directorSpec(),
+      );
+      Map<String, Object?>? saved;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ModsSection(
+                mods: <ModInfo>[mod],
+                loading: false,
+                onLoadState: (String id) async =>
+                    ModStateResult(id: id, enabled: true, state: const <String, Object?>{}),
+                onSaveConfig: (String id, Map<String, Object?> config) async {
+                  saved = config;
+                  return const ModConfigResult(ok: true);
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('导演'));
+      await tester.pumpAndSettle();
+
+      // 缺省值 = 平常（spec default normal；config 里没写这个键）。
+      expect(find.text('表演倾向（保存并重载后生效）'), findsOneWidget);
+      expect(find.text('平常'), findsOneWidget);
+      // 三档选项都在（点开下拉可见）。
+      await tester.tap(find.text('平常'));
+      await tester.pumpAndSettle();
+      expect(find.text('克制'), findsOneWidget);
+      expect(find.text('主动'), findsOneWidget);
+      // 选中主动并保存：值进保存载荷。
+      await tester.tap(find.text('主动'));
+      await tester.pumpAndSettle();
+      // 保存按钮在展开表单的最下面，800x600 的视口里通常在折叠线以下。
+      final Finder save = find.text('保存并应用');
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      expect(saved, isNotNull);
+      expect(saved!['motion_bias'], 'eager');
     });
   });
 
@@ -230,6 +299,74 @@ void main() {
       expect(directorNumberText(1), '1');
       expect(directorNumberText(1.2), '1.20');
       expect(directorNumberText(null), '—');
+    });
+  });
+
+  group('⑤ T2（2026-10-13）：底部「保存并重载」能一起提交未提交的表单配置', () {
+    testWidgets('改了表演倾向但没按卡片保存 → submitPending 写进 mods.json', (
+      WidgetTester tester,
+    ) async {
+      final ModInfo mod = ModInfo(
+        id: 'director',
+        name: '导演',
+        version: '0.1.0',
+        apiVersion: 1,
+        enabled: true,
+        status: 'running',
+        config: const <String, Object?>{},
+        settingsSpec: directorSpec(),
+      );
+      Map<String, Object?>? saved;
+      final ModConfigDrafts drafts = ModConfigDrafts();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ModsSection(
+                mods: <ModInfo>[mod],
+                loading: false,
+                drafts: drafts,
+                onLoadState: (String id) async => ModStateResult(
+                  id: id,
+                  enabled: true,
+                  state: const <String, Object?>{},
+                ),
+                onSaveConfig: (String id, Map<String, Object?> config) async {
+                  saved = config;
+                  return const ModConfigResult(ok: true);
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('导演'));
+      await tester.pumpAndSettle();
+
+      // 还没改：没有未提交草稿（底部「保存并重载」不因它出现）。
+      expect(drafts.hasPending, isFalse);
+
+      // 改档位，但**不按**卡片上的「保存并应用」——模拟用户直接去按底部那颗。
+      await tester.tap(find.text('平常'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('主动'));
+      await tester.pumpAndSettle();
+      expect(drafts.hasPending, isTrue, reason: '改过档位 = 有未提交的 Mod 草稿');
+      expect(saved, isNull, reason: '还没提交，磁盘上不该有改动');
+
+      // 底部「保存并重载」的第 0 步（见 shell_settings._saveAll）。
+      final List<String> failed = await drafts.submitPending();
+      await tester.pumpAndSettle();
+
+      expect(failed, isEmpty, reason: '提交必须成功');
+      expect(saved, isNotNull, reason: '必须真的走了一次配置保存');
+      expect(
+        saved!['motion_bias'],
+        'eager',
+        reason: '导演表单里未提交的 motion_bias 必须一起写进 mods.json',
+      );
+      expect(drafts.hasPending, isFalse, reason: '提交成功后草稿清空');
     });
   });
 }

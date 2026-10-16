@@ -298,6 +298,12 @@ fn preset_select_labels_come_from_the_shared_table() {
     let table = crate::preset_label_map();
     let mut checked = 0usize;
     for field in &spec.fields {
+        // `motion_bias`（2026-10-13）不是**预设 id** 的表：三档是
+        // restrained / normal / eager，中文名锁在 motion_bias.rs 自己的测试里
+        // （motion_bias_setting_field_shape）。本测试的口径只覆盖预设 Select。
+        if field.key() == "motion_bias" {
+            continue;
+        }
         let ModSettingField::Select { options, .. } = field else {
             continue;
         };
@@ -325,6 +331,9 @@ fn preset_select_labels_come_from_the_shared_table() {
 /// 不再渲染它们**：2026-10-08 起 `DirectorPanel.hiddenKeys` 声明这 8 个 key
 /// 「产品面不渲染、也不收进高级」。
 ///
+/// 2026-10-13（执行单 T2）：第 9 个键 `motion_bias`（表演倾向）**是要渲染的**——
+/// 它不在 `hiddenKeys` 里，由通用表单画（label = 表演倾向（保存并重载后生效））。
+///
 /// 「产品卡片上找不到这些字符串」那条断言在 Flutter 侧（Rust 看不到界面）：
 /// `shell/flutter/test/performance_layer_copy_test.dart` 真泵 ModsSection 并断言
 /// 8 个 label 一个都不上屏。这里继续钉 **spec 本身**（键集合 + 预设选项表），
@@ -348,8 +357,10 @@ fn settings_spec_has_no_enabled_and_matches_static_spec() {
             "staging_model",
             "staging_api_key_env",
             "staging_timeout_ms",
+            // 2026-10-13（执行单 T2/T3）：表演倾向是**产品面唯一渲染**的键。
+            "motion_bias",
         ],
-        "3 个常用档 + 5 个二路键"
+        "3 个常用档 + 5 个二路键 + 表演倾向"
     );
     assert!(
         !keys.contains(&"enabled"),
@@ -397,6 +408,9 @@ fn settings_spec_has_no_enabled_and_matches_static_spec() {
     let defaults: Vec<&str> = spec
         .fields
         .iter()
+        // `motion_bias` 是**表演倾向**（三档、缺省 normal），不是预设映射表的键
+        // （2026-10-13 执行单 T2/T3）：它的缺省由 motion_bias 自己的测试钉住。
+        .filter(|f| f.key() != "motion_bias")
         .filter_map(|f| match f {
             ModSettingField::Select {
                 default: Some(d), ..

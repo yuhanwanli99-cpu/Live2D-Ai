@@ -39,8 +39,8 @@ pub const MAX_SCALE: f32 = 2.2;
 // 因此**不可能**要求「两个旋钮同时拉满也不触上限」：那要求
 // `表值 ≤ 上限 / (3 × 2.2) ≈ 4`，默认摆幅会小到看不见。
 // 本表的验收口径是**每个旋钮独立走满都不触上限**（留 5% 余量）：
-//   ① 出厂组合（峰值系数：Single = 1.0；Oscillate 取 |包络 × 波形| 的数值上确界，
-//      shake(cycles=2) = 0.9285，由回归实测）：
+//   ① 出厂组合（峰值系数 = |起落曲线 × 波形| 的数值上确界（2026-10-14 前是正弦包络），
+//      shake(cycles=2) 实测 1.0（2026-10-14 起曲线有保持段；旧 sin(pi*p) 时代 0.9285））：
 //      `|表值 × 峰值 × 出厂倍率| ≤ 上限 × 0.60`
 //   ② scale 旋钮走满：`|表值 × 峰值 × MAX_SCALE| ≤ 上限 × 0.95`
 //   ③ intensity 旋钮走满（方案 (i)：下调表值）：
@@ -48,8 +48,9 @@ pub const MAX_SCALE: f32 = 2.2;
 //      （morph 包 intensity=3 取 high 极、不乘 3；这里一律乘 3 是**保守**口径。）
 //
 // 峰值在手势主轴上给出的**死区起点**（= 上限 × 0.95 / (表值 × 峰值)，再拖就钳死）：
-//   head 主轴 `ParamAngleX/Y/Z` = 12.0 → 2.375（Single：nod / look_* / tilt_*）/ 2.558（shake，含 0.9285）
-//   body 主轴 `ParamBodyAngleX/Y/Z` = 3.9 → 2.436（Single）/ 2.623（shake）
+//   2026-10-14 起全部手势峰值系数 = 1.0，shake 与 Single 的死区起点因此一致：
+//   head 主轴 `ParamAngleX/Y/Z` = 12.0 → 2.375（nod / shake / look_* / tilt_*）
+//   body 主轴 `ParamBodyAngleX/Y/Z` = 3.9 → 2.436（同上）
 //   五官 `ParamEyeLOpen/ROpen`（surprised）= 1.26 → 3.016
 //   T9：look_up / look_down 主轴同为 12.0 / 3.9（死区同上）；thinking 的
 //   `ParamAngleZ` = 6 → 4.75、`ParamBodyAngleZ` = 2 → 4.75、五官最大 0.55 → 6.909。
@@ -62,10 +63,10 @@ pub const MAX_SCALE: f32 = 2.2;
 // 会钳位的组合（回归 `both_knobs_at_max_clamp_only_the_documented_combinations` 钉住）：
 //   | 包 | 通道 | 拉满需要 | 上限 |
 //   | --- | --- | --- | --- |
-//   | shake（主轴 ×0.9285） | ParamAngleX | 73.5 | 30 |
+//   | shake（主轴 ×1.0） | ParamAngleX | 79.2 | 30 |
 //   | nod（主轴 ×1.0，Single） | ParamAngleY | 79.2 | 30 |
 //   | look_left/right / tilt_left/right（主轴 ×1.0） | ParamAngleX / ParamAngleZ | 79.2 | 30 |
-//   | 同上四条主轴的身侧 | ParamBodyAngleX / ParamBodyAngleZ | 23.9(shake) / 25.7 | 10 |
+//   | 同上四条主轴的身侧 | ParamBodyAngleX / ParamBodyAngleZ | 25.74 | 10 |
 //   | smile | ParamMouthForm / ParamEyeLSmile / ParamEyeRSmile | 6.6 | 4 |
 //   | smile | ParamAngleY / ParamBodyAngleY | 39.6 / 13.2 | 30 / 10 |
 //   | surprised | ParamEyeLOpen / ParamEyeROpen / ParamBrowLY / ParamBrowRY | 8.316 / 5.28 | 4 |
@@ -198,16 +199,22 @@ pub fn clamp_scale(value: f32) -> f32 {
     value.clamp(MIN_SCALE, MAX_SCALE)
 }
 
-/// 最终下发：基准值（普通包 × intensity / morph 包插值）× 包络 × 通道倍率，再钳通道红线。
+/// 最终下发：基准值（普通包 × intensity / morph 包插值）× 起落 / 波形增益 × 通道倍率，
+/// 再钳通道红线。
+///
+/// 增益**逐通道**算：手势的身体通道走滞后进度（见 `motion_curve::body_progress`），
+/// 头与其它通道走本帧 `p`。
 pub fn frame_params_scaled_by(
     spec: &PresetSpec,
     progress: f64,
     intensity: f32,
     scales: PresetScales,
 ) -> Vec<(&'static str, f32)> {
-    let gain = pack_gain(spec.kind, spec.wave, progress);
     base_params_for_intensity(spec, intensity)
         .into_iter()
-        .map(|(id, v)| (id, clamp_to_channel(id, v * gain * scales.for_param(id))))
+        .map(|(id, v)| {
+            let gain = pack_gain(spec.kind, spec.wave, progress, id);
+            (id, clamp_to_channel(id, v * gain * scales.for_param(id)))
+        })
         .collect()
 }

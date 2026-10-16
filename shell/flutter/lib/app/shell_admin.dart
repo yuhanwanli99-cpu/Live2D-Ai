@@ -41,6 +41,9 @@ extension _ShellAdminWiring on _ShellRootState {
     final PresetLabelTable table = await fetchPresetLabels();
     if (!mounted || table.length == 0) return;
     _presetLabels = table;
+    // T3（2026-10-13 执行单）：B 栏的 action_cue 行把 preset_id 显示成这张表的
+    // zh（旁边保留 id）。注入的是 table.display —— 没有中文名时它自己回 id。
+    DirectorObserverFeed.instance.presetLabel = table.display;
     _refresh();
   }
 

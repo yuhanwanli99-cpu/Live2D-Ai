@@ -259,6 +259,22 @@ pub fn handle_mods_route(
         drop(registry);
         match reload_result {
             Ok(()) => {
+                // **T2（2026-10-13 执行单）：配置落盘成功后热重载 supervisor**。
+                //
+                // 为什么必须有这一句：按句清洗器（含导演的 motion_bias）**只在
+                // supervisor 重载时**重读一次 mods.json（见
+                // supervisor/performance_wiring.rs 的 from_manifest 与
+                // supervisor.rs 的 build_sentence_cleaner）。从前这里只重启
+                // 导演 Mod，清洗器一直用旧档——用户改了「表演倾向」、卡片也回了
+                // 202，行为却不变。重载是**热重载**：不重启进程，本地 TTS 子进程
+                // 也不受影响（reload 只重建配置与 client）。
+                // request_reload() 在槽位为空时是安全的 no-op（纯控制平面场景）。
+                ctx.request_reload();
+                tracing::info!(
+                    target: "mod",
+                    mod_id = id,
+                    "Mod 配置已落盘，已触发 supervisor 热重载（按句清洗器重建）"
+                );
                 if enabled {
                     // 配置已落内存 + 落盘；restart 交后台，立刻回执。
                     spawn_mod_op(ctx, id_static, ModOp::Restart);

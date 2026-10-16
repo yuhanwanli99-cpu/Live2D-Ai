@@ -83,6 +83,14 @@ class DirectorObserverFeed extends ChangeNotifier {
   /// 可注入时钟（测试不关心绝对时刻；缺省即本机时钟）。
   DateTime Function() clock = DateTime.now;
 
+  /// 预设 id → 展示名（T3，2026-10-13 执行单）：`action_cue` 那一行把
+  /// `preset_id` 显示成 `preset_labels.json` 的 `zh`，旁边保留 id。
+  ///
+  /// 由宿主注入（`shell_admin._loadPresetLabels` 拿到表之后设成
+  /// `table.display`）；没注入 / 该 id 没中文名 = 只显示 id——**不在这里
+  /// 硬编码第二套译名**。
+  String Function(String id)? presetLabel;
+
   List<PresetRequest> get requests =>
       List<PresetRequest>.unmodifiable(_requests);
   List<RenderEvent> get acks => List<RenderEvent>.unmodifiable(_acks);
@@ -91,7 +99,7 @@ class DirectorObserverFeed extends ChangeNotifier {
   /// 一条前端已收 WS 帧：进 B 栏；text_delta / text_fallback 同时进 D 栏左列。
   void pushWsEvent(WsEvent event) {
     final DateTime at = clock();
-    final ObserverRecord? record = observeWsEvent(event, at);
+    final ObserverRecord? record = observeWsEvent(event, at, labelFor: presetLabel);
     if (record != null) events.add(record);
     final TtsSentence? sentence = ttsSentenceFromWsEvent(event, at);
     if (sentence != null) {
@@ -177,8 +185,13 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
   String? _logsError;
   bool _logsLoading = false;
 
-  /// B 栏选中的 type（空集 = 全部；**真的过滤**）。
-  final Set<String> _types = <String>{};
+  /// B 栏**不列出**的 type（默认 = 口型时钟 + 段结束；**真的过滤**）。
+  ///
+  /// T3（2026-10-13 执行单）：语义从「只看勾中的」改成「默认都看，除了这两个」。
+  final Set<String> _excluded = <String>{...kObserverDefaultDeselectedTypes};
+
+  /// 被点开的那一条（在列表**下方**展开全文；再点一次收起）。
+  ObserverRecord? _expanded;
 
   @override
   void initState() {
@@ -306,7 +319,12 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
   }
 
   void _clear() {
-    setState(_types.clear);
+    setState(() {
+      _excluded
+        ..clear()
+        ..addAll(kObserverDefaultDeselectedTypes);
+      _expanded = null;
+    });
     DirectorObserverFeed.instance.clear();
   }
 
@@ -443,7 +461,13 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
       color: colors.contentMuted,
     );
     final ObserverBuffer buffer = DirectorObserverFeed.instance.events;
-    final List<ObserverRecord> records = buffer.filterByTypes(_types);
+    // T3（2026-10-13 执行单）：默认**不列出**口型时钟与段结束（见
+    // kObserverDefaultDeselectedTypes）；语义是「不看的」而不是「只看这些」。
+    final List<ObserverRecord> records = filterObserverRecords(
+      buffer.records,
+      _excluded,
+    );
+    // 芯片清单 = 已知类型 ∪ 缓冲里真的出现过的类型（未知类型照记，用线名）。
     final List<String> types = <String>{
       ...kObserverKnownTypes,
       ...buffer.records.map((ObserverRecord r) => r.type),
@@ -464,8 +488,10 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
             ),
           ],
         ),
+        // 标题下的这句导览（T3）：这一栏是「本轮交给舞台和页面的帧」，
+        // 不是第二路模型的决策原文。
         Text(
-          '前端已收 WS 帧 + 渲染面 ack；带时间戳，按 type 过滤（空白 = 全部）',
+          '这里是本轮交给舞台和页面的帧。动作看「动作」；口型时钟默认不列出。',
           style: muted,
         ),
         const SizedBox(height: Space.s1),
@@ -475,13 +501,16 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
           children: <Widget>[
             for (final String t in types)
               FilterChip(
-                label: Text(t),
-                selected: _types.contains(t),
+                // 芯片 = 中文 + 括号里的线名（未知类型只显示线名）。
+                label: Text(observerTypeLabel(t)),
+                selected: !_excluded.contains(t),
                 onSelected: (bool selected) => setState(() {
                   if (selected) {
-                    _types.add(t);
+                    _excluded.remove(t);
                   } else {
-                    _types.remove(t);
+                    _excluded.add(t);
+                    // 刚被藏起来的那条不再展开（否则下方挂着一行看不见来源的全文）。
+                    if (_expanded?.type == t) _expanded = null;
                   }
                 }),
               ),
@@ -489,10 +518,7 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
         ),
         Padding(
           padding: const EdgeInsets.only(top: Space.s1),
-          child: Text(
-            _types.isEmpty ? '过滤：全部类型' : '过滤：${_types.join('、')}',
-            style: muted,
-          ),
+          child: Text(_filterSummary(types), style: muted),
         ),
         if (buffer.isEmpty)
           Padding(
@@ -508,20 +534,78 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
           SizedBox(
             height: 240,
             child: ListView.builder(
-              itemExtent: 20,
+              // **没有 itemExtent**（T3）：行高不定，长文本换行而不是省略号。
               itemCount: records.length,
               itemBuilder: (BuildContext context, int i) {
                 final ObserverRecord r = records[records.length - 1 - i];
-                return Text(
-                  '${formatObserverTime(r.at)} [${r.source}] ${r.type} · ${r.text}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall,
+                return InkWell(
+                  onTap: () => setState(
+                    () => _expanded = identical(_expanded, r) ? null : r,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: OpticalNudge.thin),
+                    child: Text(
+                      '${formatObserverTime(r.at)} [${r.source}] ${r.type} · ${r.text}',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
                 );
               },
             ),
           ),
+        if (_expanded != null) _expandedBlock(theme, colors, muted),
       ],
+    );
+  }
+
+  /// 过滤摘要（T3）：「全部类型」这个说法已退役——默认档写「当前：默认」，
+  /// 其余档**列出正在看的中文名**（用户不必回头数芯片）。
+  String _filterSummary(List<String> types) {
+    // 默认档 = 恰好「只差」口型时钟与段结束（不用 setEquals：material 不导出它）。
+    final bool isDefault =
+        _excluded.length == kObserverDefaultDeselectedTypes.length &&
+        _excluded.containsAll(kObserverDefaultDeselectedTypes);
+    if (isDefault) {
+      return '过滤：当前：默认（口型时钟与段结束不列出）';
+    }
+    final List<String> shown = <String>[
+      for (final String t in types)
+        if (!_excluded.contains(t)) observerTypeName(t),
+    ];
+    if (shown.isEmpty) return '过滤：当前：一个都没勾';
+    return '过滤：当前：${shown.join('、')}';
+  }
+
+  /// 点开的记录：在**列表下方**展开全文（再点一次收起）。
+  ///
+  /// 不新开路由、不做左右滚动（T3 执行单的原话）——所以只是列表下面一块
+  /// 有描边的文本。
+  Widget _expandedBlock(
+    ThemeData theme,
+    AppColors colors,
+    TextStyle? muted,
+  ) {
+    final ObserverRecord r = _expanded!;
+    return Padding(
+      padding: const EdgeInsets.only(top: Space.s1),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(Space.s2),
+        decoration: BoxDecoration(
+          border: Border.all(color: colors.hairline),
+          borderRadius: BorderRadius.circular(AppRadius.xs),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              '${formatObserverTime(r.at)} [${r.source}] ${observerTypeLabel(r.type)}',
+              style: muted,
+            ),
+            Text(r.text, style: theme.textTheme.bodySmall),
+          ],
+        ),
+      ),
     );
   }
 

@@ -22,12 +22,16 @@ extension _ShellSettingsWiring on _ShellRootState {
     ]);
   }
 
-  /// 「保存并重载」：**服务端草稿 + 本机偏好草稿**一起保存，然后**只刷新一次**。
+  /// 「保存并重载」：**Mod 表单草稿 + 服务端草稿 + 本机偏好草稿**一起保存，
+  /// 然后**只刷新一次**。
   ///
   /// 顺序：
+  /// 0. 有 Mod 表单草稿 → 逐张提交（`POST /api/v1/mods/{id}/config`，含导演的
+  ///    `motion_bias`；T2，2026-10-13）；
   /// 1. 有服务端草稿 → 现有保存（写盘 + 热重载；需要时只重启 18080）；
   /// 2. 有本机偏好草稿 → 写入本机存储（`widget.onPrefsChanged`）；
-  /// 3. 两样都成功 → 刷新一次 `/app/`。**只改了本机偏好时不重启 18080**。
+  /// 3. 都走完 → 刷新一次 `/app/`（**只这一处**，两次保存不各刷一次）。
+  ///    **只改了本机偏好时不重启 18080**。
   ///
   /// 任一步失败：**不刷新**，草稿保留，返回 [SaveOutcome.failed] 让确认框留下。
   /// 返回 [SaveOutcome]：确认框的「保存并离开」据此决定是否真的离开。
@@ -35,9 +39,18 @@ extension _ShellSettingsWiring on _ShellRootState {
     if (_savingAll) return SaveOutcome.failed;
     _savingAll = true;
     _prefsSaveError = null;
+    _modDraftSaveError = null;
     _refresh();
     SaveOutcome outcome = SaveOutcome.savedApplied;
     try {
+      // 0. Mod 表单里尚未提交的配置（T2，2026-10-13 执行单）：先写 mods.json，
+      //    紧接着第 1 步的写盘会触发一次热重载——两样一起生效（含导演的
+      //    motion_bias：按句清洗器只在重载时重读它）。卡片自己的失败文案会
+      //    留在那张卡上（进路由桶，活过这次刷新）。
+      final List<String> modFailed = await _modDrafts.submitPending();
+      if (modFailed.isNotEmpty) {
+        _modDraftSaveError = '这些 Mod 的配置没保存成功：${modFailed.join('、')}';
+      }
       // 1. 服务端草稿（现有链路一字未改）。
       if (_settings.dirty) {
         outcome = await _settings.save();
@@ -96,7 +109,9 @@ extension _ShellSettingsWiring on _ShellRootState {
     messenger.showSnackBar(
       SnackBar(
         content: Text(
-          outcome.messageWith(error: _prefsSaveError ?? _settings.error),
+          outcome.messageWith(
+            error: _prefsSaveError ?? _modDraftSaveError ?? _settings.error,
+          ),
         ),
         backgroundColor: outcome.needsAttention
             ? appPaletteOf(context).warning
@@ -450,6 +465,9 @@ extension _ShellSettingsWiring on _ShellRootState {
           devMode: _devMode,
           error: _adminError,
           busyId: _busyId,
+          // T2（2026-10-13）：底部「保存并重载」据此把各卡片尚未提交的配置
+          // 一起提交（含导演的 motion_bias）。
+          drafts: _modDrafts,
           onToggle: _toggleMod,
           // M2：有 settings_spec 的 Mod 展开后按 spec 渲表单，保存走这里。
           onSaveConfig: _saveModConfig,

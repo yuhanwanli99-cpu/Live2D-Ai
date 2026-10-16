@@ -226,14 +226,33 @@ class _ShellRootState extends State<ShellRoot> {
   /// 本机偏好草稿与已保存那份不同。
   bool get _prefsDirty => _prefsDraft != null && _prefsDraft != widget.prefs;
 
-  /// 服务端草稿或本机偏好草稿**任一**有改动 ⇒ 底部出现「保存并重载」。
-  bool get _anyDraftDirty => _settings.dirty || _prefsDirty;
+  /// 服务端草稿、本机偏好草稿、Mod 表单草稿**任一**有改动 ⇒ 底部出现
+  /// 「保存并重载」。
+  ///
+  /// T2（2026-10-13）：Mod 表单草稿（导演的「表演倾向」等）也算——用户改了档位、
+  /// 底部那颗按钮本来就该出现，按下去才谈得上「一起提交」。
+  bool get _anyDraftDirty =>
+      _settings.dirty || _prefsDirty || _modDrafts.hasPending;
 
   /// 「保存并重载」进行中（服务端草稿 + 本机偏好草稿一起保存）。
   bool _savingAll = false;
 
   /// 本机偏好草稿保存失败的理由（上屏用；成功后清空）。
   String? _prefsSaveError;
+
+  /// 本次「保存并重载」里 **Mod 表单草稿**提交失败的理由（上屏用；成功后清空）。
+  ///
+  /// T2（2026-10-13 执行单）：底部那颗按钮要顺带把各卡片里尚未提交的配置一起
+  /// 提交（含导演的 `motion_bias`）。失败不该阻止 toml / 偏好的保存，但必须
+  /// **看得见**——卡片自己的带码文案也留着（它进路由桶，活过这次刷新）。
+  String? _modDraftSaveError;
+
+  /// 各 Mod 卡片表单**未提交草稿**的登记处（T2，2026-10-13 执行单）。
+  ///
+  /// 卡片在 initState 里登记、dispose 时注销（见 `dev_tools_mod_config.dart`）；
+  /// 它是 [ChangeNotifier]，所以「草稿出现 / 消失」会让外壳重画，底部
+  /// 「保存并重载」的可见性（[_anyDraftDirty]）跟着更新。
+  final ModConfigDrafts _modDrafts = ModConfigDrafts();
 
   /// 本次草稿**新加进背景库、尚未写进已保存偏好**的图 id（放弃 / 失败时删字节）。
   final Set<String> _draftAddedBgIds = <String>{};
@@ -505,8 +524,18 @@ class _ShellRootState extends State<ShellRoot> {
         _audio.unlockState,
         _settings,
         _voiceListen,
+        // T2（2026-10-13）：Mod 表单草稿的脏 / 净决定底部操作条的可见性，
+        // 而它只在这一层算（AppShell.settingsDirty）。
+        _modDrafts,
       ]),
       builder: (BuildContext context, Widget? _) {
+        // 统一「停止」的判据只算一次：圆键停止态与 Esc 共用它。
+        // **不看界面相位**——服务端推完 PCM 后相位先归零，尾巴只剩这三条。
+        final bool canStop = canStopPlayback(
+          turnInFlight: _chat.streaming,
+          audioPending: _audio.hasPending,
+          cuesPending: _directorCues.length > 0,
+        );
         return AppShell(
           key: _shellKey,
           stage: Live2DStage(
@@ -569,7 +598,11 @@ class _ShellRootState extends State<ShellRoot> {
           playingSentenceSeq: _chat.playingSentenceSeq,
           input: _input,
           onSend: () => unawaited(_sendWithCancellation()),
-          onStop: () => unawaited(_stopWithCancellation()),
+          // 统一「停止」（2026-10-15 执行单 §2）：**不看相位**，只看三条队列
+          // 有没有东西——判据是纯函数（`live2d/stage_cancel.dart`，VM 可测），
+          // 与 Esc 共用上面算好的那个局部。
+          canStopPlayback: canStop,
+          onStopPlayback: () => unawaited(_stopPlayback()),
           onRetryConnection: _ws.ensureConnected,
           volume: _shownPrefs.volume,
           muted: _shownPrefs.muted,
@@ -674,9 +707,13 @@ class _ShellRootState extends State<ShellRoot> {
           settingsDirty: _anyDraftDirty,
           settingsSaving: _settings.saving || _savingAll,
           settingsStatus:
-              _prefsSaveError ?? _settings.error ?? _settings.lastOutcome?.message,
+              _prefsSaveError ??
+              _modDraftSaveError ??
+              _settings.error ??
+              _settings.lastOutcome?.message,
           settingsStatusIsError:
               _prefsSaveError != null ||
+              _modDraftSaveError != null ||
               _settings.error != null ||
               _settings.lastOutcome == SaveOutcome.failed,
           onSaveSettings: () => unawaited(_saveAll()),
@@ -710,7 +747,9 @@ class _ShellRootState extends State<ShellRoot> {
           shortcuts: AppShortcutCallbacks(
             isMacOS: defaultTargetPlatform == TargetPlatform.macOS,
             onSend: () => unawaited(_sendWithCancellation()),
-            onStop: () => unawaited(_stopWithCancellation()),
+            // Esc 与圆键走同一条 _stopPlayback；canStop 为假时 Esc 什么都不做
+            // （不接线，而不是接一个空回调——那会静默吞键）。
+            onStop: canStop ? () => unawaited(_stopPlayback()) : null,
             // 覆盖层优先：它关掉了就不再停止本轮。
             onDismissOverlay: () {
               final AppShellState? shell = _shellKey.currentState;

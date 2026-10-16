@@ -81,18 +81,20 @@ void main() {
     Widget panel({
       required UiPhase phase,
       VoidCallback? onSend,
-      VoidCallback? onStop,
+      bool canStopPlayback = false,
+      VoidCallback? onStopPlayback,
     }) => ChatPanel(
       messages: const <ChatMessage>[],
       phase: phase,
       input: TextEditingController(),
       onSend: onSend ?? () {},
-      onStop: onStop ?? () {},
       onDismissError: () {},
       volume: 1,
       muted: false,
       onVolumeChanged: (_) {},
       onMutedChanged: (_) {},
+      canStopPlayback: canStopPlayback,
+      onStopPlayback: onStopPlayback,
     );
 
     testWidgets('空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字', (WidgetTester tester) async {
@@ -109,21 +111,30 @@ void main() {
       );
     });
 
-    testWidgets('思考中：同一个位置变成圆形停止键（不跳位、不换形状）', (WidgetTester tester) async {
+    testWidgets('有待停内容：同一个位置变成圆形停止键（不跳位、不换形状）', (WidgetTester tester) async {
       int stops = 0;
       await tester.pumpWidget(
-        wrap(panel(phase: UiPhase.thinking, onStop: () => stops++)),
+        wrap(
+          panel(
+            phase: UiPhase.idle,
+            canStopPlayback: true,
+            onStopPlayback: () => stops++,
+          ),
+        ),
       );
-      expect(find.byIcon(Icons.stop_rounded), findsOneWidget);
+      // 输入区只有这一颗停止（独立那颗已删）：它就是发送键**变身**的那一颗。
+      final Finder roundStop = find.widgetWithIcon(
+        IconButton,
+        Icons.stop_rounded,
+      );
+      expect(roundStop, findsOneWidget, reason: '输入区只有一颗停止 IconButton');
       expect(find.byIcon(Icons.arrow_upward_rounded), findsNothing);
-      final IconButton button = tester.widget<IconButton>(
-        find.widgetWithIcon(IconButton, Icons.stop_rounded),
-      );
+      final IconButton button = tester.widget<IconButton>(roundStop);
       expect(
         button.style?.shape?.resolve(<WidgetState>{}),
         const CircleBorder(),
       );
-      await tester.tap(find.byIcon(Icons.stop_rounded));
+      await tester.tap(roundStop);
       expect(stops, 1);
     });
   });
@@ -142,7 +153,6 @@ void main() {
             messages: const <ChatMessage>[],
             input: TextEditingController(),
             onSend: () {},
-            onStop: () {},
             onRetryConnection: () {},
             volume: 1,
             muted: false,

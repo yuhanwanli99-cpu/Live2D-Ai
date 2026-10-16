@@ -429,3 +429,47 @@ fn mods_list_carries_last_error() {
         "失败原因必须在列表里: {body}"
     );
 }
+
+/// **T2（2026-10-13 执行单）**：POST /api/v1/mods/{id}/config（这里用测试 Mod 的
+/// 同一个 config 分支）落盘成功后必须触发 supervisor.reload()——
+/// 按句清洗器**只在重载时**重读 mods.json，不重载的话「表演倾向」改了也不生效。
+#[test]
+fn director_config_post_reloads_supervisor_for_motion_bias() {
+    let (supervisor, tmp) = crate::web_api::tests_reload::spawn_test_supervisor("mods_bias");
+    let ctx = ctx_with_mod(serde_json::json!({
+        "mods": {"specmod": {"enabled": true, "config": {"path": "/x"}}}
+    }))
+    .with_supervisor(std::sync::Arc::clone(&supervisor));
+
+    let resp = handle_mods_route(
+        &ctx,
+        &Method::Post,
+        "/api/v1/mods/specmod/config",
+        r#"{"config":{"motion_bias":"eager"}}"#,
+        Some("http://127.0.0.1:18099"),
+        Some("application/json"),
+    )
+    .unwrap();
+    assert_eq!(resp.status_code(), StatusCode(202));
+
+    // 落内存（reload_config 的同步部分）。
+    {
+        let reg = ctx.mod_registry.lock().unwrap();
+        assert_eq!(
+            reg.config("specmod").unwrap()["motion_bias"],
+            serde_json::json!("eager")
+        );
+    }
+
+    // 关键断言：reload_pending 被消费 = 配置保存路径真的调了 reload()。
+    assert!(
+        crate::web_api::tests_reload::wait_until_reload_consumed(
+            &supervisor,
+            std::time::Duration::from_secs(5)
+        ),
+        "config POST 落盘后必须 supervisor.reload()（否则 motion_bias 改了不生效）"
+    );
+
+    let _ = std::fs::remove_file(&tmp);
+    drop(supervisor);
+}

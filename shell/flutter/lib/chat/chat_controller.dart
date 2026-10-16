@@ -89,14 +89,11 @@ class ChatController extends ChangeNotifier {
 
   /// 最近一次 [send] 是否**本地失败**（网络/解析/非 2xx，或 200 但未受理）。
   ///
-  /// 为什么不能只看 [error] 是否为 null：`_onWsEvent` 收到**服务端**的
-  /// `error` 帧也会写 [_error]，而那种错误发生时本轮**仍在飞**（非致命失败
-  /// 之后已生成的语音还要播完，收口由紧随的 `turn_state` 负责）。把「有错误
-  /// 文案」当成「本地发送失败」会把一条正在正常进行的轮次**提前说成结束**。
-  ///
-  /// 所以这里专门记一个**只由本地失败路径**置位的标志：组合根（`shell_chat._send`）
-  /// 在 `await send()` 之后据此通知 `UiStateTracker` 回落相位（审计 F-0007-1：
-  /// 这三条本地失败路径后端**不广播任何 WS 帧**，前端没有任何帧可以等）。
+  /// 不能只看 [error]：服务端 `error` 帧也写 [_error]，而那时本轮**仍在飞**
+  /// （非致命失败后已生成的语音还要播完，收口由紧随的 `turn_state` 负责）——
+  /// 把「有错误文案」当成本地失败，会把一条正在进行的轮次提前说成结束。
+  /// 所以只由本地失败路径置位（审计 F-0007-1）；组合根据它让 `UiStateTracker`
+  /// 回落相位——这三条本地失败路径后端**不广播任何 WS 帧**，前端没有帧可等。
   bool _sendFailedLocally = false;
 
   /// 见 [_sendFailedLocally]。
@@ -111,6 +108,15 @@ class ChatController extends ChangeNotifier {
 
   WsStatus _wsStatus = WsStatus.idle;
   ChatMessage? _assistant;
+
+  /// 最近一条**已收口但仍在会话里**的助手气泡（T1，2026-10-13 执行单）。
+  ///
+  /// 只服务一件事：致命错误让本轮就地收口之后，引擎补发的整段正文
+  /// （`text_fallback`）必须写回**这一条**，而不是在会话里 `append` 出
+  /// 第二条助手气泡。被 [settleTurn] 换成系统行的那些**不进这里**——
+  /// 写回去也看不见，那不是「同一轮一个气泡」的落点。
+  ChatMessage? _settledAssistant;
+
   int? _audioEpoch;
 
   bool get streaming => _streaming;
@@ -128,13 +134,9 @@ class ChatController extends ChangeNotifier {
   /// 已经在会话里了（`send()` 是**先上屏再 POST**），再补一条会让用户以为
   /// 自己的话说了两遍。
   Future<void> send(String raw, {bool echoUser = true}) async {
-    // **清零必须在两个早退之前**（复核 F-V1-2，2026-10-01）：组合根
-    //（`shell_chat._send`）在 `await send()` 之后**无条件**读
-    // [sendFailedLocally]，所以早退路径（空文本 / 已有一轮在飞）读到的必须是
-    // **这一次调用**的结局（= 没发起 = 非失败），而不是上一轮留下的 `true`。
-    // 否则可达：第 N 轮本地失败置 true → 外部/注入轮次开始（`_streaming = true`，
-    // 不清该标志）→ 用户再发送 ⇒ 早退 ⇒ shell 读到**陈旧 true** ⇒
-    // `markTurnFailed()` 误清那个正在飞的外部轮次相位。
+    // **清零必须在两个早退之前**（复核 F-V1-2）：组合根在 `await send()` 后
+    // **无条件**读 [sendFailedLocally]，早退路径读到的必须是**这一次**的结局，
+    // 否则 shell 会拿上一轮的 `true` 去误清正在飞的那个外部轮次相位。
     _sendFailedLocally = false;
     final text = raw.trim();
     if (text.isEmpty || _streaming) return;
@@ -153,13 +155,13 @@ class ChatController extends ChangeNotifier {
     // 立即作废，否则新一轮的 1 号会让上一轮那条同号 span 一起亮。
     _clearSpoken();
     _highlight.clear();
-    // **先建气泡、再发请求**（2026-09-23，用户报「LLM 故障时对话无反应」）：
-    // 服务端可能在 HTTP 应答**之前**就跑完本轮并广播 `error` / `turn_state`
-    //（快失败：401、连接被拒、上游秒回 5xx）。旧顺序把气泡建在 await 之后——
-    // 那些帧到达时 `_assistant` 还是 null，收口落空；随后 await 返回又建一个
-    // streaming 气泡，永远等不到收口帧：聊天区一直转圈，既没有文字也没有失败。
+    // **先建气泡、再发请求**（2026-09-23）：快失败（401 / 连接被拒 / 上游秒回
+    // 5xx）时服务端可能在 HTTP 应答**之前**就广播收口帧；旧顺序（await 之后再建）
+    // 会让收口落空，聊天区一直转圈、既没有文字也没有失败。
     final ChatMessage bubble = ChatMessage(role: ChatRole.assistant, streaming: true);
     _assistant = bubble;
+    // 新一轮开始：上一轮那条收口气泡不再是 text_fallback 的写回对象。
+    _settledAssistant = null;
     sessions.append(bubble);
     notifyListeners();
     try {
@@ -240,11 +242,8 @@ class ChatController extends ChangeNotifier {
 
   /// 语音 / 外部注入的一轮：服务端那边**已经**开始了（`/voice/transcript` → say）。
   ///
-  /// 为什么不能复用 [send]：`send` 自己 POST `/api/v1/chat` 再建 assistant 气泡；
-  /// 语音走的是 `/api/v1/voice/transcript`，链路由服务端在那边起。这里只做
-  /// 「把用户句上屏 + 把本轮标记为进行中」——否则聊天区只剩 AI 的回复，
-  /// 用户看不到自己说了什么（L1 实测断点：`turn_prompt` 已进主链，界面却
-  /// 只有回答）。
+  /// 不复用 [send]（它自己 POST 再建气泡）：语音走 `/api/v1/voice/transcript`，
+  /// 这里只做「把用户句上屏 + 把本轮标记为进行中」，否则界面只剩 AI 的回复。
   ///
   /// **只在服务端确认受理（`ok:true`）后调用**；busy（`ok:false`）那一轮根本
   /// 没开始，调了就是伪造一轮。
@@ -253,12 +252,18 @@ class ChatController extends ChangeNotifier {
   bool acceptInjectedUserTurn(String text) {
     final String t = text.trim();
     if (t.isEmpty) return false;
+    // 语音要等 HTTP 返回，而 `user_line` 可能先到并已上屏这句 → 跳过：
+    if (isDuplicateInjectedUserLine(
+        streaming: _streaming, text: t, lastUserText: lastUserText(messages))) {
+      return true;
+    }
     // 上一轮若还挂在本地（切换 / 断连时没收到收口帧），先就地让位：这一轮的
     // assistant 气泡必须是新的，不能续写到旧气泡上（同 `_abandonTurn` 语义）。
     if (_streaming) _abandonTurn();
     sessions.append(ChatMessage(role: ChatRole.user, text: t));
     _persist();
     _streaming = true;
+    _settledAssistant = null;
     _error = null;
     _errorCode = null;
     // 语音 / 外部注入也是一轮：同 send()，换轮即灭高亮。
@@ -268,15 +273,41 @@ class ChatController extends ChangeNotifier {
     return true;
   }
 
+  /// `user_line` 到达：把服务端广播回来的**这一轮输入正文**写进当前会话。
+  ///
+  /// 判据是纯函数 [userLineAction]（VM 可测，来历见该文件的枚举注释）：弹幕
+  /// （[kDanmakuPrefix] 前缀）→ 系统行；没轮在飞 → 复用 [acceptInjectedUserTurn]；
+  /// 就是上一条 → 跳过；另一句 → 只追加用户气泡。
+  void _onUserLine(String? text) {
+    final String body = (text ?? '').trim();
+    switch (userLineAction(
+      turnInFlight: _turnInFlight,
+      text: text,
+      lastUserText: lastUserText(messages),
+      lastMessageText: messages.isEmpty ? null : messages.last.text,
+    )) {
+      case UserLineAction.acceptInjected:
+        acceptInjectedUserTurn(body);
+      case UserLineAction.appendOnly:
+        sessions.append(ChatMessage(role: ChatRole.user, text: body));
+        _persist();
+        notifyListeners();
+      case UserLineAction.appendSystem:
+        sessions.append(ChatMessage(role: ChatRole.system, text: body));
+        _persist();
+        notifyListeners();
+      case UserLineAction.ignoreEmpty || UserLineAction.skipDuplicate:
+        break;
+    }
+  }
+
   /// `POST /api/v1/chat/stop` 并收口当前气泡。
   ///
-  /// **先本地收口，再发请求**（顺序有讲究）：
-  /// ① 停止路径在后端走 `RootEffect::TurnAborted`，而它**不投影任何 WS 帧**
-  ///    （`supervisor/handlers.rs`）——也就是说这一轮的收口**只能由这里做**，
-  ///    服务端不会补一个 `turn_state`；
-  /// ② 先收口还能避免下一行那个误判：服务端收到 stop 后会推进 epoch 并广播
-  ///    `new_epoch`，而 `new_epoch` 在本文件的语义是「上一轮被**外部**中断」
-  ///    （见 `_onWsEvent`）——若不先收口，用户自己按的停止会被当成外来抢占。
+  /// **先本地收口，再发请求**（顺序有讲究）：① 停止路径在后端走
+  /// `RootEffect::TurnAborted`，它**不投影任何 WS 帧**（`supervisor/handlers.rs`）
+  /// ——这一轮的收口只能由这里做；② 服务端收到 stop 后会推进 epoch 并广播
+  /// `new_epoch`，它在本地语义是「上一轮被**外部**中断」（见 `_onWsEvent`）——
+  /// 不先收口，用户自己按的停止会被当成外来抢占。
   Future<void> stop() async {
     _finishTurn(stopped: true);
     try {
@@ -298,15 +329,12 @@ class ChatController extends ChangeNotifier {
 
   /// busy 的恢复出口（F-0007-2）：把**上一条用户消息**原样再发一次。
   ///
-  /// 为什么不复用 `send(lastUserMessageText)` 直接发：那会**再上屏一条**
-  /// 用户气泡（见 `send` 的 `echoUser`）——用户的话已经在界面上，
-  /// 重发是「把那一句再说给服务端」，不是「用户又说了一遍」。
+  /// 不直接 `send(lastUserMessageText)`：那会**再上屏一条**用户气泡
+  /// （`echoUser`）——用户的话已经在界面上，重发是「把那一句再说给服务端」。
   ///
-  /// 返回是否**真的发起了这一轮**：没有可重发的消息 / 已有一轮在飞 → `false`
-  /// （接线方据此决定要不要把相位置成「思考中」，见 `shell_chat._resendLastUserMessage`）。
-  ///
-  /// 服务端忙碌那一轮必须先被 `stop()` 打断，否则这里会再撞一个 busy——
-  /// 那个顺序由 `error_actions.interruptAndResend` 负责，本方法只做第二步。
+  /// 返回是否**真的发起了这一轮**（没有可重发的消息 / 已有一轮在飞 → `false`）；
+  /// 服务端忙碌那一轮必须先被 `stop()` 打断，顺序由 `error_actions.interruptAndResend`
+  /// 负责，本方法只做第二步。
   Future<bool> resendLastUserMessage() async {
     if (_streaming) return false;
     final String? text = lastUserText(messages);
@@ -351,6 +379,9 @@ class ChatController extends ChangeNotifier {
         // rc.3 N0 正文兜底：失败轮把**整轮正文**交过来，**覆盖式**设置并标注
         // 「未收尾」（见 [_applyTextFallback]）。
         if (text != null && text.isNotEmpty) _applyTextFallback(text, epoch);
+      case UserLineEvent(:final text):
+        // 服务端把这一轮喂给模型的正文广播回来（弹幕等没有浏览器参与的一轮）。
+        _onUserLine(text);
       case TurnStateEvent(:final status, :final epoch):
         // 同上：epoch 不符 = 上一轮迟到的收口帧，丢弃（新一轮不许被它收掉）；
         // 空闲态收到收口帧同样丢弃（它的轮次早已结束）。
@@ -474,13 +505,38 @@ class ChatController extends ChangeNotifier {
   /// 失败轮的正文兜底（`text_fallback`，rc.3 N0，2026-09-13）。
   ///
   /// **整段设置**（不是追加）并打上 `unfinished`：服务端发的是**整轮正文**，
-  /// 而已上屏的句子只是它的（大致）前缀——追加会让正文出现两遍。覆盖天然幂等，
-  /// 也不必去算「已上屏的前缀到哪结束」（那受切句器 trim 影响，算不准）。
-  ///
-  /// 为什么要能建气泡：理论上 `send()` 已经建好了；但「服务端主动开口」或
-  /// 「帧先于 HTTP 响应到达」时 `_assistant` 还可能是 null，那时照样要收下
-  /// —— 丢帧就等于又把正文丢了。
+  /// 已上屏的句子只是它（大致）的前缀——追加会让正文出现两遍，覆盖还天然幂等
+  /// （不必算「前缀到哪结束」，那受切句器 trim 影响、算不准）。
+  /// 要能自己建气泡：「服务端主动开口」/ 帧先于 HTTP 响应到达时 `_assistant`
+  /// 还可能是 null，那时丢了帧就等于又把正文丢了。
   void _applyTextFallback(String text, int? epoch) {
+    // **同一轮只留一个助手气泡**（T1，2026-10-13 执行单）：本轮已收口时写回
+    // 刚落定的那一条（并标「未收尾」），不 append 第二条。判据是纯函数
+    // [fallbackTarget]（VM 可测），三种落点各有各的语义。
+    final FallbackTarget target = fallbackTarget(
+      hasCurrentAssistant: _assistant != null,
+      hasSettledAssistant: _settledAssistant != null,
+      // _settledAssistant 只在气泡**仍留在会话里**时才被登记
+      // （见 _finishTurn 的两个系统行分支），所以这里恒为 true。
+      settledInSession: true,
+      frameEpoch: epoch,
+      settledEpoch: _settledAssistant?.epoch,
+    );
+    if (target == FallbackTarget.settled) {
+      final ChatMessage bubble = _settledAssistant!;
+      bubble.text = text;
+      bubble.unfinished = true;
+      // 真正文到了：占位文案（「（生成失败）」）必须让位，否则真实内容顶着
+      // 失败底色显示。
+      bubble.failed = false;
+      // 只写回一次；下一帧要是还有（同轮重发）就走新建那条老路。
+      _settledAssistant = null;
+      // 收口时已经落过一次盘，这里是新增的文本，必须再落一次。
+      sessions.touchActive();
+      _persist();
+      notifyListeners();
+      return;
+    }
     var bubble = _assistant;
     if (bubble == null) {
       bubble = ChatMessage(
@@ -492,6 +548,7 @@ class ChatController extends ChangeNotifier {
     }
     bubble.text = text;
     bubble.unfinished = true;
+    bubble.failed = false;
     _assistant = bubble;
     _streaming = true;
     notifyListeners();
@@ -535,15 +592,10 @@ class ChatController extends ChangeNotifier {
 
   void _finishTurn({bool failed = false, bool stopped = false}) {
     // ── 攒句器的收尾信号（2026-09-11）────────────────────────────────────
-    // 一轮收口是「不会再有本句分片」的**唯一确定时点**，所以在这里给音频侧
-    // 一个收尾闸门。常规路径用不到它（`end=true` 才是句尾，见
-    // `audio/sentence_assembler.dart` 头注）；它防的是一个已确认的服务端边界：
-    // 引擎允许某句的 `final_chunk` **样本数为 0**，而 `build_audio_frames`
-    // 对空 PCM 直接返回空列表——那一句就永远等不到 `end`，尾巴会卡在累积里
-    // 播不出来（「话说完了但结尾没了」）。
-    //
-    // 失败/停止的轮次**不**收尾：那半截本来就没合成完，播出来就是断句，而
-    // 契约是「宁可晚开口，不可中途断」。
+    // 收口是「不会再有本句分片」的**唯一确定时点**：引擎允许某句
+    // `final_chunk` 样本数为 0，那一句就永远等不到 `end`（`end=true` 才是
+    // 句尾，见 `audio/sentence_assembler.dart`），尾巴卡在累积里播不出来。
+    // 失败 / 停止的轮次**不**收尾——那半截没合成完，播出来就是断句。
     if (!failed && !stopped) audio.flush();
     // 失败 / 停止的轮次没有「后续音频」，高亮就地灭。**正常收口不清**：最后
     // 几句可能还在播，提前灭了就是「话没说完高亮先没了」。
@@ -552,21 +604,14 @@ class ChatController extends ChangeNotifier {
     if (bubble != null) {
       bubble.streaming = false;
       // ── 空气泡的收口方式：判据在 `turn_liveness.dart`（纯逻辑，可单测）──
-      //
-      // 历史（两天的弯路，别再走回去）：
-      // - 曾经写成 `bubble.text = '（本轮没有文字输出——通常是模型只调用了
-      //   动作工具）'`：**那不是模型的输出**，是前端凭上下文猜的一句台词，
-      //   却长得和真回复一模一样 → 用户问「为何会有空提示词」。
-      //   （2026-09-11 补：LLM 已无工具，那句「只调用了动作工具」的猜测
-      //   连前提都不成立了——现在只陈述「本轮没有返回文字」这个事实。）
-      // - 2026-09-11 改成 `sessions.remove(bubble)`：不再伪造了，但对
-      //   「模型整轮没返回文字」这个**正常完成**的回合变成了**什么都不显示**
-      //   → 用户报「第一次对话之后没输出了」（2026-09-11 实测复现：
-      //   `点点头。` → 零文字、零音频、`turn_state{completed}`）。
-      //
-      // 现在的第三条路：**换一条系统行**（`ChatRole.system`）。事实照说，
-      // 但一眼就能看出那不是角色说的话。**用户主动停止**也走这条路，
-      // 但用另一句话（[kStoppedTurnNotice]）——别把用户的意志说成模型的产出。
+      // 历史弯路（别再走回去）：替模型编一句台词（用户以为那是回复）、或直接
+      // `sessions.remove(bubble)`（「模型没返回文字」与「应用坏了」无法区分，
+      // 用户就是来报「第一次对话之后没输出了」的）——两条都被否了。
+      // 现在的路：**换一条系统行**（`ChatRole.system`），事实照说但一眼可见
+      // 不是角色说的；用户主动停止同路、另一句话（[kStoppedTurnNotice]）。
+      // T1（2026-10-13）：先把这条气泡登记成 `text_fallback` 的写回对象，
+      // 下面真把它换成系统行的两个分支再清掉。
+      _settledAssistant = bubble;
       switch (settleTurn(
         failed: failed,
         text: bubble.text,
@@ -586,11 +631,13 @@ class ChatController extends ChangeNotifier {
             bubble,
             ChatMessage(role: ChatRole.system, text: kWordlessTurnNotice),
           );
+          _settledAssistant = null;
         case TurnSettlement.stopped:
           sessions.replace(
             bubble,
             ChatMessage(role: ChatRole.system, text: kStoppedTurnNotice),
           );
+          _settledAssistant = null;
       }
     }
     _assistant = null;
@@ -612,12 +659,10 @@ class ChatController extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  // 多会话：新建 / 切换 / 重命名 / 删除 / 清空
-  //
-  // 全部在这里做，UI 只调这些方法。**切换会话前先收口当前轮**：
-  // 否则一条迟到的 delta 会落进新会话（`_assistant` 还指着旧气泡，
-  // 见 `_appendDelta` 的引用语义——这里显式收口是为了让「切走时那一轮
-  // 就算结束」这件事在代码里看得见，而不是依赖一个巧合）。
+  // 多会话：新建 / 切换 / 重命名 / 删除 / 清空。UI 只调这些方法。
+  // **切换会话前先收口当前轮**：否则迟到的 delta 会落进新会话（`_assistant`
+  // 还指着旧气泡，见 `_appendDelta` 的引用语义——显式收口让这件事在代码里
+  // 看得见，而不依赖一个巧合）。
   // ─────────────────────────────────────────────────────────────────────
 
   /// 新建会话并切过去。
@@ -684,6 +729,8 @@ class ChatController extends ChangeNotifier {
     final ChatMessage? bubble = _assistant;
     if (bubble != null) bubble.streaming = false;
     _assistant = null;
+    // 作废本轮：这条气泡不再是 text_fallback 的写回对象。
+    _settledAssistant = null;
     _streaming = false;
     // 切会话 / 作废本轮：高亮**不许跨会话**留到新气泡上。
     _highlight.clear();

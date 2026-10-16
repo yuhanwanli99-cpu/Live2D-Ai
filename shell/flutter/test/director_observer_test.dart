@@ -276,7 +276,7 @@ void main() {
     expect(find.text('今天天气不错（6 字符）'), findsOneWidget);
   });
 
-  testWidgets('B 栏：按 type 真的过滤（点 chip 后非该类型的事件不显示）', (
+  testWidgets('B 栏：按 type 真的过滤（取消勾选后该类型的事件不显示）', (
     WidgetTester tester,
   ) async {
     final DirectorObserverFeed feed = DirectorObserverFeed.instance;
@@ -296,24 +296,124 @@ void main() {
     expect(find.textContaining('[ws] text_delta'), findsOneWidget);
     expect(find.textContaining('[render] preset-applied'), findsOneWidget);
 
-    // 选中 preset-applied → text_delta 行必须消失（过滤真的生效）。
-    final Finder chip = find.widgetWithText(FilterChip, 'preset-applied');
+    // 取消勾选「预设生效（preset-applied）」→ **该类型**的行必须消失；
+    // 别的类型照看（语义是「不看的」而不是「只看这些」）。
+    final Finder chip = find.widgetWithText(FilterChip, '预设生效（preset-applied）');
     await tester.ensureVisible(chip);
     await tester.pumpAndSettle();
     await tester.tap(chip);
     await tester.pump();
     expect(
-      find.textContaining('[ws] text_delta'),
+      find.textContaining('[render] preset-applied'),
       findsNothing,
-      reason: '按 type 过滤必须真的过滤（不是摆设）',
+      reason: '取消勾选该类型必须真的不列出（不是摆设）',
     );
-    expect(find.textContaining('[render] preset-applied'), findsOneWidget);
-    expect(find.textContaining('过滤：preset-applied'), findsOneWidget);
+    expect(find.textContaining('[ws] text_delta'), findsOneWidget);
+    expect(find.textContaining('过滤：当前：默认'), findsNothing);
+    expect(find.textContaining('过滤：当前：'), findsOneWidget);
 
-    // 再点一次取消 → 回到全部。
+    // 再点一次 → 回到默认档（两者都在）。
     await tester.tap(chip);
     await tester.pump();
+    expect(find.textContaining('[render] preset-applied'), findsOneWidget);
     expect(find.textContaining('[ws] text_delta'), findsOneWidget);
+    expect(find.textContaining('过滤：当前：默认'), findsOneWidget);
+  });
+
+  testWidgets('B 栏（T3）：芯片是中文 + 括号里的线名；未知类型仍用线名', (
+    WidgetTester tester,
+  ) async {
+    DirectorObserverFeed.instance.pushWsEvent(
+      UnknownWsEvent(type: 'brand_new', data: <String, Object?>{'x': 1}),
+    );
+    await tester.pumpWidget(
+      _wrap(
+        DirectorObserverSection(loadState: _fakeState, loadLogLines: _noLogs),
+      ),
+    );
+    await tester.pump();
+
+    for (final String label in <String>[
+      '动作（action_cue）',
+      '正文（text_delta）',
+      '未收尾（text_fallback）',
+      '出错（error）',
+      '预设生效（preset-applied）',
+      '预设丢弃（preset-dropped）',
+      '段结束（segment-ended）',
+      '口型时钟（stage-clock）',
+    ]) {
+      expect(
+        find.widgetWithText(FilterChip, label),
+        findsOneWidget,
+        reason: '芯片必须是「中文（线名）」：$label',
+      );
+    }
+    // 未知类型照记、芯片用线名（不猜中文）。
+    expect(find.widgetWithText(FilterChip, 'brand_new'), findsOneWidget);
+  });
+
+  testWidgets('B 栏（T3）：默认不列出 stage-clock 与段结束；点芯片可打开', (
+    WidgetTester tester,
+  ) async {
+    final DirectorObserverFeed feed = DirectorObserverFeed.instance;
+    feed.pushWsEvent(TextDeltaEvent(epoch: 0, text: '甲', seq: 1));
+    feed.pushStageClock(seg: 1, posMs: 120, playing: true);
+    await tester.pumpWidget(
+      _wrap(
+        DirectorObserverSection(loadState: _fakeState, loadLogLines: _noLogs),
+      ),
+    );
+    await tester.pump();
+
+    // ① 默认就不列出口型时钟（30ms 一条，不挡着的话动作帧会被挤掉）。
+    expect(find.textContaining('[ws] text_delta'), findsOneWidget);
+    expect(find.textContaining('[audio] stage-clock'), findsNothing);
+    expect(find.textContaining('过滤：当前：默认'), findsOneWidget);
+
+    // ② 口型时钟芯片默认未勾；点一下打开，行就出现。
+    final Finder chip = find.widgetWithText(FilterChip, '口型时钟（stage-clock）');
+    await tester.ensureVisible(chip);
+    await tester.pumpAndSettle();
+    await tester.tap(chip);
+    await tester.pump();
+    expect(find.textContaining('[audio] stage-clock'), findsOneWidget);
+  });
+
+  testWidgets('B 栏（T3）：点一行在列表下方展开全文，再点收起；不新增路由', (
+    WidgetTester tester,
+  ) async {
+    DirectorObserverFeed.instance.pushWsEvent(
+      TextDeltaEvent(epoch: 0, text: '甲', seq: 1),
+    );
+    await tester.pumpWidget(
+      _wrap(
+        DirectorObserverSection(loadState: _fakeState, loadLogLines: _noLogs),
+      ),
+    );
+    await tester.pump();
+
+    final Finder row = find.textContaining('[ws] text_delta');
+    expect(row, findsOneWidget);
+    // 还没点：只有一行（行里含时间戳，精确匹配全文不会命中）。
+    expect(find.text('text_delta 1 字符'), findsNothing);
+
+    // 观测区在 A 栏下面，800x600 里落在折叠线以下：先滚进来再点。
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    await tester.tap(row);
+    await tester.pump();
+    expect(
+      find.text('text_delta 1 字符'),
+      findsOneWidget,
+      reason: '点一行要在列表下方展开该条全文',
+    );
+
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    await tester.tap(row);
+    await tester.pump();
+    expect(find.text('text_delta 1 字符'), findsNothing, reason: '再点一次收起');
   });
 
   testWidgets('④ dev_mode=false 整块不在语义树', (WidgetTester tester) async {

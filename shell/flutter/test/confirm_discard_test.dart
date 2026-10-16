@@ -92,7 +92,6 @@ class _ShellHostState extends State<_ShellHost> {
       messages: const <Never>[],
       input: TextEditingController(),
       onSend: () {},
-      onStop: () {},
       onRetryConnection: () {},
       volume: 0.8,
       muted: false,

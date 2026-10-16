@@ -510,7 +510,7 @@ mod web {
                     }
                     // **动作预设**（P0-1 / P0-2）：Director Mod / 开发工具「动作调试」
                     // 经 Flutter 转发到这里。
-                    //   - `id:"none"` → 立即撤销（`PresetCommand::Revoke`）；
+                    //   - `id:"none"` → 撤销（从屏幕值放回，到点清槽）；
                     //   - 未知 id → 静默忽略（不回执、不动参数）；
                     //   - 可选 `intensity` / `ttl_ms` / `source`；缺省兼容旧 `{id}`。
                     // 写入走 final_override 层（见 input.rs），到点整批撤销。

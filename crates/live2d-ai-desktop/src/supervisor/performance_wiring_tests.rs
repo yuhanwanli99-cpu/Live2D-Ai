@@ -17,6 +17,7 @@ fn director(enabled: bool, base: &str, model: &str) -> DirectorTakeover {
         staging_base_url: base.to_string(),
         staging_model: model.to_string(),
         staging_api_key_env: String::new(),
+        motion_bias: live2d_ai_mod_director::motion_bias::MotionBias::default(),
     }
 }
 
@@ -203,6 +204,46 @@ fn performance_default_off_does_not_emit_a_second_cue_set() {
     assert!(should_forward_sentence_ready(false, false));
     assert!(!should_forward_sentence_ready(true, false));
     assert!(!should_forward_sentence_ready(true, true));
+}
+
+/// 表演倾向（2026-10-13 执行单 T3）：`mods.director.config.motion_bias` 读法
+/// ——缺键 / 未知 = 平常；三档稳定码各自解析到位。
+#[test]
+fn motion_bias_reading_is_defensive() {
+    use live2d_ai_mod_director::motion_bias::MotionBias;
+    let with = |value: serde_json::Value| DirectorTakeover::from_manifest(&value).motion_bias;
+
+    // 缺 config 段 / 缺键 = 平常（Default 同口径）。
+    assert_eq!(
+        with(serde_json::json!({"mods": {"director": {"enabled": true}}})),
+        MotionBias::Normal,
+        "缺键 = 平常"
+    );
+    assert_eq!(DirectorTakeover::default().motion_bias, MotionBias::Normal);
+    // 垃圾字符串 = 平常。
+    for junk in ["", "垃圾", "EAGER", "eagerr"] {
+        assert_eq!(
+            with(serde_json::json!({
+                "mods": {"director": {"enabled": true,
+                    "config": {"motion_bias": junk}}}
+            })),
+            MotionBias::Normal,
+            "垃圾字符串 {junk:?} = 平常"
+        );
+    }
+    // 三档稳定码。
+    assert_eq!(
+        with(serde_json::json!({
+            "mods": {"director": {"config": {"motion_bias": "restrained"}}}
+        })),
+        MotionBias::Restrained
+    );
+    assert_eq!(
+        with(serde_json::json!({
+            "mods": {"director": {"config": {"motion_bias": "eager"}}}
+        })),
+        MotionBias::Eager
+    );
 }
 
 /// 端点：只有「动作门开 + 两项都有」才用 staging，其余用对话模型。

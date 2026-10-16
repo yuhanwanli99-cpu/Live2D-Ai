@@ -1,6 +1,6 @@
 # Live2D-Ai
 
-**v0.2.5-rc.1** — a minimal, general-purpose **Live2D avatar ↔ AI dialogue** platform.
+**v0.2.6-rc.1** — a minimal, general-purpose **Live2D avatar ↔ AI dialogue** platform.
 
 Live2D-Ai wires a single core loop and keeps everything else behind a Mod boundary:
 
@@ -86,9 +86,10 @@ cp live2d-ai.toml.example live2d-ai.toml   # OpenAI-compatible LLM/TTS
 
 `flutter` is the Flutter SDK in `~/flutter` (`scripts/ignite.sh` puts `$HOME/flutter/bin` on `PATH`).
 `./scripts/ignite.sh --build` builds the **debug backend** and starts it; it does **not** rebuild Flutter
-when `shell/flutter/build/web/index.html` already exists, so the first line must come first. The server
-`exec`s and does not exit — run `./scripts/ignite.sh --check` from another terminal, then open
-<http://127.0.0.1:18080/app/>.
+when `shell/flutter/build/web/index.html` already exists, so the first line must come first. The script
+then waits until everything is ready — a local TTS until `GET {tts}/models` returns 200, otherwise
+until `GET /app/` returns 200 — and only then prints the URL and opens it in the default browser.
+The script does not exit; run `./scripts/ignite.sh --check` from another terminal.
 
 The white (**bai**) model ships with the repo, so a fresh clone renders out of the box — see
 [`assets/models/README.md`](assets/models/README.md), terms in
@@ -131,8 +132,9 @@ Standard build + start (from the repo root; order matters):
 
 `flutter` is the SDK in `~/flutter`. `./scripts/ignite.sh --build` builds the **debug backend** and
 starts it; it does **not** rebuild Flutter when `shell/flutter/build/web/index.html` already exists —
-hence line 1 first. The last line `exec`s into the server and does not exit; probe it from another
-terminal:
+hence line 1 first. The script then waits until everything is ready — a local TTS until
+`GET {tts}/models` returns 200, otherwise until `GET /app/` returns 200 — and only then prints the
+URL and opens it in the default browser; probe it from another terminal:
 
 ```bash
 ./scripts/ignite.sh --check    # health-probe an already running server

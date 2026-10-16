@@ -1,5 +1,6 @@
 //! 双槽 / 强度 morph / 用户可调幅度的回归（从 tests.rs 拆出）。
 
+use super::motion_curve::HOLD_END;
 use super::*;
 
 // ─────────────────────────────────────────── 层级 / 撤销 / 双槽
@@ -16,8 +17,13 @@ fn idle_written_after_preset_never_wins_then_revoke_restores() {
     rt.apply_frame(1_016.0, &mut sink);
     sink.idle_input("ParamMouthForm", 0.5);
     sink.idle_input("ParamBrowLY", -0.05);
-    assert_eq!(sink.effective("ParamMouthForm"), Some(1.0));
-    assert_eq!(sink.effective("ParamBrowLY"), Some(0.5));
+    // 表情带攻击段（2026-10-15）：16ms 处 = 满值 × curve(progress)，仍然压在 idle 之上。
+    let p = 16.0 / EXPRESSION_MS;
+    let mouth = out(preset("smile").unwrap(), p, 1.0, "ParamMouthForm");
+    let brow = out(preset("smile").unwrap(), p, 1.0, "ParamBrowLY");
+    assert!(mouth > 0.0 && brow > 0.0, "前提：还在攻击段内");
+    assert_eq!(sink.effective("ParamMouthForm"), Some(mouth));
+    assert_eq!(sink.effective("ParamBrowLY"), Some(brow));
     assert!(!sink.overrides.contains_key("ParamMouthOpenY"));
 
     rt.apply_frame(1_016.0 + EXPRESSION_MS, &mut sink);
@@ -27,7 +33,7 @@ fn idle_written_after_preset_never_wins_then_revoke_restores() {
 }
 
 #[test]
-fn none_revokes_immediately_and_switching_clears_stale_params() {
+fn switching_keeps_stale_until_attack_end_and_revoke_releases() {
     let mut rt = PresetRuntime::default();
     let mut sink = FakeSink::default();
     rt.handle(
@@ -38,23 +44,43 @@ fn none_revokes_immediately_and_switching_clears_stale_params() {
     rt.apply_frame(100.0, &mut sink);
     assert!(sink.overrides.contains_key("ParamAngleX"));
 
-    // 同槽换包（手势槽 look_left -> nod）：清掉上一条的 ParamAngleX。
+    // 同槽换包（手势槽 look_left -> nod）：旧通道**先接上**，到攻击段结束才清
+    //（2026-10-15 执行单 §1；旧行为是这一步立刻清）。
     rt.handle(
         parse_command(Some("nod"), None, None, None),
         200.0,
         &mut sink,
     );
-    assert!(!sink.overrides.contains_key("ParamAngleX"));
+    assert!(
+        sink.overrides.contains_key("ParamAngleX"),
+        "接力窗口内旧通道不得先归零"
+    );
     rt.apply_frame(300.0, &mut sink);
     assert!(sink.overrides.contains_key("ParamAngleY"));
+    assert!(sink.overrides.contains_key("ParamAngleX"), "窗口内仍接旧值");
 
+    // nod 0.22 × 900ms = 198ms 后进入保持段：旧通道清掉、只剩新包。
+    rt.apply_frame(500.0, &mut sink);
+    assert!(!sink.overrides.contains_key("ParamAngleX"));
+    assert!(sink.overrides.contains_key("ParamAngleY"));
+
+    // Revoke（2026-10-15）：不从当帧清参数，从屏幕值收到 0，到点才清槽。
     assert!(rt.handle(
         parse_command(Some("none"), None, None, None),
-        400.0,
+        600.0,
         &mut sink
     ));
-    assert!(sink.overrides.is_empty());
-    assert!(rt.active().is_none());
+    assert!(
+        sink.overrides.contains_key("ParamAngleY"),
+        "Revoke 当帧不清"
+    );
+    assert!(rt.active_gesture().is_some(), "放回途中槽还占着");
+    rt.apply_frame(600.0, &mut sink);
+    assert!(sink.overrides.contains_key("ParamAngleY"), "q = 0 值不动");
+    // 放回时长 = nod 900ms × (1 - HOLD_END) = 342ms。
+    rt.apply_frame(600.0 + MOTION_MS * (1.0 - HOLD_END), &mut sink);
+    assert!(sink.overrides.is_empty(), "到点才清 override");
+    assert!(rt.active().is_none(), "到点才清槽");
 }
 
 #[test]
@@ -112,21 +138,30 @@ fn face_and_gesture_coexist_in_one_turn() {
     rt.handle(parse_command(Some("nod"), None, None, None), 0.0, &mut sink);
     assert_eq!(rt.active_face().unwrap().spec.id, "smile");
     assert_eq!(rt.active_gesture().unwrap().spec.id, "nod");
-    rt.apply_frame(EXPRESSION_MS / 2.0, &mut sink);
+    rt.apply_frame(MOTION_MS / 2.0, &mut sink);
     assert!(
         sink.overrides.contains_key("ParamMouthForm"),
         "手势不吞表情"
     );
     assert!(sink.overrides.contains_key("ParamAngleY"), "表情不吞手势");
 
+    // Revoke：两个槽各自从屏幕值放回，按**自己的** ttl 到点（2026-10-15）。
     rt.handle(
         parse_command(Some("none"), None, None, None),
         1.0,
         &mut sink,
     );
-    assert!(rt.active_face().is_none());
-    assert!(rt.active_gesture().is_none());
-    assert!(sink.overrides.is_empty());
+    assert!(
+        rt.active_face().is_some() && rt.active_gesture().is_some(),
+        "Revoke 后两个槽都在放回"
+    );
+    // 手势 900 × 0.38 = 342ms 先清；表情 2600 × 0.38 = 988ms 后清。
+    rt.apply_frame(1.0 + MOTION_MS * (1.0 - HOLD_END), &mut sink);
+    assert!(rt.active_gesture().is_none(), "手势槽到点清");
+    assert!(rt.active_face().is_some(), "表情槽还在放回");
+    rt.apply_frame(1.0 + EXPRESSION_MS * (1.0 - HOLD_END), &mut sink);
+    assert!(rt.active_face().is_none(), "表情槽到点清");
+    assert!(sink.overrides.is_empty(), "两个槽的 override 都已清");
 }
 
 /// **分槽撤销**：同槽换包只清该槽上一条的参数，另一槽原样。
@@ -144,15 +179,16 @@ fn same_slot_switch_only_clears_that_slot() {
     rt.apply_frame(10.0, &mut sink);
     assert!(sink.overrides.contains_key("ParamEyeLSmile"));
 
-    // 表情槽换包：smile -> surprised（只清 smile 的通道）。
+    // 表情槽换包：smile -> surprised（只动表情槽：旧通道走接力窗口，
+    // 到攻击段结束才清——2026-10-15 执行单 §1）。
     rt.handle(
         parse_command(Some("surprised"), None, None, None),
         20.0,
         &mut sink,
     );
     assert!(
-        !sink.overrides.contains_key("ParamEyeLSmile"),
-        "同槽换包必须清掉上一条的残留"
+        sink.overrides.contains_key("ParamEyeLSmile"),
+        "接力窗口内旧表情通道先接上，不得立刻清"
     );
     assert_eq!(
         rt.active_gesture().unwrap().spec.id,
@@ -166,6 +202,13 @@ fn same_slot_switch_only_clears_that_slot() {
         (y - (-12.0)).abs() < 1e-3,
         "共享头角仍由手势包写（实得 {y}）"
     );
+    // surprised 在 20 + 0.22 × 2600 = 592ms 进入保持段：smile 独有的通道被清掉。
+    rt.apply_frame(600.0, &mut sink);
+    assert!(
+        !sink.overrides.contains_key("ParamEyeLSmile"),
+        "到 ATTACK_END 必须清掉上一条的残留"
+    );
+    assert!(sink.overrides.contains_key("ParamEyeLOpen"));
 }
 
 /// 共享头 / 身通道：同帧 Face 先写、Gesture 后写，手势赢。
@@ -194,9 +237,9 @@ fn gesture_wins_the_shared_head_channel() {
 #[test]
 fn intensity_scales_face_and_head_body_monotonically() {
     let smile = preset("smile").unwrap();
-    let mouth = |i: f32| out(smile, 1.0, i, "ParamMouthForm");
-    let head = |i: f32| out(smile, 1.0, i, "ParamAngleY");
-    let body = |i: f32| out(smile, 1.0, i, "ParamBodyAngleY");
+    let mouth = |i: f32| out(smile, 0.5, i, "ParamMouthForm");
+    let head = |i: f32| out(smile, 0.5, i, "ParamAngleY");
+    let body = |i: f32| out(smile, 0.5, i, "ParamBodyAngleY");
     for (a, b) in [(1.0, 2.0), (2.0, 3.0)] {
         assert!(mouth(a) < mouth(b), "嘴形应随 intensity 单调：{a}->{b}");
         assert!(head(a) < head(b), "头角应随 intensity 单调：{a}->{b}");
@@ -213,9 +256,9 @@ fn intensity_scales_face_and_head_body_monotonically() {
 fn unhappy_morphs_sad_low_to_angry_high() {
     let unhappy = preset("unhappy").unwrap();
     assert!(unhappy.morph.is_some(), "unhappy 必须是 morph 包");
-    let brow = |i: f32| out(unhappy, 1.0, i, "ParamBrowLY");
-    let eye = |i: f32| out(unhappy, 1.0, i, "ParamEyeLOpen");
-    let head_y = |i: f32| out(unhappy, 1.0, i, "ParamAngleY");
+    let brow = |i: f32| out(unhappy, 0.5, i, "ParamBrowLY");
+    let eye = |i: f32| out(unhappy, 0.5, i, "ParamEyeLOpen");
+    let head_y = |i: f32| out(unhappy, 0.5, i, "ParamAngleY");
 
     // 低 = 难过相：眉上挑（正）、垂眼、低头。
     assert!(brow(1.0) > 0.2, "unhappy@1 眉应上挑，实得 {}", brow(1.0));
@@ -239,12 +282,12 @@ fn unhappy_morphs_sad_low_to_angry_high() {
     // 对称（左右眉/眼同值）。
     for i in [1.0, 2.0, 3.0] {
         assert_eq!(
-            out(unhappy, 1.0, i, "ParamBrowLY"),
-            out(unhappy, 1.0, i, "ParamBrowRY")
+            out(unhappy, 0.5, i, "ParamBrowLY"),
+            out(unhappy, 0.5, i, "ParamBrowRY")
         );
         assert_eq!(
-            out(unhappy, 1.0, i, "ParamEyeLOpen"),
-            out(unhappy, 1.0, i, "ParamEyeROpen")
+            out(unhappy, 0.5, i, "ParamEyeLOpen"),
+            out(unhappy, 0.5, i, "ParamEyeROpen")
         );
     }
 }
@@ -253,11 +296,11 @@ fn unhappy_morphs_sad_low_to_angry_high() {
 #[test]
 fn unhappy_below_the_low_anchor_scales_from_neutral() {
     let unhappy = preset("unhappy").unwrap();
-    for (_, v) in frame_params_scaled_by(unhappy, 1.0, 0.0, PresetScales::default()) {
+    for (_, v) in frame_params_scaled_by(unhappy, 0.5, 0.0, PresetScales::default()) {
         assert_eq!(v, 0.0, "intensity=0 应全零");
     }
-    let half = out(unhappy, 1.0, 0.5, "ParamBrowLY");
-    let full = out(unhappy, 1.0, 1.0, "ParamBrowLY");
+    let half = out(unhappy, 0.5, 0.5, "ParamBrowLY");
+    let full = out(unhappy, 0.5, 1.0, "ParamBrowLY");
     assert!((half - full / 2.0).abs() < 1e-6, "半强度 = 难过相的一半");
 }
 
@@ -386,11 +429,12 @@ fn runtime_limit(id: &str) -> f32 {
     }
 }
 
-/// 峰值系数：包络 × 波形在 progress 上的数值上确界（真的采样算出来）。
+/// 峰值系数：起落曲线 × 波形在 progress 上的数值上确界（真的采样算出来）。
 ///
-/// - 表情：静态保持，恒 1.0；
-/// - Single：sin(pi*p) 的上确界 = 1.0（p = 0.5）；
-/// - Oscillate：逐点采样取最大（shake cycles=2 → 0.9285，**不许写 1.0**）。
+/// - 表情：保持段的上确界 = 1.0（进 / 出段与手势同一条曲线）；
+/// - Single：起落曲线上确界 = 1.0（保持段）；
+/// - Oscillate：逐点采样取最大（2026-10-14 起保持段可达满幅 → 1.0；
+///   旧的 sin(pi*p) 时代是 0.9285）。
 fn peak_gain(spec: &PresetSpec) -> f32 {
     match spec.kind {
         PresetKind::Expression => 1.0,
@@ -449,15 +493,18 @@ pub(super) fn main_axis_pair(id: &str) -> Option<(&'static str, &'static str)> {
     }
 }
 
-/// shake 的峰值系数**真的算出来**（不是 1.0）：两个旋钮的红线账都依赖它。
+/// shake 的峰值系数**真的算出来**（不许写死）：两个旋钮的红线账都依赖它。
+///
+/// 2026-10-14 起手势起落曲线有**保持段**（值恰好 1），于是 Oscillate 的峰值从
+/// `sin(pi*p)` 时代的 0.9285 变成 **1.0**（保持段里 `|sin(2*pi*cycles*p)|` 取得到 1）。
 #[test]
 fn shake_oscillate_peak_is_computed_not_assumed() {
     let shake = preset("shake").unwrap();
     let peak = peak_gain(shake);
-    println!("shake peak_gain = {peak:.6}（写死 1.0 会低估约 7.7% 的行程）");
+    println!("shake peak_gain = {peak:.6}（2026-10-14 保持段起 = 1.0）");
     assert!(
-        (peak - 0.9285).abs() < 1e-3,
-        "shake(cycles=2) 峰值应为 0.9285，实得 {peak}"
+        (peak - 1.0).abs() < 1e-3,
+        "shake(cycles=2) 峰值应为 1.0（保持段满幅），实得 {peak}"
     );
     assert!(
         peak_gain(preset("nod").unwrap()) > 0.9999,

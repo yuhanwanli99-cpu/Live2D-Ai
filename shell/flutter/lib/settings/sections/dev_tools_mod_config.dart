@@ -186,6 +186,31 @@ class _ModConfigTileState extends State<_ModConfigTile> {
   void initState() {
     super.initState();
     _baseline = Map<String, Object?>.of(widget.mod.config);
+    _registerDraft();
+  }
+
+  /// 把本卡片的草稿口登记给宿主（T2，2026-10-13 执行单）。
+  ///
+  /// 底部「保存并重载」要能把这里**尚未提交**的配置一起提交（导演的
+  /// `motion_bias` 就是这么进 mods.json 的）。两个口都是本卡片的局部状态：
+  /// `isDirty` = `_edited` 非空，`save` = 与「保存并应用」同一条路径。
+  void _registerDraft() {
+    widget.drafts?.register(
+      widget.mod.id,
+      isDirty: () => _edited.isNotEmpty,
+      save: _saveFromHost,
+    );
+  }
+
+  /// 宿主「保存并重载」的提交口：真的保存一次，返回是否已提交成功。
+  ///
+  /// 判据用 `_edited` 是否被清空（`_save` 只在服务端 `ok` 时清）——不复用
+  /// 文案，文案会改、这个状态不会。
+  Future<bool> _saveFromHost() async {
+    if (_edited.isEmpty) return true;
+    if (widget.onSaveConfig == null) return false;
+    await _save();
+    return _edited.isEmpty;
   }
 
   @override
@@ -194,6 +219,13 @@ class _ModConfigTileState extends State<_ModConfigTile> {
     if (_draftRestored) return;
     _draftRestored = true;
     _restoreDraft();
+    if (_edited.isNotEmpty) {
+      // 草稿是从路由桶里恢复出来的：底部操作条也得跟着出现。首帧之后再通知
+      // （didChangeDependencies 在 build 期间跑，此时 setState 会被拦下）。
+      WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+        if (mounted) widget.drafts?.refresh();
+      });
+    }
   }
 
   @override
@@ -203,6 +235,10 @@ class _ModConfigTileState extends State<_ModConfigTile> {
     // 串到别人身上）。`ModsSection` 现在按 id 挂了 ValueKey，正常不会走到
     // 这里；留下这段是兜底：换 id = 整份重建，不迁移草稿。
     if (oldWidget.mod.id != widget.mod.id) {
+      // 换了一身份：旧 id 的登记必须撤掉，否则底部「保存并重载」会拿着
+      // 这张卡片的草稿去写另一个 Mod 的配置（T2）。
+      widget.drafts?.unregister(oldWidget.mod.id);
+      _registerDraft();
       _edited.clear();
       _message = null;
       _messageIsError = false;
@@ -247,6 +283,8 @@ class _ModConfigTileState extends State<_ModConfigTile> {
       _edited.add(key);
     });
     _persistDraft();
+    // 草稿由「无」变「有」：底部「保存并重载」要出现（T2）。
+    widget.drafts?.refresh();
   }
 
   bool _boolValue(ModSettingField f) =>
@@ -360,6 +398,8 @@ class _ModConfigTileState extends State<_ModConfigTile> {
       });
       _persistDraft();
     }
+    // 成功 = 草稿清空（底部操作条可以收），失败 = 草稿还在（条继续留着）。
+    widget.drafts?.refresh();
   }
 
   /// 成功文案（2026-10-09 口径）：只说「配置生效 / 未启用」，
@@ -373,6 +413,9 @@ class _ModConfigTileState extends State<_ModConfigTile> {
 
   @override
   void dispose() {
+    // 卡片走了：把草稿口从宿主登记处撤掉（否则底部「保存并重载」会抱着一个
+    // 已经卸载的 State 去保存）。
+    widget.drafts?.unregister(widget.mod.id);
     // 只关自己造的那个客户端；宿主注入的由宿主管生命周期。
     _ownedApi?.dispose();
     super.dispose();

@@ -85,7 +85,7 @@ extension _ShellCueVoiceWiring on _ShellRootState {
     );
   }
 
-  /// 停止键：**先**同步取消编排，再走既有 stop（V7 §6.6 / V10 §9.3）。
+  /// 打断并重发：**先**同步取消编排，再走既有 stop（V7 §6.6 / V10 §9.3）。
   ///
   /// 顺序不能反：等到 stop 的服务端回执（new_epoch）才清动作，就会在没有声音时
   /// 继续把旧 cue 演完——那正是「追着播 / 补帧」。
@@ -93,6 +93,23 @@ extension _ShellCueVoiceWiring on _ShellRootState {
     _cancelStageForTurnBoundary('stop');
     await _stop();
   }
+
+  /// 统一「停止」（圆键停止态 / Esc，2026-10-15 执行单 §2）：**永远**先取消
+  /// 编排，**仅当这一轮还在飞**时再走 `ChatController.stop()`。
+  ///
+  /// 与 [_stopWithCancellation]（打断并重发）的差别只在后半段：打断并重发按
+  /// 下去时一定有轮在飞；这一条停止在**服务端推流结束之后**也能按——那时若照
+  /// 走 `_chat.stop()`，它会凭空收口一轮（落盘 + 一条「已停止本轮」），而用户
+  /// 表达的只是「别把尾巴播完」。空闲时也不为了丢队列再打一次
+  /// `POST /chat/stop`（它本来幂等，但没必要）。
+  ///
+  /// 条件与两步的顺序收在 [stopPlayback]（纯编排，VM 可测）。
+  Future<void> _stopPlayback() => stopPlayback(
+    turnInFlight: _chat.streaming,
+    reason: 'stop',
+    cancelStage: _cancelStageForTurnBoundary,
+    stopTurn: _stop,
+  );
 
   /// 发送（含重试 / 语音注入）：新消息同样先取消上一轮编排。
   Future<void> _sendWithCancellation() async {

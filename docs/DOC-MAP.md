@@ -2,12 +2,13 @@
 
 > 立档：**2026-10-01** · 状态：**活** · 真源：本文件
 > 用途：回答两件事 —— **「这个问题看哪份文档」** 与 **「这份文档还活着吗」**。
-> 真源优先级：**源码 > AGENTS.md > docs/architecture/* > docs/plans/*（活）> docs/legacy/*（历史，仅留证）**。
+> 真源优先级：**源码 > AGENTS.md > docs/architecture/CURRENT.md > docs/architecture/* > docs/plans/*（活）> docs/legacy/*（历史，仅留证）**。
 
 ## 1. 真源地图（按问题查）
 
 | 我想知道 | 看这份 | 备注 |
 |---|---|---|
+| **现行一页契约（新人先读）** | `docs/architecture/CURRENT.md` | 2026-10-13 立；与更旧架构文冲突时以它为准 |
 | 项目定位 / 分层 / 红线 / 门禁 | `AGENTS.md`（仓库根，唯一真源） | 工作树只有 `/home/skystar/Live2D-Ai` |
 | 核心契约 / 目录约定 | `docs/architecture/core-contracts.md`、`directory.md` | |
 | 主链逐环与出处 | `docs/architecture/core-chain-baseline.md` | |
@@ -25,7 +26,7 @@
 | 已**删除** Mod（local-llm / wallpaper / pet-desktop） | `docs/architecture/ARCHIVED-mods.md` | §1.4/§2.4/§3.1 删除记录（W2-A，2026-10-01）；**禁止挂回** |
 | TTS 是核心（不是 Mod） | `docs/architecture/tts-is-core.md` | |
 | 渲染算法 / 纹理档位 | `docs/architecture/renderer-*.md`、`mask-*.md` | |
-| 逐版发布说明 | **`docs/releases/v0.2.5-rc.1.md`（当前）**、`v0.2.4-rc.1.md`、`v0.2.3-rc.2.md`、`v0.2.3-rc.1.md`、`v0.2.2.md`、`v0.2.1-rc.1.md`、`docs/releases/v0.2.0*.md`（更早） | 版本四处以源码为准 |
+| 逐版发布说明 | **`docs/releases/v0.2.6-rc.1.md`（当前）**、`v0.2.5-rc.1.md`、`v0.2.4-rc.1.md`、`v0.2.3-rc.2.md`、`v0.2.3-rc.1.md`、`v0.2.2.md`、`v0.2.1-rc.1.md`、`docs/releases/v0.2.0*.md`（更早） | 版本四处以源码为准 |
 | 2026-10-07 任务账（历史） | `docs/plans/TASKS-2026-10-07.md` | T1–T9 记录。现行计划看上一行收口计划 |
 | **D1 休眠资产裁决 + 红线修订（W2）** | `docs/audit/2026-10-01-debloat/W2/D1-IMPACT-BRIEF.md` | 删/移边界、5 处主链触点、**红线修订 1/2**；`W2-A` = `d140604f`、`W2-B` = `03765bd3`（**两段均已执行**，见下 §3「结构性变更」） |
 | **0.2.0 阶段报告（欠账 / 事故 / 口径更正）** | `docs/audit/2026-10-01-debloat/PHASE-REPORT-0.2.0.md` | 与发布说明互指；**已入库**（`e8da68c0`，与发布说明同一次提交） |

@@ -180,6 +180,8 @@ extension _ShellLifecycleWiring on _ShellRootState {
     _live.dispose();
     _settings.dispose();
     _prefsRevision.dispose();
+    // T2（2026-10-13）：Mod 表单草稿登记处（卡片在 dispose 里注销，这里兜底）。
+    _modDrafts.dispose();
     _modelsApi.dispose();
     _envApi.dispose();
     _modsApi.dispose();

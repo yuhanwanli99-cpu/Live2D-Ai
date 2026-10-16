@@ -71,6 +71,7 @@ const String kHeartbeat =
 void main() {
   _reasoningFrameTests();
   _textFallbackFrameTests();
+  _userLineFrameTests();
   group('真实帧 → 领域事件（每种 type 一条，全部来自实抓）', () {
     test('subscribe_ack：首帧，topics 可为空列表', () {
       final WsEvent? e = parseWsFrame(kRealSubscribeAck);
@@ -535,5 +536,83 @@ void _textFallbackFrameTests() {
     );
     expect(ev, isA<TextFallbackEvent>());
     expect((ev! as TextFallbackEvent).text, isNull);
+  });
+}
+
+/// **`user_line`（2026-10-14 执行单）**：服务端把**这一轮喂给模型的输入正文**
+/// 广播回来。前端据此把弹幕那句写进当前会话——浏览器没参加那次发送，所以
+/// 主链跑了、历史里却没有这句用户话。
+///
+/// 形状（`seq`/`ts` 在**根**上，与 `text_fallback` 同构）由 Rust 侧
+/// `supervisor.rs` 广播 + `web_api/ws/events.rs` 投影决定；本条夹具是
+/// 按契约手写的（点火抓包后可按原文替换——「形状按抓包改，不要凭印象改」）。
+void _userLineFrameTests() {
+  group('user_line：这一轮的输入正文广播回前端', () {
+    test('解析出 epoch / text（含 per-connection 包装的 seq/ts）', () {
+      final WsEvent? ev = parseWsFrame(
+        '{"type":"user_line","seq":12,"ts":"2026-10-14T00:00:00.000Z",'
+        '"data":{"epoch":3,"text":"弹幕消息：吾***：（你好）"}}',
+      );
+      expect(ev, isA<UserLineEvent>());
+      final UserLineEvent u = ev! as UserLineEvent;
+      expect(u.text, '弹幕消息：吾***：（你好）');
+      expect(u.epoch, 3);
+      expect(u.seq, 12);
+      expect(u.ts, '2026-10-14T00:00:00.000Z');
+    });
+
+    test('投影层只写 type+data：缺 seq/ts 不影响事件本体', () {
+      final UserLineEvent u =
+          parseWsFrame('{"type":"user_line","data":{"epoch":0,"text":"x"}}')!
+              as UserLineEvent;
+      expect(u.text, 'x');
+      expect(u.epoch, 0);
+      expect(u.seq, isNull);
+      expect(u.ts, isNull);
+    });
+
+    test('缺字段 / data 不是对象 → 宽容降级，不抛', () {
+      final UserLineEvent noText =
+          parseWsFrame('{"type":"user_line","data":{"epoch":1}}')!
+              as UserLineEvent;
+      expect(noText.text, isNull, reason: '缺 text → null（调用方据此不写空话）');
+      expect(noText.epoch, 1);
+
+      final UserLineEvent noEpoch =
+          parseWsFrame('{"type":"user_line","data":{"text":"x"}}')!
+              as UserLineEvent;
+      expect(noEpoch.epoch, 0, reason: '缺 epoch 按 0（与 turn_state 同一约定）');
+
+      final UserLineEvent badData =
+          parseWsFrame('{"type":"user_line","data":"oops"}')!
+              as UserLineEvent;
+      expect(badData.epoch, 0);
+      expect(badData.text, isNull);
+    });
+
+    test('坏数据：text 非字符串 / epoch 是字符串垃圾 → 不抛', () {
+      final UserLineEvent e =
+          parseWsFrame(
+                '{"type":"user_line","data":{"epoch":"nope","text":123}}',
+              )!
+              as UserLineEvent;
+      expect(e.text, isNull, reason: '非字符串 text 一律 null——绝不把 JSON 当正文上屏');
+      expect(e.epoch, 0);
+
+      // epoch 的数字字符串走宽容解析（与 turn_state / text_delta 一致）。
+      final UserLineEvent s =
+          parseWsFrame('{"type":"user_line","data":{"epoch":"7"}}')!
+              as UserLineEvent;
+      expect(s.epoch, 7);
+    });
+
+    test('它是**独立**类型：不得退化成 text_delta / UnknownWsEvent', () {
+      final WsEvent? ev = parseWsFrame(
+        '{"type":"user_line","data":{"text":"x"}}',
+      );
+      expect(ev, isA<UserLineEvent>());
+      expect(ev, isNot(isA<TextDeltaEvent>()), reason: '退化成 delta 会被当正文追加');
+      expect(ev, isNot(isA<UnknownWsEvent>()), reason: '认得它才谈得上写进会话');
+    });
   });
 }

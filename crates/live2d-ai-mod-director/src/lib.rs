@@ -156,6 +156,7 @@
 pub mod arbiter;
 pub mod decision;
 pub mod ledger;
+pub mod motion_bias;
 pub mod plan;
 pub mod presets;
 pub mod staging;
@@ -219,6 +220,10 @@ pub struct DirectorConfig {
     pub staging_min_interval_ms: u64,
     /// 每轮异步触发上限（缺省 3）。
     pub staging_max_per_turn: usize,
+    /// 表演倾向（2026-10-13）：克制 / 平常 / 主动；缺省平常。只影响**主链按句
+    /// 清洗**的提示词与空数组回退（经 host 的 `DirectorTakeover` 读取），
+    /// 不影响本 Mod 自己的规则层 / 异步二路。
+    pub motion_bias: motion_bias::MotionBias,
 }
 
 impl Default for DirectorConfig {
@@ -234,6 +239,7 @@ impl Default for DirectorConfig {
             staging_timeout_ms: 1_500,
             staging_min_interval_ms: 1_200,
             staging_max_per_turn: 3,
+            motion_bias: motion_bias::MotionBias::Normal,
         }
     }
 }
@@ -284,67 +290,70 @@ impl DirectorConfig {
             staging_timeout_ms: millis("staging_timeout_ms", 1_500, 100, 5_000),
             staging_min_interval_ms: millis("staging_min_interval_ms", 1_200, 0, 10_000),
             staging_max_per_turn: millis("staging_max_per_turn", 3, 0, 10) as usize,
+            // 表演倾向（2026-10-13）：未知或空 = 平常（motion_bias::MotionBias::parse）。
+            motion_bias: motion_bias::MotionBias::parse(
+                value.get("motion_bias").and_then(serde_json::Value::as_str),
+            ),
         }
     }
 }
 
 /// 本 Mod 的设置 schema（**静态**：未启用也拿得到，前端可先填再启用）。
 ///
-/// 两个字段，**没有** `enabled`（启停唯一真源是 Mod manifest 的 `enabled`，
+/// **没有** `enabled`（启停唯一真源是 Mod manifest 的 `enabled`，
 /// 与 external-input / pet-desktop / memory 同口径）。
 pub fn director_settings_spec() -> ModSettingsSpec {
     // 缺省映射表就是这张表单的默认值来源（单一真源：PresetTable::default）。
     let d = PresetTable::default();
+    let mut fields = vec![
+        preset_field("preset_happy", "开心 → 动作", &d.happy),
+        preset_field("preset_sad", "难过 → 动作", &d.sad),
+        preset_field("preset_greeting", "打招呼 → 动作", &d.greeting),
+        // P1-4（2026-09-19）：**要哪些键才能真开二路**（面板可直接填）。
+        // 只开了 staging_enabled 还不够——必须再配 base_url + model，
+        // 否则仍走规则层（state_json.staging.degraded 为 true，可观察）。
+        //
+        // 2026-10-07（T8）：这 5 个 `staging_*` **不再是「遗留回退旁路」**——导演启用后，
+        // 主链表演层就用这里（两项都填）或对话模型（两项都空）把原文分段送 TTS；
+        // 只填一项 = 不接管，保持直送。label 里不得再出现「【遗留】」/「日常用表演层」。
+        ModSettingField::Bool {
+            key: "staging_enabled".to_string(),
+            label: "二路 LLM 异步 cue（不是接管开关；接管后本项不再发请求）".to_string(),
+            default: false,
+        },
+        ModSettingField::String {
+            key: "staging_base_url".to_string(),
+            label: "二路端点 base_url（留空则用对话模型；如 http://127.0.0.1:11434/v1）"
+                .to_string(),
+            secret: false,
+            default: None,
+        },
+        ModSettingField::String {
+            key: "staging_model".to_string(),
+            label: "二路模型名（留空则用对话模型）".to_string(),
+            secret: false,
+            default: None,
+        },
+        ModSettingField::String {
+            key: "staging_api_key_env".to_string(),
+            label: "二路密钥变量名（.env 里的名字；留空则用对话模型的密钥）".to_string(),
+            secret: false,
+            default: None,
+        },
+        ModSettingField::Number {
+            key: "staging_timeout_ms".to_string(),
+            label: "二路超时（毫秒，100~5000）".to_string(),
+            min: 100.0,
+            max: 5_000.0,
+        },
+    ];
+    // 表演倾向（2026-10-13）：字段本体在 motion_bias.rs，这里只 push 一次。
+    fields.push(motion_bias::MotionBias::setting_field());
     ModSettingsSpec {
         mod_id: DESCRIPTOR.id.to_string(),
         title: DESCRIPTOR.name.to_string(),
         version: 2,
-        // **只留 3 个常用档**（2026-09-15 用户裁决：可操控项过多要收）。
-        // 其余 5 档（亲昵 / 生气 / 惊讶 / 焦虑 / 告别）不再上表单，一律走
-        // PresetTable::default() 的内置映射；log_capacity / emotion_lexicon
-        // 同样退出表单（缺省 20 / builtin），配置里显式写了仍然生效。
-        fields: vec![
-            preset_field("preset_happy", "开心 → 动作", &d.happy),
-            preset_field("preset_sad", "难过 → 动作", &d.sad),
-            preset_field("preset_greeting", "打招呼 → 动作", &d.greeting),
-            // P1-4（2026-09-19）：**要哪些键才能真开二路**（面板可直接填）。
-            // 只开了 staging_enabled 还不够——必须再配 base_url + model，
-            // 否则仍走规则层（state_json.staging.degraded 为 true，可观察）。
-            //
-            // 2026-10-07（T8）：这 5 个 `staging_*` **不再是「遗留回退旁路」**——导演启用后，
-            // 主链表演层就用这里（两项都填）或对话模型（两项都空）把原文分段送 TTS；
-            // 只填一项 = 不接管，保持直送。label 里不得再出现「【遗留】」/「日常用表演层」。
-            ModSettingField::Bool {
-                key: "staging_enabled".to_string(),
-                label: "二路 LLM 异步 cue（不是接管开关；接管后本项不再发请求）".to_string(),
-                default: false,
-            },
-            ModSettingField::String {
-                key: "staging_base_url".to_string(),
-                label: "二路端点 base_url（留空则用对话模型；如 http://127.0.0.1:11434/v1）"
-                    .to_string(),
-                secret: false,
-                default: None,
-            },
-            ModSettingField::String {
-                key: "staging_model".to_string(),
-                label: "二路模型名（留空则用对话模型）".to_string(),
-                secret: false,
-                default: None,
-            },
-            ModSettingField::String {
-                key: "staging_api_key_env".to_string(),
-                label: "二路密钥变量名（.env 里的名字；留空则用对话模型的密钥）".to_string(),
-                secret: false,
-                default: None,
-            },
-            ModSettingField::Number {
-                key: "staging_timeout_ms".to_string(),
-                label: "二路超时（毫秒，100~5000）".to_string(),
-                min: 100.0,
-                max: 5_000.0,
-            },
-        ],
+        fields,
     }
 }
 

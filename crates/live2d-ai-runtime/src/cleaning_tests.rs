@@ -169,7 +169,10 @@ async fn cleaner_on_asks_for_cues_in_the_prompt() {
         }),
         CLEAN_TIMEOUT_MS,
     )
-    .with_motion(vec!["nod".to_string(), "smile".to_string()]);
+    .with_motion(
+        vec!["nod".to_string(), "smile".to_string()],
+        MotionBias::new("测试子句：nod, smile".to_string(), false),
+    );
     assert!(cleaner.motion());
     let cleaned = cleaner.clean("你好").await;
     assert_eq!(cleaned.cue_ids, Some(Vec::new()), "空数组 = 这一句不动");
@@ -194,7 +197,7 @@ async fn unknown_preset_id_is_dropped() {
         }),
         CLEAN_TIMEOUT_MS,
     )
-    .with_motion(allowed);
+    .with_motion(allowed, restrained_bias());
     let cleaned = cleaner.clean("你好").await;
     assert_eq!(
         cleaned.cue_ids,
@@ -216,7 +219,7 @@ async fn cue_preset_ids_are_not_mouth() {
         }),
         CLEAN_TIMEOUT_MS,
     )
-    .with_motion(allowed.clone());
+    .with_motion(allowed.clone(), restrained_bias());
     let cleaned = cleaner.clean("你好").await;
     let cue_ids = cleaned.cue_ids.expect("动作门开着必须解析 cues");
     for id in &cue_ids {
@@ -246,4 +249,125 @@ fn disabled_cleaner_is_off_and_from_llm_respects_the_flag() {
     let mut bad = LlmConfig::new("", "deepseek-flash");
     bad.clean_tts = true;
     assert!(!SentenceCleaner::from_llm(&bad).enabled());
+}
+
+// ---- 表演倾向（2026-10-13 执行单 T3）-----------------------------------------
+
+/// 克制档投影（空数组**不**回退；既有测试共用）。
+fn restrained_bias() -> MotionBias {
+    MotionBias::new("测试子句（克制）".to_string(), false)
+}
+
+/// `bias=None` = 既有「克制」文案逐字不变（`cues：` 那一句结尾是能力集 + 句号）。
+#[test]
+fn motion_system_prompt_without_bias_keeps_the_legacy_clause() {
+    let allowed = vec!["nod".to_string(), "smile".to_string()];
+    let prompt = motion_system_prompt(&allowed, None);
+    assert!(
+        prompt.contains(
+            "cues：只根据用户给你的这一句原文，从下面这组 id 里选 0~2 个动作预设，\
+不要根据别的句子或上下文，选不出就给空数组 []：nod, smile。"
+        ),
+        "既有克制文案必须逐字保留：{prompt}"
+    );
+}
+
+/// `bias=Some` 只把 `cues：` 那一句换成 cue_clause；display / speech 两句保持原样。
+#[test]
+fn motion_system_prompt_replaces_only_the_cues_clause() {
+    let allowed = vec!["nod".to_string(), "smile".to_string()];
+    let none = motion_system_prompt(&allowed, None);
+    let bias = motion_system_prompt(
+        &allowed,
+        Some(&MotionBias::new("三档子句：nod, smile".to_string(), false)),
+    );
+    for (label, prompt) in [("none", &none), ("bias", &bias)] {
+        assert!(prompt.starts_with("你是台词清洗器。"), "{label}：开头不变");
+        assert!(
+            prompt.contains("display：这一句原文里要显示给用户看的连续片段"),
+            "{label}：display 句不变"
+        );
+        assert!(
+            prompt.contains("speech：拿去语音合成的文本"),
+            "{label}：speech 句不变"
+        );
+        assert!(
+            prompt.ends_with("不要新增、删改或翻译台词内容，不要输出 Markdown 代码块。"),
+            "{label}：结尾不变"
+        );
+    }
+    assert!(bias.contains("cues：三档子句：nod, smile。"), "{bias}");
+    assert!(!bias.contains("只根据用户给你的这一句原文"), "{bias}");
+}
+
+/// `empty_cues_fall_back` 转给 bias 的 `fallback_on_empty`（只有主动档 true）。
+#[test]
+fn motion_bias_empty_cues_fall_back_follows_the_bias() {
+    let cleaner = |fallback: bool| {
+        SentenceCleaner::new(Box::new(StubCleaner { reply: None }), CLEAN_TIMEOUT_MS).with_motion(
+            vec!["nod".to_string()],
+            MotionBias::new("子句".to_string(), fallback),
+        )
+    };
+    assert!(
+        !cleaner(false).empty_cues_fall_back(),
+        "克制 / 平常：空数组不回退"
+    );
+    assert!(cleaner(true).empty_cues_fall_back(), "主动：空数组回退");
+}
+
+// ---- 长数字段只改送 TTS 的那份（T1，2026-10-13 执行单）------------------------
+
+/// 31 位的连续数字在送 TTS 的稿里被整段换成占位句；**原文一字不动**
+/// （上屏用的是另一份：引擎把原文交给 display，本函数只作用在 TTS 那一份）。
+#[test]
+fn long_digit_run_of_thirty_one_is_replaced_in_tts_text_only() {
+    let digits = "7182818284590452353602874713527";
+    assert_eq!(digits.len(), 31);
+    let sentence = format!("圆周率从这里开始 {digits} 后面还有。");
+    let speech = speech_for_tts(&sentence);
+    assert!(
+        !speech.contains(digits),
+        "送 TTS 的那份不得再含这 31 位：{speech}"
+    );
+    assert!(
+        speech.contains(LONG_DIGIT_PLACEHOLDER),
+        "必须换成占位句：{speech}"
+    );
+    assert_eq!(
+        speech,
+        format!("圆周率从这里开始 {LONG_DIGIT_PLACEHOLDER} 后面还有。")
+    );
+    // display 侧拿的是**原文引用**，不经本函数——这里如实断言原文没被改。
+    assert!(sentence.contains(digits), "上屏那份必须仍是原文");
+}
+
+/// 边界恰好是 17：16 位不动、17 位换；两段之间夹着别的字符就各算一段。
+#[test]
+fn long_digit_boundary_is_seventeen_and_segments_split_on_non_digits() {
+    assert_eq!(speech_for_tts("1234567890123456"), "1234567890123456");
+    assert_eq!(speech_for_tts("12345678901234567"), LONG_DIGIT_PLACEHOLDER);
+    // 中文 / 空白 / 换行都算「别的字符」，把数字切回短段（不动）。
+    assert_eq!(
+        speech_for_tts("编号1234567890123456，期12345678901234567"),
+        "编号1234567890123456，期一长串数字"
+    );
+    // 多字节字符不被劈开；emoji 原样保留（本函数不清洗任何非数字内容）。
+    assert_eq!(
+        speech_for_tts("甲🙂12345678901234567890乙"),
+        "甲🙂一长串数字乙"
+    );
+    // 全角数字**不算**（口径只认 0-9）。
+    assert_eq!(
+        speech_for_tts("１２３４５６７８９０１２３４５６７８"),
+        "１２３４５６７８９０１２３４５６７８"
+    );
+}
+
+/// 占位句本身与纯数字串的幂等：改过一遍再改不会二次膨胀。
+#[test]
+fn long_digit_masking_is_idempotent() {
+    let once = speech_for_tts("请记住7182818284590452353602874713527。");
+    assert_eq!(once, format!("请记住{LONG_DIGIT_PLACEHOLDER}。"));
+    assert_eq!(speech_for_tts(&once), once, "占位句里没有长数字段");
 }

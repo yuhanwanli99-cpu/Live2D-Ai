@@ -137,6 +137,18 @@ pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
                 "text": text,
             }));
         }
+        AppEvent::Conversation(ConversationUiEvent::UserLine { epoch, text }) => {
+            // **本轮输入正文**（2026-10-14）。弹幕 / 语音这类「浏览器没参加发送」
+            // 的一轮，前端只能靠这一帧知道用户那一句是什么（自行补用户气泡 +
+            // 存档）。发点在 supervisor 的 say 分支、先于该轮任何 `text_delta`。
+            // 未知 type 在旧客户端被忽略（`default: break`），所以这是向后兼容
+            // 的新增。
+            frame.set_type("user_line");
+            frame.set_data(serde_json::json!({
+                "epoch": epoch,
+                "text": text,
+            }));
+        }
         AppEvent::Conversation(ConversationUiEvent::ActionCue {
             epoch,
             ts_ms,
@@ -288,6 +300,31 @@ pub(crate) fn epoch_secs_to_ymdhms(secs: u64) -> (u32, u32, u32, u32, u32, u32) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `user_line`（2026-10-14 执行单 §3）：本轮**用户侧**输入正文。
+    /// 只有 type+data，data 只有 epoch 与 text；旧前端遇未知 type 忽略，
+    /// 所以是向后兼容的新增。
+    #[test]
+    fn user_line_frame_carries_only_epoch_and_text() {
+        let ev = AppEvent::Conversation(ConversationUiEvent::UserLine {
+            epoch: 42,
+            text: "弹幕消息：吾***：（其实我今天也刷着来着）".to_string(),
+        });
+        let frame = app_event_to_ws_frame(&ev).expect("必须投影成帧");
+        assert_eq!(frame["type"], "user_line");
+        assert_eq!(frame["data"]["epoch"], 42);
+        assert_eq!(
+            frame["data"]["text"],
+            "弹幕消息：吾***：（其实我今天也刷着来着）"
+        );
+        let data = frame["data"].as_object().expect("data 必须是对象");
+        assert_eq!(data.len(), 2, "data 只允许 epoch + text");
+        assert!(frame.get("payload").is_none(), "字段名必须是 data");
+        assert!(
+            frame.get("seq").is_none() && frame.get("ts").is_none(),
+            "seq/ts 由 per-connection 包装层加，投影层不写"
+        );
+    }
 
     /// action_cue 帧必须是 type + data（前端 parseWsFrame 只读 data）。
     #[test]

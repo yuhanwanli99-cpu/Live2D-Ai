@@ -213,6 +213,60 @@ const List<String> kObserverKnownTypes = <String>[
   'segment-ended',
 ];
 
+/// wire type → **中文名**（T3，2026-10-13 执行单）。
+///
+/// 只给**已知**类型：芯片显示 [observerTypeLabel]（中文 + 括号里的线名），
+/// 未知类型仍只显示线名——**不猜中文**，也不去维护第二套译名表。
+///
+/// 这里的中文只服务于 B 栏芯片与过滤摘要；动作**预设**的中文名仍是
+/// `assets/actions/preset_labels.json`（那是另一张表，别混）。
+const Map<String, String> kObserverTypeNames = <String, String>{
+  'action_cue': '动作',
+  'text_delta': '正文',
+  'text_fallback': '未收尾',
+  'error': '出错',
+  'preset-applied': '预设生效',
+  'preset-dropped': '预设丢弃',
+  'segment-ended': '段结束',
+  'stage-clock': '口型时钟',
+  'preset-replaced': '预设顶替',
+  'preset-expired': '预设到点',
+  'turn_state': '回合状态',
+  'runtime_status': '运行状态',
+};
+
+/// 芯片文案：`中文（线名）`；未知类型只回线名（不许静默丢掉）。纯函数。
+String observerTypeLabel(String type) {
+  final String? zh = kObserverTypeNames[type];
+  return zh == null ? type : '$zh（$type）';
+}
+
+/// 芯片的**短中文名**（过滤摘要用）；未知类型回线名。
+String observerTypeName(String type) => kObserverTypeNames[type] ?? type;
+
+/// 默认**不列出**的两类（T3，2026-10-13 执行单）。
+///
+/// - `stage-clock`：口型时钟约 30ms 一条，会把动作帧挤出去（B 栏不可用的主因）；
+/// - `segment-ended`：段结束是音频侧的内部节拍，开发时按需打开。
+///
+/// 语义是「**不看的**」而不是「只看这些」：默认状态下其余芯片都是勾着的，
+/// 用户点一下就能把这两类打开。
+const Set<String> kObserverDefaultDeselectedTypes = <String>{
+  'stage-clock',
+  'segment-ended',
+};
+
+/// B 栏按「不列出」集合过滤。纯函数，可单测。
+///
+/// 与 [ObserverBuffer.filterByTypes] 的差别：那条是「只留命中的」，这条是
+/// 「去掉不看的」——芯片默认是**勾着**的（勾 = 正在看）。
+List<ObserverRecord> filterObserverRecords(
+  Iterable<ObserverRecord> records,
+  Set<String> excluded,
+) => List<ObserverRecord>.unmodifiable(
+  records.where((ObserverRecord r) => !excluded.contains(r.type)),
+);
+
 /// 一条通用观测记录（B 栏）：时间戳 + wire type / 来源 + 一行文本。
 class ObserverRecord {
   const ObserverRecord({
@@ -530,7 +584,13 @@ String? _balancedObject(String src, int start) {
 
 /// WS 帧 → B 栏一行；**不认识的帧返回 null**（subscribe_ack / heartbeat 不记，
 /// 心跳会淹没有限缓冲）。未知 type 照记，type 用 wire 名。
-ObserverRecord? observeWsEvent(WsEvent event, DateTime at) {
+/// [labelFor] = 预设 id → 展示名（宿主注入 `PresetLabelTable.display`：
+/// `中文（id）`；取不到表 / 该 id 没中文名时只回 id）。缺省 = 只显示 id。
+ObserverRecord? observeWsEvent(
+  WsEvent event,
+  DateTime at, {
+  String Function(String id)? labelFor,
+}) {
   if (event is ActionCueEvent) {
     return ObserverRecord(
       at: at,
@@ -538,7 +598,7 @@ ObserverRecord? observeWsEvent(WsEvent event, DateTime at) {
       source: 'ws',
       epoch: event.epoch,
       seq: event.seq,
-      text: _actionCueSummary(event),
+      text: _actionCueSummary(event, labelFor),
     );
   }
   if (event is TextDeltaEvent) {
@@ -606,22 +666,30 @@ ObserverRecord? observeWsEvent(WsEvent event, DateTime at) {
   return null;
 }
 
-String _actionCueSummary(ActionCueEvent event) {
+String _actionCueSummary(
+  ActionCueEvent event,
+  String Function(String id)? labelFor,
+) {
   final StringBuffer b = StringBuffer('action_cue cues=${event.cues.length}');
   if (event.baseline) b.write(' baseline=true');
   if (event.reason != null && event.reason!.isNotEmpty) {
     b.write(' reason=${event.reason}');
   }
-  if (event.cues.isNotEmpty) b.write(' first=${_cueBrief(event.cues.first)}');
+  if (event.cues.isNotEmpty) {
+    b.write(' first=${_cueBrief(event.cues.first, labelFor)}');
+  }
   return b.toString();
 }
 
-String _cueBrief(ActionCue cue) {
+String _cueBrief(ActionCue cue, String Function(String id)? labelFor) {
   final StringBuffer b = StringBuffer();
   if (cue.field != null && cue.field!.isNotEmpty) b.write('field=${cue.field}');
   if (cue.presetId.isNotEmpty) {
     if (b.isNotEmpty) b.write(' ');
-    b.write('id=${cue.presetId}');
+    // **中文名旁边保留 id**（T3，2026-10-13 执行单）：labelFor 给的是
+    // `微笑（smile）`；没有中文名时退回裸 id（不谎报译名）。
+    final String? named = labelFor?.call(cue.presetId);
+    b.write('id=${named == null || named.isEmpty ? cue.presetId : named}');
   }
   if (cue.intensity != 0) {
     if (b.isNotEmpty) b.write(' ');

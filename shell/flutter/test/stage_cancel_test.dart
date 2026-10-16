@@ -80,7 +80,7 @@ void main() {
     },
   );
 
-  test('接线（语义级）：停止 / 发送 / 重试三条出口都先走取消入口', () {
+  test('接线（语义级）：停止（Esc / 圆键）/ 发送 / 重试三条出口都先走取消入口', () {
     // 库 + parts（`main.dart` 的四个 part 一起扫）；字符串留着，注释剥掉。
     final String main = stripCommentsKeepStrings(
       readLibrarySource('lib/main.dart'),
@@ -88,10 +88,28 @@ void main() {
     final String shellChat = stripCommentsAndStrings(
       readLibrarySource('lib/app/shell_chat.dart'),
     );
+    // Esc 出口：AppShell 的 `onStop` 已删，`main.dart` 里**只剩这一处**
+    // `onStop:`（Esc）。它接的是与圆键同一条 `_stopPlayback`，带 `canStop`
+    // 门，不再接 `_stopWithCancellation`（那条现在只服务「打断并重发」）。
     expect(
-      main.contains('onStop: () => unawaited(_stopWithCancellation())'),
-      isTrue,
-      reason: '停止键必须先取消（不能等服务端 new_epoch）',
+      _countOccurrences(main, 'onStop:'),
+      1,
+      reason: '两个 widget 的独立 onStop 都已删，剩下的只有 Esc',
+    );
+    expect(
+      _argLine(main, 'onStop:'),
+      contains('_stopPlayback'),
+      reason: 'Esc 与圆键走同一条停止路',
+    );
+    expect(
+      _argLine(main, 'onStop:'),
+      isNot(contains('_stopWithCancellation')),
+      reason: '别再让 Esc 走「打断并重发」那条',
+    );
+    expect(
+      _argLine(main, 'onStop:'),
+      contains('canStop'),
+      reason: 'canStop 为假时 Esc 什么都不做（不接线，而不是空回调）',
     );
     expect(
       main.contains('onSend: () => unawaited(_sendWithCancellation())'),
@@ -143,6 +161,112 @@ void main() {
       reason: '语音注入也是新消息，必须先取消',
     );
   });
+
+  group('统一「停止」：可按条件 + 空闲时不动会话（2026-10-15 执行单 §2）', () {
+    test('三条队列任一非空才可按（只在飞 / 只剩音频 / 只剩 cue / 都没有）', () {
+      expect(
+        canStopPlayback(
+          turnInFlight: true,
+          audioPending: false,
+          cuesPending: false,
+        ),
+        isTrue,
+        reason: '这一轮还在飞',
+      );
+      expect(
+        canStopPlayback(
+          turnInFlight: false,
+          audioPending: true,
+          cuesPending: false,
+        ),
+        isTrue,
+        reason: '服务端已把 PCM 推完、相位已落，但浏览器里还排着句子',
+      );
+      expect(
+        canStopPlayback(
+          turnInFlight: false,
+          audioPending: false,
+          cuesPending: true,
+        ),
+        isTrue,
+        reason: '音频播完了，舞台上还压着没演完的 cue',
+      );
+      expect(
+        canStopPlayback(
+          turnInFlight: false,
+          audioPending: false,
+          cuesPending: false,
+        ),
+        isFalse,
+        reason: '三者都没有 ⇒ 不可按（不摆按下去什么都不做的假出路）',
+      );
+    });
+
+    test('空闲时按下停止：只取消，不调 ChatController.stop', () async {
+      final List<String> calls = <String>[];
+      await stopPlayback(
+        turnInFlight: false,
+        reason: 'stop',
+        cancelStage: (String reason) => calls.add('cancel:$reason'),
+        stopTurn: () async => calls.add('stop-turn'),
+      );
+      expect(
+        calls,
+        <String>['cancel:stop'],
+        reason: 'ChatController.stop 是唯一会收口本轮 / 写「已停止本轮」/ 落盘 / '
+            'POST /chat/stop 的入口；空闲时它一次都不该被调到',
+      );
+    });
+
+    test('这一轮还在飞时按下停止：先取消、再中止本轮（顺序固定）', () async {
+      final List<String> calls = <String>[];
+      await stopPlayback(
+        turnInFlight: true,
+        reason: 'stop',
+        cancelStage: (String reason) => calls.add('cancel:$reason'),
+        stopTurn: () async => calls.add('stop-turn'),
+      );
+      expect(calls, <String>['cancel:stop', 'stop-turn']);
+    });
+
+    test('接线（语义级）：新键接 _stopPlayback，判据读三条队列', () {
+      final String main = stripCommentsKeepStrings(
+        readLibrarySource('lib/main.dart'),
+      );
+      final String wiring = stripCommentsAndStrings(
+        readLibrarySource('lib/app/shell_cue_voice_wiring.dart'),
+      );
+      final String audio = stripCommentsAndStrings(
+        readLibrarySource('lib/audio/audio_player.dart'),
+      );
+      expect(
+        main.contains('final bool canStop = canStopPlayback('),
+        isTrue,
+        reason: '可按性由纯函数算（不在 UI 层再判一次相位）',
+      );
+      expect(
+        main.contains('canStopPlayback: canStop,'),
+        isTrue,
+        reason: '圆键与 Esc 拿的是同一个局部，判据不散成两处',
+      );
+      expect(
+        main.contains('onStopPlayback: () => unawaited(_stopPlayback())'),
+        isTrue,
+        reason: '圆键停止态接的是「丢队列」那条路，不是 _stopWithCancellation',
+      );
+      expect(
+        wiring,
+        contains('turnInFlight: _chat.streaming'),
+        reason: '是否顺带中止本轮，按「这一轮还在飞」分流',
+      );
+      expect(wiring, contains('stopTurn: _stop'));
+      expect(
+        audio,
+        contains('bool get hasPending => !_queue.isEmpty;'),
+        reason: 'hasPending 只读队列事实——不改播放 / 口型 / WAV',
+      );
+    });
+  });
 }
 
 /// `anchor`（形如 `onRetryLast:`）起到这条实参结束（配平后的逗号）为止。
@@ -166,6 +290,18 @@ String _argLine(String src, String anchor) {
   }
   final int end = src.indexOf('\n', at);
   return src.substring(at, end < 0 ? src.length : end);
+}
+
+/// [needle] 在 [src] 里出现几次（钉「唯一出口」用）。
+int _countOccurrences(String src, String needle) {
+  var count = 0;
+  var at = 0;
+  while (true) {
+    final int i = src.indexOf(needle, at);
+    if (i < 0) return count;
+    count++;
+    at = i + needle.length;
+  }
 }
 
 /// 取 [signature] 那个函数的**函数体**（含花括号）。

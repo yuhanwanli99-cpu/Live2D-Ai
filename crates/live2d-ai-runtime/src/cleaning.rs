@@ -68,6 +68,56 @@ impl fmt::Debug for SentenceRuleFallback {
     }
 }
 
+/// 送 TTS 稿里**连续数字段**的最小长度（T1，2026-10-13 执行单）。
+///
+/// 本地 TTS 实测会拒收超长数字（400「超出数据范围，最长支持 16 位」），
+/// 而一个 31 位的数字会把**整轮**判失败。17 = 上游明说的 16 位再多一位——
+/// 短于它的原样念，不去猜上游还有没有别的边界。
+pub const LONG_DIGIT_RUN_MIN: usize = 17;
+
+/// 送 TTS 稿里长数字段的替换文本（念出来是这一句）。
+pub const LONG_DIGIT_PLACEHOLDER: &str = "一长串数字";
+
+/// **只改送 TTS 的那一份**：把长度 ≥ [`LONG_DIGIT_RUN_MIN`] 的连续 ASCII 数字段
+/// （0-9，中间没有别的字符）整段换成 [`LONG_DIGIT_PLACEHOLDER`]。
+///
+/// 口径（T1，2026-10-13 执行单）：
+/// - 短于 17 位的数字段**一字不动**（小数目该照念）；
+/// - **不换上屏那份**：屏幕上的那一句仍是一路原文的连续切片；
+/// - 除数字外**不做任何清洗**——emoji / 颜文字 / 动作描写是二路模型的活，
+///   本函数一个新正则都不加（历史上「顺手加清洗」正是漂移的来源）。
+///
+/// 调用点只有一处：`crate::conversation::worker` 发 TTS 请求之前。
+pub fn speech_for_tts(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() {
+            let start = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            if i - start >= LONG_DIGIT_RUN_MIN {
+                out.push_str(LONG_DIGIT_PLACEHOLDER);
+            } else {
+                // start..i 全是 ASCII：切片必定落在 char 边界上。
+                out.push_str(&text[start..i]);
+            }
+            continue;
+        }
+        // 非数字：按 char 边界整字复制（多字节字符不许被劈开）。
+        match text[i..].chars().next() {
+            Some(ch) => {
+                out.push(ch);
+                i += ch.len_utf8();
+            }
+            None => break,
+        }
+    }
+    out
+}
+
 /// 单句清洗的超时（毫秒）。
 ///
 /// 取值依据：二路只回一份两字段的短 JSON、且**关着思考**；正常在 1s 量级。
@@ -89,7 +139,19 @@ speech：拿去语音合成的文本——删掉 emoji、颜文字与括号里�
 ///
 /// `cues` 只根据用户消息里的**这一句原文**选预设 id（不跨句、不看上下文）；
 /// 能力集由调用方注入（= director 的主 allowlist）。提示词不写死 id 列表。
-pub fn motion_system_prompt(allowed: &[String]) -> String {
+///
+/// `bias` = 表演倾向（2026-10-13 执行单 T3）：`None` = 既有「克制」文案
+/// （2026-10-13 前的行为逐字不变）；`Some` = 只把 `cues：` 那一句换成 bias 的
+/// `cue_clause`，`display` / `speech` 两句保持原样。
+pub fn motion_system_prompt(allowed: &[String], bias: Option<&MotionBias>) -> String {
+    let clause = match bias {
+        Some(bias) => bias.clause().to_string(),
+        None => format!(
+            "只根据用户给你的这一句原文，从下面这组 id 里选 0~2 个动作预设，\
+             不要根据别的句子或上下文，选不出就给空数组 []：{}",
+            allowed.join(", ")
+        ),
+    };
     format!(
         "你是台词清洗器。用户给你一句台词原文，你只输出一份 JSON，不要输出其它任何字。\
 JSON 形状固定为 {{\"display\": \"...\", \"speech\": \"...\", \"cues\": [\"<id>\", ...]}}。\
@@ -97,12 +159,43 @@ display：这一句原文里要显示给用户看的连续片段，必须能在�
 （通常就是整句原文，emoji、颜文字、括号里的动作描写都留着）。\
 speech：拿去语音合成的文本——删掉 emoji、颜文字与括号里的动作描写，\
 但**不要改写**剩下的台词。\
-cues：只根据用户给你的这一句原文，从下面这组 id 里选 0~2 个动作预设，\
-不要根据别的句子或上下文，选不出就给空数组 []：{}。\
+cues：{clause}。\
 不要在 display 或 speech 里写任何表情标签。\
-不要新增、删改或翻译台词内容，不要输出 Markdown 代码块。",
-        allowed.join(", ")
+不要新增、删改或翻译台词内容，不要输出 Markdown 代码块。"
     )
+}
+
+/// 表演倾向在 runtime 侧的**最小投影**（2026-10-13 执行单 T3）。
+///
+/// 单一真源 = `live2d_ai_mod_director::motion_bias::MotionBias`（三档枚举 +
+/// 锁死的 `cue_clause` 文案）；依赖方向（director → runtime）决定 runtime 不能
+/// 反向依赖，所以这里只收两条派生值，由 host 装配时投影进来。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MotionBias {
+    /// 已含能力集 id 列表的完整 cue 子句（文案真源在 director 侧）。
+    clause: String,
+    /// 模型交回空数组时是否回退按句规则表（只有「主动」档 true）。
+    fallback_on_empty: bool,
+}
+
+impl MotionBias {
+    /// 由 host 从导演档位投影构造。
+    pub fn new(clause: String, fallback_on_empty: bool) -> Self {
+        Self {
+            clause,
+            fallback_on_empty,
+        }
+    }
+
+    /// cue 子句（`motion_system_prompt` 的 `cues：` 那一句）。
+    pub fn clause(&self) -> &str {
+        &self.clause
+    }
+
+    /// 空数组是否回退规则表（只有主动档 true）。
+    pub fn fallback_on_empty(&self) -> bool {
+        self.fallback_on_empty
+    }
 }
 
 /// 一句的**两份文本**（二路交回的成功结果）。
@@ -151,6 +244,9 @@ pub struct SentenceCleaner {
     motion: bool,
     /// cue 的 preset id 能力集（动作门下用于校验模型给回的 id）。
     allowed: Vec<String>,
+    /// 表演倾向（2026-10-13 执行单 T3；动作门下生效）：`None` = 既有克制文案，
+    /// `Some` = 只换 `cues：` 那一句 + 决定空数组是否回退规则表。
+    bias: Option<MotionBias>,
 }
 
 impl fmt::Debug for SentenceCleaner {
@@ -173,6 +269,7 @@ impl SentenceCleaner {
             timeout_ms,
             motion: false,
             allowed: Vec::new(),
+            bias: None,
         }
     }
 
@@ -225,6 +322,7 @@ impl SentenceCleaner {
                 timeout_ms,
                 motion,
                 allowed,
+                bias: None,
             },
             Err(reason) => {
                 tracing::warn!(
@@ -237,15 +335,27 @@ impl SentenceCleaner {
                     timeout_ms,
                     motion,
                     allowed,
+                    bias: None,
                 }
             }
         }
     }
 
     /// 打开**动作开关**（解析可选 `cues`），能力集 = 主 allowlist。
-    pub fn with_motion(mut self, allowed: Vec<String>) -> Self {
+    ///
+    /// `bias` = 表演倾向（2026-10-13 执行单 T3）：克制 / 平常只换提示词子句，
+    /// 主动档还决定「模型交回空数组时改用规则表」（[`Self::empty_cues_fall_back`]）。
+    pub fn with_motion(mut self, allowed: Vec<String>, bias: MotionBias) -> Self {
         self.motion = true;
         self.allowed = allowed;
+        self.bias = Some(bias);
+        self
+    }
+
+    /// 给**已按 `from_parts(.., motion=true, ..)` 构造**的清洗器补上表演倾向
+    /// （staging 端点路径；`with_motion` 的同义补充，不重复设置 motion / allowed）。
+    pub fn with_bias(mut self, bias: MotionBias) -> Self {
+        self.bias = Some(bias);
         self
     }
 
@@ -257,6 +367,16 @@ impl SentenceCleaner {
     /// 动作门是否开着（解析 `cues`）。
     pub fn motion(&self) -> bool {
         self.motion
+    }
+
+    /// 模型交回**空数组**时是否回退按句规则表（2026-10-13 执行单 T3：只有
+    /// 「主动」档 true；克制 / 平常的空数组仍是成功）。转给 bias 的
+    /// [`MotionBias::fallback_on_empty`]。
+    pub fn empty_cues_fall_back(&self) -> bool {
+        self.bias
+            .as_ref()
+            .map(|bias| bias.fallback_on_empty())
+            .unwrap_or(false)
     }
 
     /// 二路会用的模型名（排障 / 状态面）。
@@ -271,9 +391,10 @@ impl SentenceCleaner {
         }
         let user = build_user_prompt(sentence);
         // 动作门关着 → 旧提示词 / 旧两字段解析（既有测试逐字不变）；
-        // 开着 → 同一次请求多要一份可选 `cues`（T11）。
+        // 开着 → 同一次请求多要一份可选 `cues`（T11），提示词按表演倾向
+        // （2026-10-13 执行单 T3）换 `cues：` 那一句。
         let system = if self.motion {
-            motion_system_prompt(&self.allowed)
+            motion_system_prompt(&self.allowed, self.bias.as_ref())
         } else {
             CLEAN_SYSTEM_PROMPT.to_string()
         };

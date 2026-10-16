@@ -3,16 +3,16 @@
 > 本文档把 `docs/` 按用途分目录，避免所有文件堆在顶层。
 >
 > **文档地图 / 生命周期三分 / 归档规则见 [DOC-MAP.md](DOC-MAP.md)（2026-10-01 立）**；
-> **当前执行计划（0.2.0 收口 + 去臃肿）见 [PLAN-debloat-and-closeout-2026-10-01.md](plans/PLAN-debloat-and-closeout-2026-10-01.md)**。
+> **现行契约（一页，2026-10-13）见 [architecture/CURRENT.md](architecture/CURRENT.md)**；
+> 2026-10-01 的收口计划 [PLAN-debloat-and-closeout-2026-10-01.md](plans/PLAN-debloat-and-closeout-2026-10-01.md) 已是**历史**，不再算当前计划。
 
 ## 架构与契约（当前）
 
 - [架构总览](architecture/ARCHITECTURE.md)
 - [核心契约与架构边界](architecture/core-contracts.md)
-- [**表演层 v0（`[performance]` 段）：每轮一份合法化 JSON，speak 是 TTS/上屏真源**](architecture/performance-layer-v0.md)
-  ——**主模型不负责表演**（无工具、无表演类预设）；表演层每轮独立端点交回 `{"speak":…,"cues":[…]}`；
-  默认关；关/超时/非 2xx/校验失败 → `speak=clean_for_tts(原文)` + 规则 cue（仅失败回退）；
-  director Mod 的 `staging_*` 降为遗留并行实现（同轮只有一个 cue 产者）
+- [**现行契约（一页）：产品现状 / 导演与动作 / Mod 在册 / 点火**](architecture/CURRENT.md)
+  ——表演与动作的**现状**看这一页；旧文 [表演层 v0](architecture/performance-layer-v0.md) 里
+  「主模型不负责表演 / director `staging_*` 降为遗留」是 2026-09-27 的旧表述，以 `CURRENT.md` 为准
 - [**CosyVoice 3 TTS 接入（2026-09-10，能力就绪/未部署）**](architecture/cosyvoice3-tts-integration.md)
 - [渲染纹理 / 离屏靶标档位 ADR（4096/8192/16384）](architecture/renderer-texture-tier-adr.md)
 - [PC 无预设半身联动实现](architecture/pc-presetfree-halfbody-control.md)
@@ -71,7 +71,9 @@
 
 ## 版本与发布
 
-- [**v0.2.5-rc.1 — 导演开启时按句清洗并按原文出动作、出厂不设人设**（当前）](releases/v0.2.5-rc.1.md)
+- [**v0.2.6-rc.1 — 动作衔接与本句续播，功能冻结**（当前）](releases/v0.2.6-rc.1.md)
+  ——手势曲线与待机摆头让开、同槽接力、表情起落与撤销放回、一句一键停止、本句 TTS 失败后续句继续。不打 `v0.2.6`，不发布 `0.3.0`。
+- [v0.2.5-rc.1 — 导演开启时按句清洗并按原文出动作、出厂不设人设](releases/v0.2.5-rc.1.md)
   ——导演启用且 `staging_*` 两项都空 / 都有时，按句清洗的**同一次**响应带 `cues`（依据是这一句一路原文；失败回退按句规则表）；出厂 `system_prompt` 为空、`shared/persona.yaml` 删除、`live2d-ai-mod-persona` 保留；`[performance].enabled` 仍缺省 false。**浏览器未点**，`v0.2.5` 未打。
 - [v0.2.4-rc.1 — 本机出声接上、待机开关、设置草稿、渲染档位、TTS 生命周期](releases/v0.2.4-rc.1.md)
   ——MeloTTS 可复现安装且 8091 真的应答；待机开关连每帧摆动一起停、物理并入导演角度；本机偏好改草稿、底部一次「保存并重载」；档位 = 画布最长边 + 运行期降级；本地 TTS 子进程装 `PR_SET_PDEATHSIG`。仍在原处，不移动。

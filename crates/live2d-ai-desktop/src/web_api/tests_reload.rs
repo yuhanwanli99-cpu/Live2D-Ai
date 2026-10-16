@@ -22,7 +22,7 @@ fn body_to_string(resp: Response<std::io::Cursor<Vec<u8>>>) -> String {
 /// 替代「固定 sleep(100ms) 后断言已消费」：重负载（3× flutter 并发）下
 /// 100ms 不保证 supervisor 已经跑过 `apply_reload`；这里以 10ms 步长轮询
 /// 到期限为止，命中即返回 true。
-fn wait_until_reload_consumed(
+pub(super) fn wait_until_reload_consumed(
     supervisor: &Arc<crate::supervisor::SupervisorHandle>,
     timeout: std::time::Duration,
 ) -> bool {
@@ -43,7 +43,7 @@ fn wait_until_reload_consumed(
 
 /// 起一个最小 supervisor 指向 tmp 配置（URL 不要求端点可达，只要求
 /// reload 路径走通）。返回 `SupervisorHandle + tmp path`。
-fn spawn_test_supervisor(
+pub(super) fn spawn_test_supervisor(
     key: &str,
 ) -> (Arc<crate::supervisor::SupervisorHandle>, std::path::PathBuf) {
     let tmp = std::env::temp_dir().join(format!(

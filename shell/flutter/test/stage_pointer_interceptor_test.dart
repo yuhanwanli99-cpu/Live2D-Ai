@@ -47,7 +47,6 @@ Widget _shell({
     messages: const <Never>[],
     input: TextEditingController(),
     onSend: () {},
-    onStop: () {},
     onRetryConnection: () {},
     volume: 0.8,
     muted: false,

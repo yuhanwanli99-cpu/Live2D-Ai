@@ -35,7 +35,6 @@ ChatPanel _panel({
   phase: UiPhase.idle,
   input: TextEditingController(),
   onSend: () {},
-  onStop: () {},
   onDismissError: () {},
   volume: 1,
   muted: false,

@@ -243,6 +243,13 @@ class AudioPlayer {
     _emitLevel(0);
   }
 
+  /// 队列里**还有没有**没播完的句子（正在播的那一句也算）。
+  ///
+  /// 只读一份事实（[SerialQueue.isEmpty] 的反面）：输入区那颗「停止」键据此
+  /// 决定可按性——服务端把 PCM 推完、相位离开「说话中」之后，浏览器里往往还
+  /// 排着几句，那是**唯一**还记得这件事的地方。
+  bool get hasPending => !_queue.isEmpty;
+
   void dispose() {
     if (_disposed) return;
     interrupt();

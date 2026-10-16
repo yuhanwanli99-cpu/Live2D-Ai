@@ -246,6 +246,10 @@ class UiStateTracker extends ChangeNotifier {
       // `turn_state`（或 `text_delta{completed}`）负责。
       case TextFallbackEvent():
         return false;
+      // `user_line` 只往**当前会话**补一句用户话（由 `ChatController` 落盘），
+      // **不改相位**：相位仍由 `send` / `voice_started` / 收口帧决定。
+      case UserLineEvent():
+        return false;
       case SubscribeAckEvent():
       case HeartbeatEvent():
       // ↑ `heartbeat` **不是**「什么也不做」了：它已经在方法开头的

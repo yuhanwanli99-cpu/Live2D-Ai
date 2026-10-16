@@ -34,7 +34,8 @@ class ChatPanel extends StatelessWidget {
     required this.phase,
     required this.input,
     required this.onSend,
-    required this.onStop,
+    this.canStopPlayback = false,
+    this.onStopPlayback,
     required this.onDismissError,
     required this.volume,
     required this.muted,
@@ -67,7 +68,20 @@ class ChatPanel extends StatelessWidget {
   final TextEditingController input;
 
   final VoidCallback onSend;
-  final VoidCallback onStop;
+
+  /// 圆键停止态可按吗：**由宿主算好**（三条队列任一非空）。
+  ///
+  /// 判据是纯函数 `canStopPlayback`（`live2d/stage_cancel.dart`，VM 可测）；
+  /// 面板只呈现——不要在 UI 层再判一次相位或「这一轮在不在飞」。
+  final bool canStopPlayback;
+
+  /// 圆键停止态按下：丢掉**还没播完**的 TTS 队列与还没演完的表演队列。
+  ///
+  /// 它不再是独立键——就是输入区那颗圆键（[canStopPlayback] 为真时）；
+  /// Esc 走宿主同一条 `_stopPlayback`。`null` = 没接线（测试里的桩）⇒
+  /// 按钮不可按，不摆一条按下去什么都不做的假出路。
+  final VoidCallback? onStopPlayback;
+
   final VoidCallback onDismissError;
 
   final String? error;
@@ -332,20 +346,15 @@ class ChatPanel extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: Space.s2),
-                  // 一轮进行中时，同一个位置变「停止」——避免用户以为发了没反应。
+                  // 只在**这一颗**圆键上切换发送 / 停止：输入区没有第二颗停止键。
+                  // 判据是宿主算好的 [canStopPlayback]（三条队列），**不看相位**——
+                  // 服务端推完 PCM、相位落回去之后的尾巴也由它接住。
                   _RoundActionButton(
-                    icon:
-                        (phase == UiPhase.thinking || phase == UiPhase.speaking)
+                    icon: canStopPlayback
                         ? Icons.stop_rounded
                         : Icons.arrow_upward_rounded,
-                    tooltip:
-                        (phase == UiPhase.thinking || phase == UiPhase.speaking)
-                        ? '停止本轮'
-                        : '发送（Enter）',
-                    onPressed:
-                        (phase == UiPhase.thinking || phase == UiPhase.speaking)
-                        ? onStop
-                        : onSend,
+                    tooltip: canStopPlayback ? '停止' : '发送（Enter）',
+                    onPressed: canStopPlayback ? onStopPlayback : onSend,
                   ),
                 ],
               ),
@@ -459,7 +468,9 @@ class _RoundActionButton extends StatelessWidget {
 
   final IconData icon;
   final String tooltip;
-  final VoidCallback onPressed;
+
+  /// `null` = 没接线（测试桩）⇒ IconButton 不可按，不抛。
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -468,7 +479,7 @@ class _RoundActionButton extends StatelessWidget {
       message: tooltip,
       child: IconButton(
         onPressed: onPressed,
-        // 读屏念的是动作（「发送」「停止本轮」），不是图标名。
+        // 读屏念的是动作（「发送」「停止」），不是图标名。
         icon: Icon(icon),
         style: IconButton.styleFrom(
           backgroundColor: palette.accent,

@@ -19,6 +19,7 @@ class ModsSection extends StatelessWidget {
     this.pickCardFile,
     this.actionScales,
     this.directorDebug,
+    this.drafts,
     super.key,
   });
 
@@ -63,6 +64,13 @@ class ModsSection extends StatelessWidget {
   /// 导演卡片里「表情调试 / 动作调试 / 临时幅度」的接线（2026-10-09 从核心
   /// 「开发模式」页搬来）；同样只有 director 面板消费，null = 不渲染那块。
   final DirectorDebugWiring? directorDebug;
+
+  /// 各卡片表单**未提交草稿**的登记处（T2，2026-10-13 执行单）。
+  ///
+  /// 宿主（`_ShellRootState`）建一份并注入：底部「保存并重载」据此把导演表单里
+  /// 还没提交的配置（含 `motion_bias`）一起提交。null = 不登记（纯 widget 测试
+  /// / 旧调用点），那时底部那颗按钮只保存 toml 与本机偏好。
+  final ModConfigDrafts? drafts;
 
   final Future<void> Function(String id, bool enabled)? onToggle;
 
@@ -157,6 +165,7 @@ class ModsSection extends StatelessWidget {
                 pickCardFile: pickCardFile,
                 actionScales: actionScales,
                 directorDebug: directorDebug,
+                drafts: drafts,
               ),
         if (onReload != null) ...<Widget>[
           const SizedBox(height: Space.s3),
@@ -172,6 +181,71 @@ class ModsSection extends StatelessWidget {
       ],
     );
   }
+}
+
+/// 「Mod 配置表单里尚未提交的草稿」的**宿主侧登记处**（T2，2026-10-13 执行单）。
+///
+/// # 它解决什么
+///
+/// 设置底部的「保存并重载」除了写 toml / 显示偏好，还要把各卡片表单里**还没按
+/// 「保存并应用」**的改动一起提交——导演卡片上的「表演倾向（保存并重载后生效）」
+/// 就是这么进 mods.json 的（不然用户按了底部那颗按钮，档位却没写盘）。
+///
+/// 表单状态仍住在 `_ModConfigTileState`（那张卡片的局部状态，刻意不搬到宿主）；
+/// 这里只做三件事：
+/// 1. 卡片登记 / 注销自己的「脏不脏」与「怎么保存」；
+/// 2. 宿主读 [hasPending] 决定底部操作条出不出现（`_anyDraftDirty`）；
+/// 3. 宿主一次 [submitPending] 把全部脏表单提交出去。
+///
+/// 是 [ChangeNotifier]：草稿的出现 / 消失要让外壳重画（操作条的可见性）。
+class ModConfigDrafts extends ChangeNotifier {
+  final Map<String, _ModConfigDraft> _drafts = <String, _ModConfigDraft>{};
+
+  /// 登记一张卡片的草稿口（同 id 重复登记 = 覆盖：测试里同一 id 会反复泵）。
+  void register(
+    String modId, {
+    required bool Function() isDirty,
+    required Future<bool> Function() save,
+  }) {
+    _drafts[modId] = _ModConfigDraft(isDirty: isDirty, save: save);
+  }
+
+  /// 注销（卡片 dispose；切分区时整棵子树都会走到这里）。
+  void unregister(String modId) {
+    if (_drafts.remove(modId) != null) notifyListeners();
+  }
+
+  /// 草稿的脏 / 净变了（改了一个字段、保存成功、从路由桶恢复了草稿）。
+  void refresh() => notifyListeners();
+
+  /// 有没有还没提交的表单草稿。
+  ///
+  /// **由卡片自己报**（它的 `_edited` 非空）——不从服务端 config 反推：
+  /// 「用户改过、值恰好又等于服务端值」也该算脏（那一下保存仍要把整份 config
+  /// 写回，并且要触发按句清洗器重建）。
+  bool get hasPending => _drafts.values.any((_ModConfigDraft d) => d.isDirty());
+
+  /// 提交**全部**未提交的表单草稿；返回失败的 mod id（空 = 全成功）。
+  ///
+  /// 顺序 = 登记顺序（Map 保持插入序），逐张**串行**：卡片自己的「保存并应用」
+  /// 也是串行的，这里不引入并发保存同一份配置的可能。
+  Future<List<String>> submitPending() async {
+    final List<String> failed = <String>[];
+    for (final MapEntry<String, _ModConfigDraft> entry
+        in _drafts.entries.toList()) {
+      if (!entry.value.isDirty()) continue;
+      if (!await entry.value.save()) failed.add(entry.key);
+    }
+    return failed;
+  }
+}
+
+/// 一张卡片的两个口（[ModConfigDrafts] 内部用）。
+class _ModConfigDraft {
+  const _ModConfigDraft({required this.isDirty, required this.save});
+
+  final bool Function() isDirty;
+  final Future<bool> Function() save;
 }
 
 /// 发一条 Mod 命令（`POST /api/v1/mods/{id}/command`）。
@@ -243,6 +317,7 @@ class _ModConfigTile extends StatefulWidget {
     this.pickCardFile,
     this.actionScales,
     this.directorDebug,
+    this.drafts,
     super.key,
   });
 
@@ -265,6 +340,9 @@ class _ModConfigTile extends StatefulWidget {
 
   /// 见 [ModsSection.directorDebug]：透传给 ModPanelContext。
   final DirectorDebugWiring? directorDebug;
+
+  /// 见 [ModsSection.drafts]：表单草稿的登记处。
+  final ModConfigDrafts? drafts;
 
   @override
   State<_ModConfigTile> createState() => _ModConfigTileState();

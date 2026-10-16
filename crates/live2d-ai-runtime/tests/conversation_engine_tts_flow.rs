@@ -49,9 +49,10 @@ async fn llm_status_error_is_observable_then_failed_terminal() {
     assert!(tts_inputs.lock().unwrap().is_empty());
 }
 
-/// TTS 500：Error(Tts) 致命——丢弃剩余排队句子，Terminal{Failed} 收尾。
+/// **单句 TTS 500 只影响这一句**（2026-10-15 执行单 §2）：走静音句、worker 不退出、
+/// 后面的句子继续合成，轮次 **Completed**（不再有 `Error` / `Terminal{Failed}`）。
 #[tokio::test]
-async fn tts_error_stops_turn_with_failed_terminal() {
+async fn tts_500_goes_silent_and_later_sentences_continue() {
     let llm_base = spawn_multi_server(respond_pieces(
         200,
         "OK",
@@ -60,7 +61,7 @@ async fn tts_error_stops_turn_with_failed_terminal() {
     ))
     .await;
 
-    // 第一笔 TTS 请求返回 500（后续本就不应被触达）。
+    // **每一笔** TTS 请求都回 500：两句都该走静音句，但都真的被送出去。
     let inputs: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let handler_inputs = inputs.clone();
     let tts_base = spawn_multi_server(Handler::new(move |mut sock| {
@@ -88,22 +89,36 @@ async fn tts_error_stops_turn_with_failed_terminal() {
     let report = eng
         .run_turn(12, "hi", event_tx, CancellationToken::new())
         .await;
-    assert_eq!(report.status, TurnStatus::Failed);
+    assert_eq!(
+        report.status,
+        TurnStatus::Completed,
+        "单句 500 不该把整轮判失败"
+    );
 
     let events = drain_events(event_rx).await;
     assert_epoch(&events, 12);
-    assert_single_terminal_last(&events, TurnStatus::Failed);
-    // 第二句「第二」被丢弃：worker 在首个致命错误后退出。
-    assert_eq!(*inputs.lock().unwrap(), ["第一句。"]);
-    match find_error_kind(&events) {
-        Some(ErrorKind::Tts(e)) => assert!(e.to_string().contains("engine offline"), "{e}"),
-        other => panic!("期望 Tts 错误，实际 {other:?}"),
-    }
+    assert_single_terminal_last(&events, TurnStatus::Completed);
+    // 两句都真的发起过 TTS：「第二」不再被丢弃。
+    assert_eq!(*inputs.lock().unwrap(), ["第一句。", "第二"]);
+    // 静音句照常按「一句一单元」上屏，且**没有**任何 Error 事件。
+    let voiced: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::SentenceVoiced { text, .. } => Some(text.trim()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(voiced, ["第一句。", "第二"], "{events:?}");
+    assert!(
+        find_error_kind(&events).is_none(),
+        "可续走的单句失败不得上报 Error：{events:?}"
+    );
 }
 
-/// PCM 总字节数为奇数 → Error(Decode)，Terminal{Failed} 收尾。
+/// **奇数字节 PCM 只影响这一句**（2026-10-15 执行单 §2）：`TruncatedPcm` 走静音句
+/// （空尾块照发，边界帧还在），轮次 **Completed**，没有 `Error`。
 #[tokio::test]
-async fn odd_total_pcm_bytes_yield_decode_failed_terminal() {
+async fn odd_total_pcm_bytes_go_silent_and_turn_completes() {
     let llm_base = spawn_multi_server(respond_pieces(
         200,
         "OK",
@@ -124,15 +139,42 @@ async fn odd_total_pcm_bytes_yield_decode_failed_terminal() {
     let report = eng
         .run_turn(13, "hi", event_tx, CancellationToken::new())
         .await;
-    assert_eq!(report.status, TurnStatus::Failed);
+    assert_eq!(
+        report.status,
+        TurnStatus::Completed,
+        "奇数字节 PCM 不该把整轮判失败"
+    );
 
     let events = drain_events(event_rx).await;
     assert_epoch(&events, 13);
-    assert_single_terminal_last(&events, TurnStatus::Failed);
-    assert!(matches!(
-        find_error_kind(&events),
-        Some(ErrorKind::Decode(_))
-    ));
+    assert_single_terminal_last(&events, TurnStatus::Completed);
+    assert!(
+        find_error_kind(&events).is_none(),
+        "可续走的解码失败不得上报 Error：{events:?}"
+    );
+    // 静音句：一个**空**块，既是首块也是末块（边界帧仍在）。
+    let chunks: Vec<(usize, bool, bool)> = events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::AudioChunk {
+                samples,
+                first_chunk,
+                final_chunk,
+                ..
+            } => Some((samples.len(), *first_chunk, *final_chunk)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(chunks, [(0usize, true, true)], "{events:?}");
+    // 正文照上屏（一句一单元不受静音影响）。
+    let voiced: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::SentenceVoiced { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(voiced, ["念一句。"], "{events:?}");
 }
 
 /// 有界队列背压：下游长期不消费且配置了推送超时
@@ -302,15 +344,19 @@ async fn whitespace_only_sentence_never_reaches_tts_and_turn_completes() {
     assert!(voiced.iter().any(|t| t.contains("你好")), "{voiced:?}");
 }
 
-/// **rc.3 N0 正文兜底（2026-09-13）**：TTS 致命失败时，已经生成的正文必须经
+/// **rc.3 N0 正文兜底（2026-09-13）**：**致命**失败时，已经生成的正文必须经
 /// `TextFallback` 交给 UI——否则用户看到的是「模型没有返回」，而模型其实写完了。
+///
+/// 2026-10-15 执行单 §2 之后，TTS 的**单句**状态码 / 传输 / 解码失败都不再致命
+/// （走静音句、轮次继续），所以这里改用仍属致命那一档的 `InvalidBaseUrl`
+/// （base_url 根本解析不出来）钉住兜底契约——兜底本身一个字没变。
 ///
 /// 三条断言缺一不可：
 /// ① 失败轮**恰好一次** `TextFallback`，且 `text` 是**整轮正文**（不是残余）；
 /// ② 它在 `Terminal` **之前**（终态仍是最后一个事件）；
 /// ③ 同一轮的 `Error(Tts)` 照旧上报（兜底不掩盖错误）。
 #[tokio::test]
-async fn tts_failure_falls_back_to_the_generated_text() {
+async fn tts_fatal_failure_falls_back_to_the_generated_text() {
     let llm_base = spawn_multi_server(respond_pieces(
         200,
         "OK",
@@ -319,16 +365,9 @@ async fn tts_failure_falls_back_to_the_generated_text() {
     ))
     .await;
 
-    // TTS 首笔即 500（致命）；第二句「第二」本就不会被送出。
-    let tts_base = spawn_multi_server(respond_pieces(
-        500,
-        "Internal Server Error",
-        "application/json",
-        vec![br#"{"error":"engine offline"}"#.to_vec()],
-    ))
-    .await;
-
-    let mut eng = engine(&llm_base, &tts_base, ConversationConfig::default());
+    // base_url 解析不出绝对 http(s) URL → `Error::InvalidBaseUrl`，仍是**致命**：
+    // 第一句即失败、worker 退出，第二句「第二」不再送。
+    let mut eng = engine(&llm_base, "not a url", ConversationConfig::default());
     let (event_tx, event_rx) = mpsc::channel(64);
     let report = eng
         .run_turn(31, "hi", event_tx, CancellationToken::new())
@@ -400,14 +439,13 @@ async fn completed_turn_never_emits_text_fallback() {
     );
 }
 
-/// **rc.3 N0 探针：TTS 传输层失败（连不上）也必须有正文兜底**（2026-09-13）。
+/// **TTS 传输层失败（连不上）不再致命**（2026-10-15 执行单 §2）。
 ///
-/// 为什么单列：真机验收时把 `[tts] base_url` 指到一个死端口，浏览器上看到的
-/// 仍是「（生成失败）」而不是正文——而上面那条 500 的用例是通过的。传输失败与
-/// 上游 5xx 走的是**不同的**错误构造路径（`Error::Transport` vs `Error::Status`），
-/// 所以必须单独钉住，不能靠「都是 Tts」推断。
+/// 为什么单列：传输失败与上游 5xx 走的是**不同**的错误构造路径
+/// （`Error::Http` vs `Error::Status`），两条都必须只影响这一句。死端口上服务端侧
+/// 无从计数，所以「两笔都发出」以**两句各自走完失败收口并上屏**为证。
 #[tokio::test]
-async fn tts_transport_failure_also_falls_back_to_the_generated_text() {
+async fn tts_transport_failure_goes_silent_and_turn_completes() {
     let llm_base = spawn_multi_server(respond_pieces(
         200,
         "OK",
@@ -426,25 +464,50 @@ async fn tts_transport_failure_also_falls_back_to_the_generated_text() {
     let report = eng
         .run_turn(41, "hi", event_tx, CancellationToken::new())
         .await;
-    assert_eq!(report.status, TurnStatus::Failed);
+    assert_eq!(
+        report.status,
+        TurnStatus::Completed,
+        "连接被拒不该把整轮判失败"
+    );
     assert_eq!(report.assistant_text, "探针句一。探针句二");
 
     let events = drain_events(event_rx).await;
     assert_epoch(&events, 41);
-    assert_single_terminal_last(&events, TurnStatus::Failed);
-    let fallbacks: Vec<&str> = events
+    assert_single_terminal_last(&events, TurnStatus::Completed);
+    // 两句都走了失败收口：各一个**空**边界块，各一次上屏 —— 也就是两笔都发出了。
+    let chunks: Vec<(usize, bool, bool)> = events
         .iter()
         .filter_map(|e| match e {
-            EngineEvent::TextFallback { text, .. } => Some(text.as_str()),
+            EngineEvent::AudioChunk {
+                samples,
+                first_chunk,
+                final_chunk,
+                ..
+            } => Some((samples.len(), *first_chunk, *final_chunk)),
             _ => None,
         })
         .collect();
     assert_eq!(
-        fallbacks,
-        ["探针句一。探针句二"],
-        "TTS 传输失败同样必须兜底整轮正文：{events:?}"
+        chunks,
+        [(0usize, true, true), (0, true, true)],
+        "{events:?}"
     );
-    assert!(matches!(find_error_kind(&events), Some(ErrorKind::Tts(_))));
+    let voiced: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::SentenceVoiced { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(voiced, ["探针句一。", "探针句二"], "{events:?}");
+    // 可续走的单句失败：既不上报 Error，也不再有「整轮兜底」语义。
+    assert!(find_error_kind(&events).is_none(), "{events:?}");
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, EngineEvent::TextFallback { .. })),
+        "可续走的单句失败不是失败轮，不该发正文兜底：{events:?}"
+    );
 }
 
 /// **确定性清洗（主链，2026-09-21）**：送 TTS 的文本与上屏文本是**同一份清洗
@@ -505,4 +568,141 @@ async fn tts_and_screen_share_the_deterministically_cleaned_sentence() {
         .collect();
     assert_eq!(ready, ["你好呀。", "再见。"], "按句锚点必须已清洗");
     assert_eq!(voiced, ready, "上屏（SentenceVoiced）与送 TTS 必须同源");
+}
+
+// ---- T1（2026-10-13 执行单）：长数字与本地 TTS 的长度拒绝 ---------------------
+
+/// **只改送 TTS 的那一份**：≥17 位的连续数字在 TTS 输入里换成占位句，
+/// 上屏仍是原文，轮次正常完成。
+#[tokio::test]
+async fn long_digit_run_is_masked_for_tts_but_kept_on_screen() {
+    const DIGITS: &str = "7182818284590452353602874713527";
+    let llm_base = spawn_multi_server(respond_pieces(
+        200,
+        "OK",
+        "text/event-stream",
+        vec![sse_content(&format!("圆周率是{DIGITS}。")), sse_done()],
+    ))
+    .await;
+    let (tts_base, tts_inputs) = spawn_tts_mock().await;
+
+    let mut eng = engine(&llm_base, &tts_base, ConversationConfig::default());
+    let (event_tx, event_rx) = mpsc::channel(64);
+    let report = eng
+        .run_turn(31, "hi", event_tx, CancellationToken::new())
+        .await;
+    assert_eq!(report.status, TurnStatus::Completed);
+
+    // ① 送 TTS 的 input 里不再有这 31 位，且带占位句。
+    let inputs = tts_inputs.lock().unwrap().clone();
+    assert_eq!(inputs.len(), 1, "{inputs:?}");
+    assert!(
+        !inputs[0].contains(DIGITS),
+        "送 TTS 的那份不得含这 31 位：{}",
+        inputs[0]
+    );
+    assert!(inputs[0].contains("一长串数字"), "{}", inputs[0]);
+
+    // ② 上屏（SentenceVoiced.text）仍含这 31 位——一路原文的连续切片。
+    let events = drain_events(event_rx).await;
+    assert_epoch(&events, 31);
+    assert_single_terminal_last(&events, TurnStatus::Completed);
+    let voiced: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::SentenceVoiced { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(voiced.len(), 1, "{voiced:?}");
+    assert!(
+        voiced[0].contains(DIGITS),
+        "上屏必须仍是原文：{:?}",
+        voiced[0]
+    );
+}
+
+/// **本地 TTS 的长度拒绝不打死整轮**：400 + 响应体含「最长支持 16 位」时，
+/// 那一句走静音句，后面的句子继续，终态仍是 Completed、且没有 Error 事件。
+#[tokio::test]
+async fn long_digit_length_400_goes_silent_and_later_sentences_continue() {
+    const SIXTEEN: &str = "1234567890123456";
+    let llm_base = spawn_multi_server(respond_pieces(
+        200,
+        "OK",
+        "text/event-stream",
+        vec![
+            sse_content(&format!("第一句{SIXTEEN}。第二句你好。")),
+            sse_done(),
+        ],
+    ))
+    .await;
+    // 复刻本地 TTS：含那串 16 位数字的 input 回 400 + 长度拒绝原文。
+    let tts_inputs: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let inputs_h = tts_inputs.clone();
+    let tts_base = spawn_multi_server(Handler::new(move |mut sock| {
+        let inputs = inputs_h.clone();
+        Box::pin(async move {
+            let input = read_speech_input(&mut sock).await;
+            inputs.lock().unwrap().push(input.clone());
+            if input.contains(SIXTEEN) {
+                let body: Vec<u8> = "{\"detail\":\"超出数据范围，最长支持 16 位\"}"
+                    .as_bytes()
+                    .to_vec();
+                let total = body.len();
+                write_head(&mut sock, 400, "Bad Request", "application/json", total).await;
+                write_pieces(&mut sock, &[body], 5).await;
+                close_sock(&mut sock).await;
+                return;
+            }
+            let n = input.chars().count().max(2);
+            let samples: Vec<i16> = (0..n).map(|k| ((k % 13) as i16 + 1) * 97).collect();
+            let bytes: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+            let pieces: Vec<Vec<u8>> = bytes.chunks(3).map(<[u8]>::to_vec).collect();
+            let total: usize = pieces.iter().map(Vec::len).sum();
+            write_head(&mut sock, 200, "OK", "audio/pcm", total).await;
+            write_pieces(&mut sock, &pieces, 5).await;
+            close_sock(&mut sock).await;
+        })
+    }))
+    .await;
+
+    let mut eng = engine(&llm_base, &tts_base, ConversationConfig::default());
+    let (event_tx, event_rx) = mpsc::channel(64);
+    let report = eng
+        .run_turn(41, "hi", event_tx, CancellationToken::new())
+        .await;
+
+    // ① 整轮必须**完成**（长度超范围是这一句的问题，不是链路的）。
+    assert_eq!(
+        report.status,
+        TurnStatus::Completed,
+        "长度超范围的一句把整轮判失败了"
+    );
+    // ② 后面的句子照常送到 TTS。
+    let inputs = tts_inputs.lock().unwrap().clone();
+    assert_eq!(inputs.len(), 2, "两句都要到 TTS：{inputs:?}");
+    assert_eq!(inputs[1].trim(), "第二句你好。", "后续句子必须继续");
+
+    let events = drain_events(event_rx).await;
+    assert_epoch(&events, 41);
+    assert_single_terminal_last(&events, TurnStatus::Completed);
+    assert!(
+        find_error_kind(&events).is_none(),
+        "静音句不是错误，不该发 Error 帧：{:?}",
+        find_error_kind(&events)
+    );
+    // ③ 被拒的那一句文本仍按「一句一单元」上屏（一个字不丢）。
+    let voiced: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::SentenceVoiced { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(voiced.len(), 2, "{voiced:?}");
+    assert!(
+        voiced[0].contains(SIXTEEN),
+        "被 TTS 拒收的那一句仍要上屏：{voiced:?}"
+    );
 }

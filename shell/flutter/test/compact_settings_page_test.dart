@@ -58,7 +58,6 @@ Widget shell({
     messages: const <Never>[],
     input: input,
     onSend: () {},
-    onStop: () {},
     onRetryConnection: () {},
     volume: 0.8,
     muted: false,

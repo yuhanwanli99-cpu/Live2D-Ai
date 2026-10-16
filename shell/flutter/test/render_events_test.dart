@@ -320,5 +320,82 @@ void main() {
         '生效 尚无 ack',
       );
     });
+
+    test('T3：类型名 = 中文（线名）；未知类型只回线名', () {
+      expect(observerTypeLabel('action_cue'), '动作（action_cue）');
+      expect(observerTypeLabel('text_delta'), '正文（text_delta）');
+      expect(observerTypeLabel('text_fallback'), '未收尾（text_fallback）');
+      expect(observerTypeLabel('error'), '出错（error）');
+      expect(observerTypeLabel('preset-applied'), '预设生效（preset-applied）');
+      expect(observerTypeLabel('preset-dropped'), '预设丢弃（preset-dropped）');
+      expect(observerTypeLabel('segment-ended'), '段结束（segment-ended）');
+      expect(observerTypeLabel('stage-clock'), '口型时钟（stage-clock）');
+      expect(observerTypeLabel('brand_new'), 'brand_new', reason: '未知类型不猜中文');
+      expect(observerTypeName('action_cue'), '动作');
+      expect(observerTypeName('brand_new'), 'brand_new');
+    });
+
+    test('T3：默认过滤不含 stage-clock 与 segment-ended，其余照看', () {
+      ObserverRecord rec(String type, String source, String text) =>
+          ObserverRecord(
+            at: DateTime(2026, 10, 13),
+            type: type,
+            source: source,
+            text: text,
+          );
+      final List<ObserverRecord> all = <ObserverRecord>[
+        rec('action_cue', 'ws', 'a'),
+        rec('stage-clock', 'audio', 'b'),
+        rec('segment-ended', 'render', 'c'),
+        rec('text_delta', 'ws', 'd'),
+      ];
+      // 默认档：口型时钟与段结束不列出（其余照看）。
+      expect(
+        filterObserverRecords(
+          all,
+          kObserverDefaultDeselectedTypes,
+        ).map((ObserverRecord r) => r.type).toList(),
+        <String>['action_cue', 'text_delta'],
+      );
+      // 用户把口型时钟打开 = 从「不列出」集合里拿掉它。
+      expect(
+        filterObserverRecords(
+          all,
+          <String>{'segment-ended'},
+        ).map((ObserverRecord r) => r.type).toList(),
+        <String>['action_cue', 'stage-clock', 'text_delta'],
+      );
+    });
+
+    test('T3：action_cue 行的 preset_id 用标签表中文名，旁边保留 id', () {
+      const ActionCueEvent smile = ActionCueEvent(
+        epoch: 1,
+        coversUptoSeq: 1,
+        cues: <ActionCue>[
+          ActionCue(
+            sentenceSeq: 1,
+            presetId: 'smile',
+            intensity: 1,
+            ttlMs: 2000,
+            priority: 0,
+          ),
+        ],
+      );
+      final ObserverRecord? named = observeWsEvent(
+        smile,
+        DateTime(2026, 10, 13),
+        labelFor: (String id) => id == 'smile' ? '微笑（smile）' : id,
+      );
+      expect(named, isNotNull);
+      expect(named!.text, contains('id=微笑（smile）'));
+      expect(named.text, contains('cues=1'));
+
+      // 没有注入标签表 / 该 id 没中文名 → 只显示 id（不谎报译名）。
+      final ObserverRecord? plain = observeWsEvent(
+        smile,
+        DateTime(2026, 10, 13),
+      );
+      expect(plain!.text, contains('id=smile'));
+    });
   });
 }

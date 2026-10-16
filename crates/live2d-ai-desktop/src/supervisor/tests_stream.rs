@@ -363,3 +363,31 @@ fn text_fallback_emits_its_own_ui_event() {
         "兜底不得走 TextDelta 分支（那是健康路径的增量上屏）"
     );
 }
+
+/// **本轮输入正文**（2026-10-14 执行单 §3）：`handlers::emit_user_line` 必须发出
+/// 恰好一条 `Conversation(UserLine)`，epoch 与正文原样透传。
+///
+/// 「先于本轮任何 `text_delta`」这条不变量由**调用点**保证：`run_forever` 的 say
+/// 分支在 `turn::run_one_turn` 之前调它，而本轮 `TextDelta` 只从 `run_one_turn`
+/// 内部（`SentenceVoiced`）产生。这里锁的是「发的是什么」，不是「发在哪」——
+/// 后者没有 e2e 断言（不再本轮点火，见执行单 §5 末）。
+#[test]
+fn user_line_emits_exactly_one_input_line_event() {
+    let collector: Collector = Arc::new(Mutex::new(Vec::new()));
+    let ec = collector.clone();
+    let emit: Emit = Arc::new(move |ev: AppEvent| {
+        ec.lock().expect("poison").push(ev);
+    });
+
+    handlers::emit_user_line(&emit, 7, "弹幕消息：吾***：（其实我今天也刷着来着）");
+
+    let events = collector.lock().expect("poison");
+    assert_eq!(events.len(), 1, "恰好一条 user_line 事件");
+    match &events[0] {
+        AppEvent::Conversation(ConversationUiEvent::UserLine { epoch, text }) => {
+            assert_eq!(*epoch, 7);
+            assert_eq!(text, "弹幕消息：吾***：（其实我今天也刷着来着）");
+        }
+        _ => panic!("必须是 Conversation(UserLine)"),
+    }
+}

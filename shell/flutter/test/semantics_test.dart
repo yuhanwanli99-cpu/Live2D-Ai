@@ -203,7 +203,6 @@ void main() {
             phase: UiPhase.idle,
             input: TextEditingController(),
             onSend: () {},
-            onStop: () {},
             onDismissError: () {},
             volume: 0.8,
             muted: false,

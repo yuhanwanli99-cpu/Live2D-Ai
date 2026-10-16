@@ -105,7 +105,6 @@ class _ChatDrivenShellState extends State<_ChatDrivenShell> {
         input: widget.input,
         error: widget.chat.error,
         onSend: () {},
-        onStop: () {},
         onRetryConnection: () {},
         volume: 0.8,
         muted: false,

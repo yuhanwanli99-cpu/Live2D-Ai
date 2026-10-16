@@ -104,8 +104,8 @@ pub(crate) struct BridgeState {
     ///
     /// 2026-09-15：导演 Mod / 开发工具「动作调试」选出的 preset 经 Flutter
     /// 转发到此，由 [`apply_bridge_effects`] 经 **`final_override`** 层写成
-    /// 模型参数（表情保持 / 短动作包络），到点整批撤销。未知 id 在 main.rs
-    /// 就被丢掉（静默降级）；`id:"none"` = 立即撤销。
+    /// 模型参数（表情与手势同走起落曲线），到点整批撤销。未知 id 在 main.rs
+    /// 就被丢掉（静默降级）；`id:"none"` = 从屏幕值放回，到点才清。
     pub preset: crate::preset::PresetRuntime,
     /// v1 三字段（`body` / `head` / `expression`）运行状态机（阶段4c）。
     ///
@@ -201,12 +201,18 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
     // `ModelRendererCore` 实现在本文件顶部），不是 input 层——否则同帧更晚写的
     // idle 微表情（见下方 `apply_idle_life`）会把表情的嘴/眉盖掉（P0-2 修的缺陷）。
     //
-    // 表情：静态保持 ttl，到点整批撤销；短动作：正弦包络一次（首末为 0）。
-    // `id:"none"` 在消息入口已立即撤销；未知 id 静默忽略。写不进的参数
+    // 表情与手势同走起落曲线（进度 0 / 1 为 0）；到点整批撤销，`id:"none"` 从屏幕值放回。
+    // 未知 id 静默忽略。写不进的参数
     // （皮套缺该通道）由 `override_parameter` 返回 false 静默降级——不报错。
     let field_acks = {
         let FrameState { bridge, core, .. } = &mut *st;
         bridge.preset.apply_frame(now_ms, core);
+        // **待机摆头让开（2026-10-14）**：手势槽里还有活动预设 → 目标抑制 1，
+        // 否则回 0。写在这里（`apply_frame` 的到点撤销之后、本帧 `core.update`
+        // 之后）——让开从**下一帧**开始追；不为「当帧生效」调换 tick 顺序。
+        // 只影响 idle 层的 `ParamAngleZ` 摆头，呼吸 / 眨眼 / 微表情不动。
+        let gesture_occupied = bridge.preset.gesture_occupied();
+        core.stack().set_idle_sway_suppressed(gesture_occupied);
         // **阶段4c**：v1 三字段写在旧 preset 之后——同一通道并存时字段赢。
         // 时钟换算在 FieldRuntime 内部：有 stage-clock → 音频时间轴；无 → 墙钟（段 A）。
         bridge.fields.frame(now_ms, core).events

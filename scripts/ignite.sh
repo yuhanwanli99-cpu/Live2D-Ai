@@ -1,21 +1,30 @@
 #!/usr/bin/env bash
-# Live2D-Ai 点火脚本（2026-09-10）—— 核心链路闭环：Flutter 前端 + Rust 后端。
+# Live2D-Ai 点火脚本（2026-09-10 定，2026-10-13 改「等就绪再给地址」）——核心链路闭环。
 #
-# 它做四件事：
-#   1) 预检：读 live2d-ai.toml，探测你提供的 OpenAI 兼容 LLM/TTS 端点；
+# 它做五件事：
+#   1) 预检：读 live2d-ai.toml（LLM/TTS 端点 + TTS 是否本机），探测云端端点；
 #   2) 确保渲染面产物：crates/l2d-wasm-demo/dist（/render 用）；
 #   3) 确保前端产物：shell/flutter/build/web（/app/ 用，可选 --build 自动构建）；
-#   4) 启动 live2d-ai-desktop --web，并打印点火入口 URL。
+#   4) 后台启动 live2d-ai-desktop --web，脚本前台等待：先等 GET /app/ = 200
+#      （最长 90 秒）；本机 TTS 再等 GET {tts.base_url}/models = 200（最长 600 秒）；
+#      服务进程退出 = 提前停下。
+#   5) 全部就绪才打印点火入口，并用默认浏览器打开页面（WSL 走 Windows 的
+#      Start-Process；LIVE2D_AI_NO_BROWSER=1 只打印）。页面未就绪或本机 TTS
+#      超时：不打印成功横幅、不打开浏览器。脚本不退出（服务停了它才停）；
+#      点火体检另开终端跑 --check。
 #
 # 用法：
-#   ./scripts/ignite.sh                 # 预检 + 启动（不重新构建）
+#   ./scripts/ignite.sh                 # 预检 + 启动 + 等就绪 + 打开浏览器
 #   ./scripts/ignite.sh --build         # 先构建 Rust + Flutter Web 再启动
 #   ./scripts/ignite.sh --port 18100    # 指定端口（默认 18080）
 #   ./scripts/ignite.sh --check [--port N]  # 只对**已启动**的服务做点火体检，不自启
 #   ./scripts/ignite.sh --check-dir DIR     # 只对**构建产物目录**做离线体检（不需要服务；CI 用）
 #
-# 说明：本地 LLM/TTS 由你自己提供（任何 OpenAI 兼容实现），本脚本只做探测与提示，
-#       不会下载模型、不会启动推理进程。两个本地 Mod 也会在后台自动探活。
+# 服务在后台启动，本脚本前台等待就绪并保持不退出（Ctrl+C 会停掉服务）。
+#
+# 说明：本地 LLM / 云端 TTS 由你自己提供（任何 OpenAI 兼容实现）；**本机 TTS
+#       （MeloTTS / CosyVoice3）由桌面进程拉起**，GET /models = 200 之前不打印
+#       页面地址。本脚本不下载模型、不启动推理进程。两个本地 Mod 也会在后台自动探活。
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -63,7 +72,7 @@ while [ $# -gt 0 ]; do
     --check-dir=*) DO_CHECK_DIR="${1#*=}" ;;
     --port) shift; PORT="${1:-18080}" ;;
     --port=*) PORT="${1#*=}" ;;
-    -h|--help) sed -n "2,18p" "$0"; exit 0 ;;
+    -h|--help) sed -n "2,23p" "$0"; exit 0 ;;
     *) echo "[warn] 未知参数：$1" ;;
   esac
   shift || true
@@ -139,13 +148,16 @@ fi
 
 echo "==> Live2D-Ai 点火检查"
 
-# ---- 1) 读配置里的 LLM/TTS 端点 -------------------------------------------
+# ---- 1) 读配置里的 LLM/TTS 端点 + TTS 是否本机 ------------------------------
 if ! command -v python3 >/dev/null 2>&1; then
   echo "[error] 需要 python3 读取 live2d-ai.toml"; exit 1
 fi
-read -r LLM_BASE TTS_BASE <<EOF
-$(python3 - <<PY
+# 三行输出 + mapfile：不用 `read -r a b c`（空 TTS 会被 `read` 吃掉，行数错位），
+# 也不用 `print(a, b, c)`（同一原因）。主机名按 urlparse 归一（127.0.0.1 /
+# localhost / ::1 视为本机 = tts_local=1）。
+mapfile -t ENDPOINTS < <(python3 - <<'PY'
 import pathlib, tomllib
+from urllib.parse import urlparse
 llm = "http://127.0.0.1:11434/v1"
 tts = ""
 p = pathlib.Path("live2d-ai.toml")
@@ -153,12 +165,18 @@ if p.is_file():
     d = tomllib.loads(p.read_text(encoding="utf-8"))
     llm = d.get("llm", {}).get("base_url", llm)
     tts = d.get("tts", {}).get("base_url", "")
-print(llm, tts)
+host = (urlparse(tts).hostname or "").lower()
+print(llm)
+print(tts)
+print("1" if host in ("127.0.0.1", "localhost", "::1") else "0")
 PY
 )
-EOF
+LLM_BASE="${ENDPOINTS[0]}"
+TTS_BASE="${ENDPOINTS[1]}"
+TTS_LOCAL="${ENDPOINTS[2]}"
 echo "    配置 LLM base : $LLM_BASE"
 echo "    配置 TTS base : ${TTS_BASE:-（未配置，选型待定）}"
+echo "    TTS 本机      : $([ "$TTS_LOCAL" = "1" ] && echo 是 || echo 否)"
 
 probe() {
   local name="$1" base="$2"
@@ -183,7 +201,11 @@ probe() {
 }
 echo "==> 探测本地实现（OpenAI 标准接口）"
 probe "LLM" "$LLM_BASE" || true
-if [ -n "$TTS_BASE" ]; then
+if [ "$TTS_LOCAL" = "1" ]; then
+  # 本机 TTS 由桌面进程**拉起**：预检探不到是常态（模型加载要几十秒到几分钟），
+  # 不再报「未就绪，继续」——真正的就绪判据在启动后的就绪等待里（GET /models = 200）。
+  echo "    [ok]   TTS 本机（${TTS_BASE%/}/models）：由本次点火拉起；GET /models = 200 之后才给页面地址"
+elif [ -n "$TTS_BASE" ]; then
   probe "TTS" "$TTS_BASE" || true
 else
   echo "    [skip] TTS 未配置（选型待定）：本轮只跑「文本 → LLM」，不出声、不驱动口型"
@@ -248,12 +270,104 @@ done
 sleep 0.5
 
 echo
+echo "==> 启动 web 服务（音频单源=browser：由浏览器出声并驱动口型）"
+echo "==> 就绪判据：GET /app/ = 200（本机 TTS 还要再等 GET {tts}/models = 200），"
+echo "    就绪前**不给**页面地址、不开浏览器。服务在后台，本脚本前台等待。"
+
+./target/debug/live2d-ai-desktop --web --http-port "${PORT}" &
+SVC_PID=$!
+
+# INT/TERM：进程还活着就把它杀掉（已在退出的进程不再补一刀）。
+cleanup() {
+  if kill -0 "$SVC_PID" 2>/dev/null; then
+    kill "$SVC_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup INT TERM
+
+# ---- 5a) 等页面就绪：GET /app/ = 200，超时 90 秒；进程先死就停。------------
+page_ready() {
+  local deadline=$((SECONDS + 90)) code
+  while :; do
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 "http://127.0.0.1:${PORT}/app/" 2>/dev/null || echo 000)
+    if [ "$code" = "200" ]; then
+      return 0
+    fi
+    if ! kill -0 "$SVC_PID" 2>/dev/null; then
+      echo "[error] 服务进程已退出（页面从未就绪，GET /app/ 一直是 $code）——不打开浏览器"
+      exit 1
+    fi
+    if [ $SECONDS -ge "$deadline" ]; then
+      echo "[error] 90 秒内页面未就绪（GET /app/ 一直是 $code）——不打开浏览器；日志见上方服务输出"
+      exit 1
+    fi
+    sleep 1
+  done
+}
+echo "==> 等待页面就绪（GET http://127.0.0.1:${PORT}/app/ = 200，最长 90 秒）…"
+page_ready
+echo "    [ok] 页面就绪：GET /app/ = 200"
+
+# ---- 5b) 仅本机 TTS：等 GET {tts}/models = 200，超时 600 秒，15 秒一行「仍在等待」。
+if [ "$TTS_LOCAL" = "1" ]; then
+  TTS_MODELS_URL="${TTS_BASE%/}/models"
+  tts_ready() {
+    local tts_deadline=$((SECONDS + 600)) code last_note=0
+    while :; do
+      code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 "$TTS_MODELS_URL" 2>/dev/null || echo 000)
+      if [ "$code" = "200" ]; then
+        return 0
+      fi
+      if ! kill -0 "$SVC_PID" 2>/dev/null; then
+        echo "[error] 服务进程已退出，本机 TTS 不会就绪——不打开浏览器"
+        exit 1
+      fi
+      if [ $SECONDS -ge "$tts_deadline" ]; then
+        echo "[error] 600 秒内本机 TTS 未就绪（GET $TTS_MODELS_URL 一直是 $code）——不打开浏览器；"
+        echo "        页面其实已就绪，可稍后手动打开 http://127.0.0.1:${PORT}/app/"
+        exit 1
+      fi
+      if [ $((SECONDS - last_note)) -ge 15 ]; then
+        echo "    仍在等待本机 TTS（GET $TTS_MODELS_URL = $code，剩余 $((tts_deadline - SECONDS)) 秒）"
+        last_note=$SECONDS
+      fi
+      sleep 2
+    done
+  }
+  echo "==> 等待本机 TTS 就绪（GET $TTS_MODELS_URL = 200，最长 600 秒；由本次点火拉起）…"
+  tts_ready
+  echo "    [ok] 本机 TTS 就绪：GET $TTS_MODELS_URL = 200"
+fi
+
+# ---- 5c) 全部就绪：横幅 + 默认浏览器。--------------------------------------
+APP_URL="http://127.0.0.1:${PORT}/app/"
+echo
 echo "=========================================================="
-echo "  点火入口： http://127.0.0.1:${PORT}/app/"
+echo "  点火入口： $APP_URL"
 echo "  渲染面  ： http://127.0.0.1:${PORT}/render"
 echo "  Mod 状态： http://127.0.0.1:${PORT}/api/v1/mods"
 echo "  自测清单： docs/verification/ignition-core-loop.md"
+if [ "$TTS_LOCAL" = "1" ]; then
+  echo "  本地 TTS： GET $TTS_MODELS_URL = 200（本机，由本次点火拉起）"
+fi
 echo "=========================================================="
 echo
-echo "==> 启动 web 服务（音频单源=browser：由浏览器出声并驱动口型）"
-exec ./target/debug/live2d-ai-desktop --web --http-port "${PORT}"
+
+if [ "${LIVE2D_AI_NO_BROWSER:-0}" = "1" ]; then
+  echo "==> LIVE2D_AI_NO_BROWSER=1：不自动打开浏览器（地址在上面）"
+elif [ -r /proc/version ] && grep -qi microsoft /proc/version && command -v powershell.exe >/dev/null 2>&1; then
+  # WSL：本脚本（在 WSL 里）没有默认浏览器，交给 Windows 侧的 Start-Process。
+  echo "==> 用 Windows 默认浏览器打开 $APP_URL"
+  powershell.exe -NoProfile -Command "Start-Process '$APP_URL'" >/dev/null 2>&1 &
+else
+  if command -v xdg-open >/dev/null 2>&1; then
+    echo "==> 用默认浏览器打开 $APP_URL"
+    xdg-open "$APP_URL" >/dev/null 2>&1 &
+  else
+    echo "[warn] 找不到可用的打开方式（WSL 无 powershell.exe，本机无 xdg-open），请手动打开：$APP_URL"
+  fi
+fi
+
+# ---- 5d) 脚本不退出：前台等服务，服务停了才停。------------------------------
+wait "$SVC_PID"
+exit $?

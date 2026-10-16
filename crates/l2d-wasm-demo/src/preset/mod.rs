@@ -1,10 +1,9 @@
 //! 舞台**动作包**表 + 运行状态机（2026-09-15，原生可测；2026-09-23 v3 包重构）。
 //!
-//! **行数豁免（≤1000 头注）**：本文件当前 902 行，超过 AGENTS「源码 ≤500」的常规线。
-//! 豁免理由是**单一真源**：内建包表 / 协议解析 / 包络 / 强度 morph / 双槽撤销状态机
-//! 与阶段4c 三字段模块的 re-export 必须能被并排读到——拆文件会把「一个数写 3 遍」的
-//! 老毛病重新引入；已按行为边界把表（table）、标定（scales）、字段（field_*）拆出，
-//! 本文件只留旧 `preset_id` 主线且保持在 1000 行以内（AGENTS 豁免上限）。
+//! **行数豁免（≤1000 头注）**：本文件当前 997 行，超过 AGENTS「源码 ≤500」的常规线。
+//! 豁免理由是**单一真源**：内建包表 / 协议解析 / 包络 / 强度 morph / 双槽状态机必须
+//! 能被并排读到——已按行为边界把表（table）、标定（scales）、字段（field_*）、
+//! 接力（handoff）、放回（release）拆出，本文件只留旧 `preset_id` 主线且 ≤1000 行。
 //!
 //! # 为什么要一个原生可测的模块
 //!
@@ -24,8 +23,8 @@
 //!   **morph 包**（`PresetMorph`，目前只有 `unhappy`）= 在 low/high 两极之间按
 //!   intensity 插值（1=难过相、3=生气相），intensity 不再二次相乘。
 //! - **双槽**：`PresetSlot::Face` 与 `PresetSlot::Gesture` 可**同轮并存**
-//!   （微笑/unhappy + 点头）。同槽换包只清**该槽上一条**的参数，撤销按槽进行；
-//!   同帧写入顺序是 Face → Gesture，共享的头/身通道由手势包赢。
+//!   （微笑 + 点头）。同槽换包**从换下去那一帧接上**（`handoff`），`id:"none"`
+//!   按槽**放回**（`release`）到点才清；同帧写入顺序 Face → Gesture，共享头/身由手势赢。
 //!
 //! # P1-1：表外置（2026-09-16）
 //!
@@ -45,30 +44,36 @@
 //! - `mod.rs`（本文件）：类型 / 内建 fallback 表 / 协议解析 / 包络 / 强度 morph /
 //!   双槽到点撤销状态机；
 //! - `table.rs`：外置 JSON → 表 + 校验；
+//! - `handoff.rs`：同槽换动作时的接力插值（2026-10-15）；
+//! - `release.rs`：`Revoke` 的放回（2026-10-15）；
 //! - `scales.rs`：通道红线、用户可调倍率、最终下发；
 //! - `tests/`：协议（`mod.rs` 内联）+ 双槽 / morph（`packs.rs`）+ 资产（`assets.rs`）。
 //!
 //! # 通道（严格按任务书）
 //!
 //! 只做标准皮套的两条常见通道：
-//! - **表情**（expression）：静态保持一段时间（`smile` / `unhappy` / `surprised`）；
+//! - **表情**（expression）：进 / 保持 / 出与手势同一条起落曲线；
 //! - **短动作**（motion）：带包络的短动作（`nod` / `shake` / `look_*` / `tilt_*`）。
 //!
 //! **不做**手臂 / 手指 / 特效 / 第二路 LLM / motion3 / exp3。缺参数的皮套由
 //! 渲染层静默降级（未知参数 `override_parameter` 返回 `false`，不报错）。
 //!
-//! # 半身随动 + 摇头多周期（L1 产品级，2026-09-16）
+//! # 半身随动 + 起落曲线（2026-09-16 L1 / 2026-10-14 裁决）
 //!
-//! 只有头角度会「动得像点头」，半身皮套（本仓 bai 有 `ParamBodyAngleX/Y/Z`）
-//! 不跟着动就只是脑袋在飘。因此手势包一律头 + 身同向，主轴**表内身/头 = 0.325**
-//! （设计口径 [0.30, 0.50]；乘出厂倍率 0.80/0.75 后 ≈ 0.347，仍在窗口内）；
-//! 摇头用 `MotionWave::Oscillate`（`sin(2*pi*cycles*p)`，>=2 个完整来回）叠加
-//! 同一个 `sin(pi*p)` 包络，**首末仍为 0**（撤销不跳变）。
+//! 手势包一律头 + 身同向，主轴**表内身/头 = 0.325**（设计口径 [0.30, 0.50]；乘出厂
+//! 倍率 0.80/0.75 后 ≈ 0.347）；摇头用 `MotionWave::Oscillate`（`sin(2*pi*cycles*p)`，
+//! >=2 个完整来回）叠加同一个起落曲线，**首末仍为 0**。起落不再用单峰 `sin(pi*p)`：
+//! 改成 `motion_curve` 的**攻击（0 → 0.22）→ 保持（→ 0.62）→ 放回（→ 1）**三段
+//! smootherstep，保持段恰好 1、两端值与斜率都是 0——**表情与手势同一条曲线**；
+//! `Single` 的幅值乘子就是它（不再等于 `envelope`）。**身体滞后**：`ParamBodyAngle*`
+//! 走 `body_p = (p - 0.12) / 0.88`，身比头晚起步、同一帧归零。幅值 / 通道钳位不动，
+//! `envelope()` 留着（「两端恰好 0」的旧回归继续测它）。
 //!
 //! # 幅值标定（2026-09-24，W2）
 //!
-//! 手势主轴表值头 12.0 / 身 3.9（峰值系数：Single = 1.0，shake 的 Oscillate
-//! `cycles=2` = 0.9285），使「出厂组合」「scale 走满」「intensity 走满」三条各自
+//! 手势主轴表值头 12.0 / 身 3.9（峰值系数：2026-10-14 起起落曲线带保持段，
+//! Single 与 shake 的 Oscillate `cycles=2` **都是 1.0**；旧的 `sin(pi*p)` 时代
+//! shake 是 0.9285），使「出厂组合」「scale 走满」「intensity 走满」三条各自
 //! 都留在上限 ×0.95 以内；数值账与「两个旋钮同时拉满会钳位的组合」见
 //! `scales.rs` 顶部注释（那里是标定真源，本表是它的逐值副本）。
 //!
@@ -83,7 +88,7 @@
 //!
 //! 旧形状 `{"id": "smile"}` 继续可用（缺省 = 该预设时长、强度 1、来源
 //! `unknown`）。新增：
-//! - `id:"none"` = **立即撤销**当前预设通道（两个槽都清）；
+//! - `id:"none"` = 撤销：每个还有姿势的槽**从屏幕值放回** 0（见 `release`）；
 //! - 可选 `intensity`（钳 `[0, 3]`）、`ttl_ms`（钳 `(0, 5000]`）、
 //!   `source`（`debug` / `director` / 其它 → `unknown`）。
 //!
@@ -93,9 +98,9 @@
 /// 预设通道类型（= 槽位）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PresetKind {
-    /// 表情：参数**静态保持** `ttl_ms`，到点整批撤销。走 `PresetSlot::Face`。
+    /// 表情：走起落曲线（进 / 保持 / 出），到点整批撤销。走 `PresetSlot::Face`。
     Expression,
-    /// 短动作：按包络 × 波形起落（单峰或多周期），之后整批撤销。走 `PresetSlot::Gesture`。
+    /// 短动作：按起落曲线 × 波形起落（单峰或多周期），之后整批撤销。走 `PresetSlot::Gesture`。
     Motion,
 }
 
@@ -119,17 +124,17 @@ pub const fn slot_of(kind: PresetKind) -> PresetSlot {
     }
 }
 
-/// 短动作的**波形**（叠在 `sin(pi*p)` 包络之上）。
+/// 短动作的**波形**（叠在起落曲线之上，见 `motion_curve`）。
 ///
-/// 表情忽略它（表情静态保持，包络恒 1）。
+/// 表情忽略波形（增益同走起落曲线）。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MotionWave {
-    /// 一次起落：`sin(pi*p)`。点头 / 看左右这种「去、回」用它。
+    /// 一次起落：起落曲线本身（攻击 → 保持 → 放回）。点头 / 看左右这种「去、回」用它。
     Single,
     /// 左右多周期振荡：`sin(2*pi*cycles*p)`。
     ///
     /// `cycles` = 完整来回次数（`2.0` = 左右各两次）；非有限 / <=0 → 回落 2.0。
-    /// **必须叠包络**，否则首帧不是 0（会跳变）。
+    /// **必须叠起落曲线**，否则首帧不是 0（会跳变）。
     Oscillate { cycles: f64 },
 }
 
@@ -174,7 +179,7 @@ pub const MOTION_MS: f64 = 900.0;
 /// 抬头 / 低头看包时长（T9，2026-10-07；主轴是 Y 的整段位移，比 nod 稍长）。
 pub const LOOK_MS: f64 = 1_100.0;
 
-/// `id:"none"`：立即撤销当前预设通道（P0-1 新语义）。
+/// `id:"none"`：撤销（每个还有姿势的槽从屏幕值放回，见 `release`）。
 pub const REVOKE_ID: &str = "none";
 /// 强度上限（P0-1）。
 pub const MAX_INTENSITY: f32 = 3.0;
@@ -323,7 +328,8 @@ pub const PRESETS: &[PresetSpec] = &[
         duration_ms: MOTION_MS,
         // 头 X 12 / 身 X 3.9（主轴，表内身/头 = 0.325）；次轴 Z 保持原比例
         // （Z/X 由 4/22 降到 2.2/12，身 Z 0.8）。**同相**振荡，
-        // 波形 = sin(2*pi*2*p)（2 个完整来回），峰值系数 0.9285。
+        // 波形 = sin(2*pi*2*p)（2 个完整来回），峰值系数 1.0
+        // （2026-10-14 起曲线有保持段；旧 sin(pi*p) 时代是 0.9285）。
         params: &[
             ("ParamAngleX", 12.0),
             ("ParamAngleZ", 2.2),
@@ -463,7 +469,7 @@ pub enum PresetCommand {
         ttl_ms: f64,
         source: PresetSource,
     },
-    /// `id:"none"`：立即撤销当前预设通道。
+    /// `id:"none"`：撤销（按槽从屏幕值放回，见 `release`）。
     Revoke,
     /// 未知 / 缺失 id：静默忽略（不动任何参数，不回执）。
     Ignore,
@@ -537,6 +543,10 @@ fn parse_command_with(
 ///
 /// 用 `sin(πp)` 而不是线性三角波：起落都是**平滑**的，首末帧幅值为 0，于是撤销参数
 /// 时不会「跳一下」（跳变正是皮套看起来像抽帧的原因）。
+///
+/// **2026-10-14 起手势不再走它**（改走 `motion_curve`）；留着是因为它「两端**恰好** 0」
+/// 仍是要测的口径（旧回归继续测这条函数），且是 `motion_curve` 之前的起落定义。
+#[allow(dead_code)]
 pub fn envelope(progress: f64) -> f32 {
     let p = progress.clamp(0.0, 1.0);
     // 两端**恰好** 0：sin(pi) 在 f64 里是 1.2e-16 而不是 0。
@@ -546,40 +556,24 @@ pub fn envelope(progress: f64) -> f32 {
     ((std::f64::consts::PI * p).sin()).max(0.0) as f32
 }
 
-/// 短动作的幅值乘子 = **包络 × 波形**（表情忽略波形，恒用 1）。
+/// 手势**头 / 其它通道**的幅值乘子 = 起落曲线 × 波形（表情忽略波形，增益仍走曲线）。
 ///
-/// - `MotionWave::Single`：`sin(pi*p)`（= `envelope`），一次起落；
-/// - `MotionWave::Oscillate`：`sin(2*pi*cycles*p)`，**再乘**同一个包络，
-///   于是首末仍**恰好** 0（撤销不跳变），中途按 `cycles` 左右摆动。
+/// 曲线与身体滞后都住在 `motion_curve`：本函数是「用本帧 `p`」的那一支；
+/// 身体通道（`ParamBodyAngle*`）的增益请走 `pack_gain`，它按通道选进度。
 pub fn motion_gain(wave: MotionWave, progress: f64) -> f32 {
-    let p = progress.clamp(0.0, 1.0);
-    let env = envelope(p);
-    if env == 0.0 {
-        return 0.0;
-    }
-    match wave {
-        MotionWave::Single => env,
-        MotionWave::Oscillate { cycles } => {
-            let c = if cycles.is_finite() && cycles > 0.0 {
-                cycles
-            } else {
-                SHAKE_CYCLES
-            };
-            let wave = (2.0 * std::f64::consts::PI * c * p).sin();
-            (env as f64 * wave) as f32
-        }
-    }
+    motion_curve::gain(wave, progress)
 }
 
-/// 本帧的**基准参数**（不含 intensity / 倍率，但含动作包络）。
+/// 本帧的**基准参数**（不含 intensity / 倍率，但含起落 / 波形增益）。
 ///
 /// - 普通包 = `params`；
 /// - morph 包 = low 极（= `params`，等价于 `morph_mix(spec, low)`）。
+///
+/// 增益**逐通道**算：手势的身体通道走滞后进度（见 `pack_gain`）。
 pub fn frame_params(spec: &PresetSpec, progress: f64) -> Vec<(&'static str, f32)> {
-    let gain = pack_gain(spec.kind, spec.wave, progress);
     base_params(spec)
         .into_iter()
-        .map(|(id, v)| (id, v * gain))
+        .map(|(id, v)| (id, v * pack_gain(spec.kind, spec.wave, progress, id)))
         .collect()
 }
 
@@ -665,11 +659,18 @@ fn base_params(spec: &PresetSpec) -> Vec<(&'static str, f32)> {
     spec.params.to_vec()
 }
 
-/// 包络 / 波形乘子（表情恒 1）。
-fn pack_gain(kind: PresetKind, wave: MotionWave, progress: f64) -> f32 {
+/// 起落 / 波形乘子：**表情与手势同走 `motion_curve::curve`**（进度 0 / 1 恰好 0，
+/// 保持段恰好 1）；手势**逐通道**算，身体（`ParamBodyAngle*`）走滞后进度。
+fn pack_gain(kind: PresetKind, wave: MotionWave, progress: f64, param_id: &str) -> f32 {
     match kind {
-        PresetKind::Expression => 1.0,
-        PresetKind::Motion => motion_gain(wave, progress),
+        PresetKind::Expression => motion_curve::curve(progress) as f32,
+        PresetKind::Motion => {
+            if param_id.starts_with(motion_curve::BODY_CHANNEL_PREFIX) {
+                motion_gain(wave, motion_curve::body_progress(progress))
+            } else {
+                motion_gain(wave, progress)
+            }
+        }
     }
 }
 
@@ -681,10 +682,9 @@ pub fn frame_params_scaled(
     progress: f64,
     intensity: f32,
 ) -> Vec<(&'static str, f32)> {
-    let gain = pack_gain(spec.kind, spec.wave, progress);
     base_params_for_intensity(spec, intensity)
         .into_iter()
-        .map(|(id, v)| (id, v * gain))
+        .map(|(id, v)| (id, v * pack_gain(spec.kind, spec.wave, progress, id)))
         .collect()
 }
 
@@ -696,7 +696,12 @@ pub fn progress_at(elapsed_ms: f64, duration_ms: f64) -> f64 {
     (elapsed_ms / duration_ms).clamp(0.0, 1.0)
 }
 
+mod handoff;
+mod motion_curve;
+mod release;
 mod scales;
+pub use handoff::Handoff;
+pub use release::Release;
 // 这些名字大多给 table.rs / 测试用（cfg(test) 下才被「用到」），故放宽 unused。
 #[allow(unused_imports)]
 pub use scales::{
@@ -750,17 +755,10 @@ pub trait PresetSink {
     fn clear_override_param(&mut self, id: &str) -> bool;
 }
 
-/// 清掉**一条**预设用到的 override 参数（换包 / 到点按槽撤销）。
+/// 清掉**一条**预设用到的 override 参数（到点按槽撤销；换包改走 `handoff` 接力）。
 pub fn clear_spec_overrides(spec: &PresetSpec, sink: &mut impl PresetSink) {
     for id in spec_channels(spec) {
         sink.clear_override_param(id);
-    }
-}
-
-/// 撤销**所有**预设用到的 override 参数（`none` = 两个槽一起清）。
-pub fn clear_all_overrides(table: &PresetTable, sink: &mut impl PresetSink) {
-    for spec in table.all() {
-        clear_spec_overrides(spec, sink);
     }
 }
 
@@ -775,6 +773,10 @@ pub struct ActivePreset {
     /// 强度（已钳位）。
     pub intensity: f32,
     pub source: PresetSource,
+    /// 同槽换包时的「换下去那一帧」快照（见 `handoff`）；无接力 = `None`。
+    pub handoff: Option<Handoff>,
+    /// `Revoke` 的放回状态（见 `release`）；非放回 = `None`。
+    pub release: Option<Release>,
 }
 
 /// 预设运行状态机（**纯逻辑**，原生可测）：表情槽 + 手势槽。
@@ -817,6 +819,14 @@ impl PresetRuntime {
     /// 手势槽的当前预设。
     pub fn active_gesture(&self) -> Option<&ActivePreset> {
         self.gesture.as_ref()
+    }
+
+    /// 手势槽里是否**有活动预设**（表情槽不算）——待机摆头让开的判据。
+    ///
+    /// 到点撤销在 `apply_frame` 里先行，所以每帧 `apply_frame` 之后取这个布尔，
+    /// 拿到的是「本帧还活着的手势」。表情不占手势槽（脸不该压住摆头）。
+    pub fn gesture_occupied(&self) -> bool {
+        self.gesture.is_some()
     }
 
     /// 某个槽的当前预设。
@@ -887,17 +897,22 @@ impl PresetRuntime {
 
     /// 处理一条指令；返回值 = **是否值得回执**（`applied`）。
     ///
-    /// - `PresetCommand::Revoke`：**立即**整批撤销（两个槽）并清空状态；
-    /// - `PresetCommand::Apply`：只清**目标槽上一条**的参数（分槽撤销——表情与
-    ///   手势互不打扰），再登记新的活动预设（真正写入在下一帧 `Self::apply_frame`）；
+    /// - `PresetCommand::Revoke`：每个还有姿势的槽从**屏幕值**放回 0（见 `release`）；
+    /// - `PresetCommand::Apply`：空槽 / 同一 id 照旧；同一槽换**不同 id** 时不先
+    ///   归零，把「换下去那一帧」记在新预设上，由下一帧 `Self::apply_frame` 接力；
     /// - `PresetCommand::Ignore`：什么都不做、不回执（未知 id 静默降级）。
-    pub fn handle(&mut self, cmd: PresetCommand, now_ms: f64, sink: &mut impl PresetSink) -> bool {
+    pub fn handle(&mut self, cmd: PresetCommand, now_ms: f64, _sink: &mut impl PresetSink) -> bool {
         match cmd {
             PresetCommand::Ignore => false,
             PresetCommand::Revoke => {
-                clear_all_overrides(&self.table, sink);
-                self.face = None;
-                self.gesture = None;
+                // **不从当帧清参数**：每个还有姿势的槽从屏幕上这一帧的值收到 0，到点清槽。
+                let scales = self.scales;
+                for slot in [PresetSlot::Face, PresetSlot::Gesture] {
+                    if let Some(active) = self.slot_mut(slot) {
+                        let from = handoff::on_screen(active, now_ms, scales);
+                        active.release = Some(Release::new(from, active.ttl_ms, now_ms));
+                    }
+                }
                 true
             }
             PresetCommand::Apply {
@@ -907,32 +922,36 @@ impl PresetRuntime {
                 source,
             } => {
                 let slot = slot_of(spec.kind);
-                if self.slot_ref(slot).map(|a| a.spec.id) != Some(spec.id)
-                    && let Some(old) = self.slot_ref(slot)
-                {
-                    clear_spec_overrides(old.spec, sink);
-                }
+                // 同一槽换下一个动作：不先归零。把「换下去那一帧」记在新预设上，
+                // 由 `apply_frame` 在攻击段内插值接上（空槽 / 同一 id 不接力）。
+                let scales = self.scales;
+                let handoff = self
+                    .slot_ref(slot)
+                    .filter(|old| old.spec.id != spec.id)
+                    .map(|old| Handoff::capture(old, now_ms, scales));
                 *self.slot_mut(slot) = Some(ActivePreset {
                     spec,
                     started_ms: now_ms,
                     ttl_ms,
                     intensity,
                     source,
+                    handoff,
+                    release: None,
                 });
                 true
             }
         }
     }
 
-    /// 每帧把两个槽写进 `final_override`；**到点按槽撤销**并清空该槽。
+    /// 每帧把两个槽写进 `final_override`；到点 / 放回到点按槽撤销并清空该槽。
     ///
     /// 同帧写入顺序 Face → Gesture：共享的头 / 身通道由手势包赢（否则点头会被
     /// 表情包的小幅抬头盖掉）。
     pub fn apply_frame(&mut self, now_ms: f64, sink: &mut impl PresetSink) {
         for slot in [PresetSlot::Face, PresetSlot::Gesture] {
-            let expired = self
-                .slot_ref(slot)
-                .is_some_and(|a| (now_ms - a.started_ms).max(0.0) >= a.ttl_ms);
+            let expired = self.slot_ref(slot).is_some_and(|a| {
+                a.release.is_none() && (now_ms - a.started_ms).max(0.0) >= a.ttl_ms
+            });
             if expired {
                 if let Some(old) = self.slot_ref(slot) {
                     clear_spec_overrides(old.spec, sink);
@@ -945,12 +964,31 @@ impl PresetRuntime {
             let Some(active) = self.slot_ref(slot).cloned() else {
                 continue;
             };
+            if let Some(release) = &active.release {
+                // 放回：每帧从这一帧屏幕上的值按 smootherstep 收到 0，到点清槽。
+                if release.write(now_ms, sink) {
+                    *self.slot_mut(slot) = None;
+                }
+                continue;
+            }
             let elapsed = (now_ms - active.started_ms).max(0.0);
             let progress = progress_at(elapsed, active.ttl_ms);
-            for (id, value) in
-                frame_params_scaled_by(active.spec, progress, active.intensity, scales)
-            {
-                sink.override_param(id, value);
+            let finished = match active.handoff.as_ref() {
+                Some(handoff) => {
+                    handoff.write(active.spec, progress, active.intensity, scales, sink)
+                }
+                None => {
+                    for (id, value) in
+                        frame_params_scaled_by(active.spec, progress, active.intensity, scales)
+                    {
+                        sink.override_param(id, value);
+                    }
+                    true
+                }
+            };
+            // 攻击段结束：丢掉旧帧快照，此后帧值与不接旧值时逐值相同。
+            if finished && let Some(cur) = self.slot_mut(slot) {
+                cur.handoff = None;
             }
         }
     }

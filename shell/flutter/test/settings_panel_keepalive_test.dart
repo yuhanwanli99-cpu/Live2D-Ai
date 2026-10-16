@@ -93,7 +93,6 @@ class _HostState extends State<_Host> {
     messages: const <Never>[],
     input: TextEditingController(),
     onSend: () {},
-    onStop: () {},
     onRetryConnection: () {},
     volume: 0.8,
     muted: false,

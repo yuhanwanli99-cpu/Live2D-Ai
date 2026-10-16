@@ -28,6 +28,18 @@ DEFAULT_VOICE = "ZH"
 BERT_MODEL = "bert-base-multilingual-uncased"
 
 
+def melo_speakable(text: str) -> str:
+    """送 MeloTTS 前**只删 ASCII 下划线** `_`（U+005F），其余字符一个不动。
+
+    为什么只删这一个字符（2026-10-15 执行单 §1）：MeloTTS 对含 `_` 的文本直接
+    抛 `AssertionError()`（适配层回 500），「御寒_v4p」念不出来；而屏幕上的字
+    仍是**一路原文**，不受这里影响。不换成 `-` / 空格：那会把别的符号念出来。
+
+    纯函数、不载模型、不碰网络——便于直接单测。
+    """
+    return text.replace("_", "")
+
+
 class MeloEngine:
     def __init__(self, weights_dir: str) -> None:
         config = os.path.join(weights_dir, "config.json")
@@ -56,6 +68,8 @@ class MeloEngine:
         self.lock = threading.Lock()
 
     def synth(self, text: str, voice: str) -> bytes:
+        # 送合成前只删下划线（见 melo_speakable）；删完没字了仍是「input 为空」。
+        text = melo_speakable(text)
         if not text.strip():
             raise ValueError("input 为空")
         key = voice or DEFAULT_VOICE
@@ -66,7 +80,8 @@ class MeloEngine:
             )
         with self.lock, tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "out.wav")
-            self.model.tts_to_file(text, speaker_id, out, speed=1.0)
+            # quiet=True：MeloTTS 默认会打印「切句」小段，点火终端会与正文混在一起。
+            self.model.tts_to_file(text, speaker_id, out, speed=1.0, quiet=True)
             with wave.open(out, "rb") as handle:
                 if handle.getsampwidth() != 2:
                     raise RuntimeError("MeloTTS 产出不是 16 bit，拒绝回错的 PCM")

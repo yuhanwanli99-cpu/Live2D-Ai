@@ -97,7 +97,11 @@ members = [
 # 依据是**这一句一路原文**；失败（超时 / 坏 JSON）回退按句规则表，输入同样是这一句原文。
 # ② 出厂不设人设（`system_prompt` 为空；`shared/persona.yaml` 删除；`live2d-ai-mod-persona` 保留）。
 # ③ `[performance].enabled` 仍缺省 false，不与按句路径双写。发布说明见 `docs/releases/v0.2.5-rc.1.md`。
-version = "0.2.5-rc.1"
+#
+# 2026-10-16（0.2.5-rc.1 → 0.2.6-rc.1，功能冻结，不发布 0.3.0）：
+# 手势曲线与待机摆头让开、同槽接力、表情起落与撤销放回、一句一键停止、
+# 本句 TTS 失败后续句继续。发布说明见 `docs/releases/v0.2.6-rc.1.md`。
+version = "0.2.6-rc.1"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。

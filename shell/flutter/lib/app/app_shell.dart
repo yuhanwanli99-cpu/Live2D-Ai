@@ -106,7 +106,8 @@ class AppShell extends StatefulWidget {
     this.playingSentenceSeq,
     required this.input,
     required this.onSend,
-    required this.onStop,
+    this.canStopPlayback = false,
+    this.onStopPlayback,
     required this.onRetryConnection,
     required this.volume,
     required this.muted,
@@ -183,7 +184,15 @@ class AppShell extends StatefulWidget {
 
   final TextEditingController input;
   final VoidCallback onSend;
-  final VoidCallback onStop;
+
+  /// 圆键停止态可按吗（判据在宿主：`canStopPlayback`，见
+  /// `live2d/stage_cancel.dart`）。外壳只转手，不自己判。
+  final bool canStopPlayback;
+
+  /// 圆键停止态按下（丢掉待播音频与未演完的 cue；仅当这一轮还在飞时才
+  /// 顺带中止本轮）。`null` = 没接线 ⇒ 按钮不可按。
+  final VoidCallback? onStopPlayback;
+
   final VoidCallback onRetryConnection;
 
   final double volume;
@@ -387,4 +396,3 @@ class AppShell extends StatefulWidget {
   @override
   State<AppShell> createState() => AppShellState();
 }
-

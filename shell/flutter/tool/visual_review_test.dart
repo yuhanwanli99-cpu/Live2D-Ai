@@ -91,7 +91,6 @@ Widget _shellFor(AppThemeId theme, TextEditingController input) => MaterialApp(
     messages: _messages,
     input: input,
     onSend: () {},
-    onStop: () {},
     onRetryConnection: () {},
     volume: 0.8,
     muted: false,
