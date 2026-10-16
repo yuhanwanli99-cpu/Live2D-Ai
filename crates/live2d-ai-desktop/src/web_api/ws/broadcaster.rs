@@ -89,7 +89,10 @@ impl Broadcaster {
     /// 成功时把 sender 推入内部 vec，计数 +1，并返回稳定 conn_id。
     /// 失败时 vec/计数都不变——caller 决定是否回 503。
     pub fn try_subscribe(&self, ws: WsWriter) -> Result<u64, ()> {
-        let mut guard = self.inner.lock().expect("broadcaster mutex");
+        // W1（2026-10-16）：毒化**不** panic。锁一旦毒化，`.expect()` 会让此后
+        // 每一次取锁都 panic —— 连接注册 / 断线清理 / 全部广播（action_cue、
+        // text_delta、音频帧）会整条死掉。回归见本文件末尾 `mod tests`。
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let prev = self.subscribed_count.load(Ordering::Acquire);
         if prev >= WS_CONN_LIMIT {
             return Err(());
@@ -105,7 +108,7 @@ impl Broadcaster {
     /// 显式回收槽位，**不**等下次 broadcast try_send 失败。返回是否真的
     /// 移除了某条（false = id 不存在，可能是双重 unsubscribe）。
     pub fn unsubscribe(&self, conn_id: u64) -> bool {
-        let mut guard = self.inner.lock().expect("broadcaster mutex");
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let before = guard.len();
         guard.retain(|h| h.conn_id != conn_id);
         let removed = before != guard.len();
@@ -130,7 +133,7 @@ impl Broadcaster {
     /// **不**阻塞：每个订阅者用 `try_send`（失败即移除该订阅者，计数 -1）。
     /// 死 sender 由下一次 broadcast try_send 失败回收（延迟回收）。
     pub fn broadcast(&self, frame: &str) {
-        let mut guard = self.inner.lock().expect("broadcaster mutex");
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let mut idx = 0;
         while idx < guard.len() {
             if guard[idx].tx.try_send(frame.to_string()).is_err() {
@@ -211,5 +214,71 @@ impl Drop for Broadcaster {
                 "Broadcaster drop：等待剩余 ws-actor 线程自行退出（rx 断链传播）"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! W1（2026-10-16）回归：内部锁**毒化**之后，请求路径不得 panic。
+    //!
+    //! 毒化的前提是「持锁时 panic」（std::sync::Mutex 的毒化语义），所以这里
+    //! 用一条 join 过的线程真的把锁打成 poisoned，再打 try_subscribe /
+    //! broadcast。把这两个入口改回 expect("broadcaster mutex") 就变红。
+    //!
+    //! 为什么这不是小事：GET /api/v1/ws 的连接注册、断线清理与**全部广播**
+    //! （action_cue / text_delta / 音频帧）都走这把锁——一次毒化之后，expect
+    //! 会让每一次取锁都 panic，等于这条链从此全线死掉。
+
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// 真的毒化内部锁：另起线程持锁 panic，join 后断言前提成立。
+    ///
+    /// 断言「前提不成立」这一步是刻意的（先例 `supervisor_slot` 的
+    /// `slot_poisoned_degrades_without_panic`）：毒化失败时后面的断言就是空转。
+    fn poison_inner(bc: &Broadcaster) {
+        let inner = Arc::clone(&bc.inner);
+        let _ = std::thread::spawn(move || {
+            let _guard = inner.lock().expect("fresh lock");
+            panic!("故意 panic：毒化 broadcaster 内部锁");
+        })
+        .join();
+        assert!(
+            bc.inner.is_poisoned(),
+            "前提不成立：这把锁没被毒化，后面的断言就是空转"
+        );
+    }
+
+    /// 毒化后 try_subscribe / unsubscribe 不得 panic，簿记照常。
+    #[test]
+    fn poisoned_lock_try_subscribe_does_not_panic() {
+        let bc = Broadcaster::new();
+        poison_inner(&bc);
+
+        let (tx, _rx) = mpsc::sync_channel::<String>(4);
+        let id = bc.try_subscribe(tx).expect("毒化后仍应能订阅");
+        assert_eq!(bc.subscriber_count(), 1, "订阅计数照常推进");
+
+        assert!(bc.unsubscribe(id), "毒化后按 id 注销照常可用");
+        assert_eq!(bc.subscriber_count(), 0);
+        assert!(!bc.unsubscribe(id), "重复注销仍回 false，不 panic");
+    }
+
+    /// 毒化后 broadcast 不得 panic，帧仍送达活订阅者。
+    #[test]
+    fn poisoned_lock_broadcast_does_not_panic() {
+        let bc = Broadcaster::new();
+        let (tx, rx) = mpsc::sync_channel::<String>(4);
+        bc.try_subscribe(tx).expect("先订阅（未毒化）");
+
+        poison_inner(&bc);
+        bc.broadcast(r#"{"type":"probe"}"#);
+
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(1))
+                .expect("毒化后广播仍必须送达活订阅者"),
+            r#"{"type":"probe"}"#
+        );
     }
 }

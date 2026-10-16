@@ -395,3 +395,83 @@ impl ModRuntime for StallingRuntime {
 }
 
 static STALL_FACTORIES: &[&dyn ModFactory] = &[&StallingMod];
+
+// ------------------------------------------------- W1：共享锁毒化（2026-10-16）
+
+/// 「停不掉」的 Mod：`shutdown` 恒回 `Err`。
+///
+/// 它专供 `disable` 的**放回**分支——只有 shutdown 失败时才会走到
+/// 「把 runtime 塞回槽位、原样上抛 Err」，那正是本回归要守的路径。
+struct StuckMod;
+
+impl ModFactory for StuckMod {
+    fn descriptor(&self) -> &'static ModDescriptor {
+        static D: ModDescriptor = ModDescriptor {
+            id: "stuck",
+            name: "Stuck",
+            version: "0.1.0",
+            api_version: 1,
+        };
+        &D
+    }
+    fn create(
+        &self,
+        _: ModServices,
+        _: serde_json::Value,
+    ) -> Result<Box<dyn ModRuntime>, ModError> {
+        Ok(Box::new(StuckRuntime))
+    }
+}
+
+struct StuckRuntime;
+
+impl ModRuntime for StuckRuntime {
+    fn start(&mut self, _: &mut dyn ModRegistrar) -> Result<(), ModError> {
+        Ok(())
+    }
+    fn shutdown(&mut self) -> Result<(), ModError> {
+        Err(ModError::Other("停不掉（测试）".to_string()))
+    }
+}
+
+/// W1 回归：Mod 槽位锁**毒化**之后 `disable` 不得 panic，且句柄仍在槽位里
+/// （「停不掉」的那条路径仍能再试）。
+///
+/// 生产后果：槽位锁被某个 Mod 的锁内 panic 毒化后，旧实现 `slot.lock().unwrap()`
+/// 会让此后每一次 enable / disable / restart 都 panic —— 用户**再也停不掉**那个
+/// Mod。这里先把同一把锁真的毒化，再走 disable：改回 `.unwrap()` 就变红。
+#[test]
+fn poisoned_runtime_slot_disable_keeps_handle_and_can_retry() {
+    static F: &[&dyn ModFactory] = &[&StuckMod];
+    let mut reg = ModRegistry::new(F, &serde_json::json!({"mods":{"stuck":{"enabled":true}}}));
+    reg.start_all();
+    assert!(reg.is_enabled("stuck"), "起点：已启用");
+
+    // 毒化**槽位自己的锁**（worker 也持有同一个 Arc 的 clone）。
+    let slot = Arc::clone(reg.runtimes.get("stuck").expect("在册槽位"));
+    let _ = std::thread::spawn(move || {
+        let _guard = slot.lock().expect("fresh lock");
+        panic!("故意 panic：毒化 Mod 槽位锁");
+    })
+    .join();
+    assert!(
+        reg.runtimes.get("stuck").expect("槽位").is_poisoned(),
+        "前提不成立：槽位锁没被毒化，后面的断言就是空转"
+    );
+
+    // 停不掉 → 如实上抛 Err（不得 panic），句柄必须放回槽位。
+    let err = reg.disable("stuck").expect_err("shutdown 失败必须上抛");
+    assert!(err.to_string().contains("停不掉"), "got {err}");
+    let handle_back = reg
+        .runtimes
+        .get("stuck")
+        .expect("槽位")
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some();
+    assert!(handle_back, "「停不掉」路径必须把句柄放回槽位");
+    assert!(reg.is_enabled("stuck"), "停不掉就不许写「已停用」");
+
+    // 再试一次：仍不 panic，仍如实回报失败（不是「一次 panic 之后全线 panic」）。
+    assert!(reg.disable("stuck").is_err(), "仍能再试，且仍如实回报失败");
+}

@@ -144,7 +144,9 @@ impl ModRegistry {
                 match runtime.start(&mut registrar) {
                     Ok(()) => {
                         if let Some(e) = self.entries.get_mut(id) { e.status = ModStatus::Running; e.last_error = None; }
-                        if let Some(slot) = self.runtimes.get(id) { *slot.lock().unwrap() = Some(runtime); }
+                        // W1（2026-10-16）：槽位锁毒化不 panic（旧 `.unwrap()` 会让
+                        // 此后每一次 enable/disable 都 panic，用户再也停不掉那个 Mod）。
+                        if let Some(slot) = self.runtimes.get(id) { *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(runtime); }
                     }
                     Err(err) => {
                         if let Some(e) = self.entries.get_mut(id) {
@@ -270,10 +272,10 @@ impl ModRegistry {
     #[rustfmt::skip]
     pub fn disable(&mut self, id: &'static str) -> Result<(), ModError> {
         let Some(e) = self.entries.get_mut(id) else { return Err(ModError::Other(format!("Mod {id} 不在注册表"))); };
-        if let Some(mut rt) = self.runtimes.get(id).and_then(|s| s.lock().unwrap().take())
+        if let Some(mut rt) = self.runtimes.get(id).and_then(|s| s.lock().unwrap_or_else(|e| e.into_inner()).take())
             && let Err(err) = rt.shutdown()
         {
-            if let Some(slot) = self.runtimes.get(id) { *slot.lock().unwrap() = Some(rt); }
+            if let Some(slot) = self.runtimes.get(id) { *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(rt); }
             return Err(err);
         }
         e.enabled = false;

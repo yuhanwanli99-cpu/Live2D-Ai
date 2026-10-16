@@ -5,7 +5,7 @@
 //!
 //! 覆盖：
 //! 1. `apply_status` 序列化（**前端字符串锚点**）：
-//!    `applied` / `restart_required` / `queued` / `no_supervisor`；
+//!    `applied` / `restart_required` / `queued` / `no_supervisor` / `reload_failed`；
 //! 2. 端到端闭环：配置不存在 → PATCH 保存完整配置 → 槽位非空 →
 //!    `POST /api/v1/chat` 200 accepted（首配即对话）；
 //! 3. 配置不完整（缺 base_url）：PATCH 保存后 apply_status =
@@ -123,6 +123,7 @@ fn apply_status_serializes_to_snake_case() {
         (ApplyStatus::RestartRequired, "\"restart_required\""),
         (ApplyStatus::Queued, "\"queued\""),
         (ApplyStatus::NoSupervisor, "\"no_supervisor\""),
+        (ApplyStatus::ReloadFailed, "\"reload_failed\""),
     ];
     for (status, want_json) in cases {
         let j = serde_json::to_string(&status).expect("serialize");

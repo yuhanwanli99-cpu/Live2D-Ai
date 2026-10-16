@@ -71,8 +71,10 @@ enum ApplyStatus {
 
   /// reload 已排队、异步生效中。
   ///
-  /// 服务端注释说明当前实现下**实际不会产生**该值（装配/重建都在请求线程内
-  /// 完成），保留作未来异步路径。前端仍然要处理它——协议里有的取值都要兜住。
+  /// **这个值真会出现**：一轮对话还在飞时，服务端等不到热重载结果就按此值回报——
+  /// `SupervisorSlot::ensure_after_patch` 用有界等待（`RELOAD_REPORT_WAIT` = 250ms）
+  /// 调 `SupervisorHandle::reload_reported`，超时 = 没等到，reload 延后到该轮收口。
+  /// 语义是「已排队 ≠ 已生效」，前端**不得**当成 applied（回填后仍需再确认生效）。
   queued('queued'),
 
   /// 写盘成功但**没有** supervisor（dev-only 控制平面 / 关掉了对话引擎）。

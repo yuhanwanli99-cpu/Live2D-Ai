@@ -76,7 +76,7 @@ impl ModRegistry {
     #[allow(dead_code)]
     pub fn shutdown(&mut self) {
         for (id, slot) in &self.runtimes {
-            if let Some(mut rt) = slot.lock().unwrap().take() {
+            if let Some(mut rt) = slot.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 let _ = rt.shutdown();
             }
             if let Some(e) = self.entries.get_mut(*id) {
