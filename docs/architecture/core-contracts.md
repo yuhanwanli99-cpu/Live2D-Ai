@@ -88,7 +88,7 @@ GENERATING（turn）
 
 | 文件 | 状态 |
 | --- | --- |
-| `persona.yaml` | 历史模板资产；Rust 侧用 `[persona] system_prompt`（见裁决 §8） |
+| `persona.yaml` | **已删除**（d69d45f / 2026-10-13「出厂不设人设」，只存在于 git 历史） |
 | `model_registry.json` / `model_registry.schema.json` | 历史清单；Rust 用 XDG data_dir 独立 registry |
 | `emotion-protocol.md` | 历史协议文档（Rust 动作集已收敛为 6 基础动作） |
 | `model-adapter/` | 历史适配器；Rust 用 `BaiParamAdapter` |
@@ -101,7 +101,7 @@ GENERATING（turn）
 1. `cargo test --workspace --all-targets` 全绿（当前 674 + 3 doctest）。
 2. `cargo fmt --all --check` 干净。
 3. `cargo clippy --workspace --all-targets -- -D warnings` 干净。
-4. root `pytest tests/` 全绿（当前 22 passed, 1 skipped——Android 归档后合理跳过）。
+4. root `pytest tests/` 全绿（当前 9 passed, 0 skipped；16 条红的历史共享资产测试 + 1 条 skip 随 `persona.yaml` 删除）。
 5. 无 API Key、无网络时：配置解析 / 状态机 / TTS 降级行为确定（不崩溃、常驻引导）。
 6. 安全红线：密钥不进 GET/日志/WS/导出；loopback-only；mutating 需
    `application/json`；命令 invoke 必经 core 仲裁。
