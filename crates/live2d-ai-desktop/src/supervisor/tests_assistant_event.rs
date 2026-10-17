@@ -12,6 +12,7 @@ use std::time::Duration;
 use super::support::{Collector, spawn_llm_mock, spawn_tts_mock, wait_for};
 use super::*;
 use crate::app_event::AppEvent;
+use live2d_ai_mod_system::ModEventTopic;
 
 type Seen = Arc<Mutex<Vec<(ModEventTopic, String, Option<String>)>>>;
 

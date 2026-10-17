@@ -12,6 +12,7 @@ use super::support::{
 };
 use super::*;
 use crate::app_event::{AppEvent, ConversationUiEvent, RootFact};
+use live2d_ai_mod_system::ModEventTopic;
 
 #[test]
 fn closed_loop_two_turns_commit_history_via_drain_path() {
