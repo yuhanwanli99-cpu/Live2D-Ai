@@ -98,9 +98,9 @@ members = [
 # ② 出厂不设人设（`system_prompt` 为空；`shared/persona.yaml` 删除；`live2d-ai-mod-persona` 保留）。
 # ③ `[performance].enabled` 仍缺省 false，不与按句路径双写。发布说明见 `docs/releases/v0.2.5-rc.1.md`。
 #
-# 2026-10-17（0.2.6-rc.1 → 0.2.7 稳定版）：无新功能。
-# 标记债务收口后的起点。发布说明见 `docs/releases/v0.2.7.md`。
-version = "0.2.7"
+# 2026-10-17（0.2.7 → 0.3.1）：外部事件忙时合并。
+# 发布说明见 `docs/releases/v0.3.1.md`。
+version = "0.3.1"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。
