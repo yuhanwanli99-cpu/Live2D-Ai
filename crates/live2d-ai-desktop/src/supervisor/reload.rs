@@ -193,15 +193,13 @@ pub(super) fn apply_reload(
             // ② 返回值交给等待中的调用方（PATCH 的 apply_status，见
             //    SupervisorHandle::reload_reported），界面不再写「已保存并生效」。
             tracing::error!(error = %e, path, "热重载失败：保留旧配置继续运行");
-            emit(AppEvent::Error(crate::app_event::AppErrorEvent {
-                code: "config_reload_failed".to_string(),
-                stage: "config".to_string(),
-                message: format!("配置已保存到磁盘，但引擎没能用上它：{e}"),
-                hint: Some("修好 live2d-ai.toml 后再保存一次，或重启服务".to_string()),
-                // 不是某一轮对话的错误：epoch 只用于「迟到帧」判定，这里恒 0。
-                epoch: 0,
-                fatal: false,
-            }));
+            // 五字段由 AppErrorEvent 的**唯一**构造点给出（与「无 supervisor 时
+            // 手改坏 toml」那条出口共用），文案与行为不变。
+            emit(AppEvent::Error(
+                crate::app_event::AppErrorEvent::config_reload_failed(format!(
+                    "配置已保存到磁盘，但引擎没能用上它：{e}"
+                )),
+            ));
             Err(e)
         }
     }

@@ -34,7 +34,12 @@ pub struct FileWatcher {
 /// 存在的理由：`supervisor.reload()` 只重建 LLM/TTS client，**不**刷新
 /// `StatusContext` 里的设置快照——那会让「界面上显示的值」与「磁盘上的值」
 /// 静默分叉（详见 `StatusContext::refresh_from_disk` 的说明）。
-pub type PostReloadHook = Box<dyn Fn() + Send>;
+///
+/// 实参 = **本次事件发生时**槽位里是否真的有 supervisor（由
+/// [`on_config_changed`] 现取后传入，不是启动时的静态值）。钩子据此分流：
+/// 有 supervisor 的 reload 失败由 `apply_reload` 统一 emit error 帧；
+/// **没有** supervisor 时那条出口不存在，钩子自己补发（S-007）。
+pub type PostReloadHook = Box<dyn Fn(bool) + Send>;
 
 /// **惰性** supervisor 来源：每次外部修改发生时**现取**当前句柄。
 ///
@@ -191,7 +196,9 @@ fn on_config_changed(supervisor: &SupervisorSource, post_reload: Option<&PostRel
     // 「保存」时被旧快照覆盖回去。没有 supervisor 时这一步**照样要做**——
     // 首跑窗口里改的 `.env` 至少必须立刻进快照（F-0002-01）。
     if let Some(hook) = post_reload {
-        hook();
+        // 传「本次事件时是否真的有 supervisor」（= 上面 reload 分支的判定结果），
+        // 让钩子能在「无 supervisor + 解析失败」时补发 error 帧（S-007）。
+        hook(reloaded);
     }
     reloaded
 }
@@ -223,7 +230,7 @@ mod tests {
         let calls = Arc::new(AtomicU64::new(0));
         let calls_in_hook = Arc::clone(&calls);
         let source: SupervisorSource = Box::new(|| None);
-        let hook: PostReloadHook = Box::new(move || {
+        let hook: PostReloadHook = Box::new(move |_had_supervisor| {
             calls_in_hook.fetch_add(1, Ordering::SeqCst);
         });
 

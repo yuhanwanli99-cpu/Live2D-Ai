@@ -173,7 +173,13 @@ impl StatusContext {
         self.dev_mode.load(std::sync::atomic::Ordering::Acquire)
     }
 
-    /// 从磁盘重读配置并刷新快照；`true` = 确实刷新了。
+    /// 从磁盘重读配置并刷新快照；`Ok(())` = 确实刷新了，`Err(String)` = 解析/读盘
+    /// 失败（**保留旧快照**），字符串是失败原文。
+    ///
+    /// 返回 `Result` 而不是 `bool`（S-007，2026-10-17）：手改坏 `live2d-ai.toml`
+    /// 且**没有 supervisor** 时，此前唯一的失败出口（`apply_reload` 的 error 帧）
+    /// 根本不存在，用户界面上一点提示都没有。失败原文交给调用方
+    /// （`cli_entry::config_watch_post_reload`）去投影既有 `error` 帧。
     ///
     /// # 为什么需要（2026-09-11 实测发现）
     ///
@@ -189,7 +195,7 @@ impl StatusContext {
     ///
     /// 与 PATCH 路径共用同一套口径（换快照 + `dev_mode` 跟随），避免两条更新
     /// 路径各写一份而漂移。
-    pub fn refresh_from_disk(&self, config_path: &str) -> bool {
+    pub fn refresh_from_disk(&self, config_path: &str) -> Result<(), String> {
         let updated = match AppSettings::load_from_path(config_path) {
             Ok(u) => u,
             Err(e) => {
@@ -197,14 +203,16 @@ impl StatusContext {
                 // 配置换上去只会让界面跟着一起坏。但必须留痕：用户会问
                 // 「为什么我改了没生效」。
                 tracing::warn!(path = config_path, error = %e, "配置文件重读失败，保留旧快照");
-                return false;
+                // S-007：把失败原文交给调用方——没有 supervisor 时它要投影成
+                // 既有 error 帧（有 supervisor 时失败仍只走 apply_reload 那条）。
+                return Err(e.to_string());
             }
         };
         if updated.dev_mode != self.dev_mode() {
             self.set_dev_mode(updated.dev_mode);
         }
         self.swap_settings(updated);
-        true
+        Ok(())
     }
 }
 

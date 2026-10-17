@@ -84,6 +84,28 @@ impl AppErrorEvent {
         }
     }
 
+    /// 配置热重载失败（`config_reload_failed`）的**唯一**构造点。
+    ///
+    /// 两个生产出口共用它，保证 code / stage / hint / epoch / fatal 五字段
+    /// 逐字一致（用户拿界面上的码去日志里搜，两处必须同一个字符串）：
+    /// 1. `supervisor::reload::apply_reload` —— **有** supervisor 时重建引擎失败；
+    /// 2. `cli_entry::config_watch_post_reload` —— **没有** supervisor 时手改
+    ///    `live2d-ai.toml` 解析失败（S-007：否则界面完全没有提示）。
+    ///
+    /// `message` 由调用方给出（含具体解析错误）；`epoch` 恒 0（这不是某一轮
+    /// 对话的错误，只用于迟到帧判定）；`fatal = false`（旧配置仍在跑，
+    /// 不是本轮对话失败——前端因此只显示横幅、不终止任何一轮）。
+    pub fn config_reload_failed(message: String) -> Self {
+        Self {
+            code: "config_reload_failed".to_string(),
+            stage: "config".to_string(),
+            message,
+            hint: Some("修好 live2d-ai.toml 后再保存一次，或重启服务".to_string()),
+            epoch: 0,
+            fatal: false,
+        }
+    }
+
     /// 单行日志文本（`code` 在最前，便于 `grep '^\[error\] llm_upstream_401'`）。
     ///
     /// 与 WS 帧用**同一个** `code`——「日志里搜到的码」和「界面上看到的码」

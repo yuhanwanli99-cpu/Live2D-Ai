@@ -161,7 +161,10 @@ pub fn dispatch_with_security(
                 // 日志端点门控取 StatusContext.dev_mode()）。与文件监听器
                 // 那条外部修改路径**共用同一个** `refresh_from_disk`，避免
                 // 「两条更新路径各写一份」而语义漂移。
-                if ctx.status_ctx.refresh_from_disk(&config_path) {
+                // S-007：返回 Result 后这里只看成败。失败时 refresh_from_disk
+                // 内部已 warn 并保留旧快照；PATCH 路径**不**发 error 帧
+                // （该帧只属于「手改坏 toml 且无 supervisor」这一条）。
+                if ctx.status_ctx.refresh_from_disk(&config_path).is_ok() {
                     tracing::debug!(path = %config_path, "PATCH 后已刷新设置快照");
                 }
                 // 2026-10-09 §2：语音模式决定本地引擎去留（local = 幂等启用

@@ -31,6 +31,7 @@ use crate::supervisor::{
     AudioCb, ModEventSink, SupervisorConfig, SupervisorHandle, spawn_supervisor,
     spawn_supervisor_with_audio,
 };
+use crate::web_api::app_routes::StatusContext;
 use crate::web_api::ws;
 use crate::web_api::{ServerContext, start_server};
 
@@ -342,24 +343,21 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
     // 现在 watcher **惰性**从槽位现取 supervisor：首跑时槽位为空 → 只刷新快照；
     // 之后经 PATCH 动态装配（SupervisorSlot::ensure_after_patch）也能被同一条监听看见。
     let _file_watcher = {
-        let status_for_watch = ctx.status_ctx.clone();
-        let path_for_watch = config_path.clone();
         let ctx_for_watch = ctx.clone();
         let supervisor_source: crate::web_api::file_watcher::SupervisorSource =
             Box::new(move || ctx_for_watch.try_get_supervisor());
+        // 副作用抽成可测函数（见 config_watch_post_reload）：坏 toml + 无
+        // supervisor 时它补发既有 error 帧（S-007），有 supervisor 时只留日志。
+        let post_reload = config_watch_post_reload(
+            Arc::clone(&ctx.status_ctx),
+            config_path.clone(),
+            ctx.broadcaster.clone(),
+        );
         match crate::web_api::file_watcher::FileWatcher::watch_config(
             &config_path,
             supervisor_source,
             500, // 500ms 防抖
-            Some(Box::new(move || {
-                if status_for_watch.refresh_from_disk(&path_for_watch) {
-                    tracing::info!(path = %path_for_watch, "外部修改已同步进设置快照");
-                }
-                match live2d_ai_runtime::secrets::refresh_from_disk() {
-                    Ok(n) => tracing::info!(keys = n, "外部修改已同步进密钥快照"),
-                    Err(e) => tracing::warn!(error = %e, "密钥快照刷新失败（沿用旧快照）"),
-                }
-            })),
+            Some(post_reload),
         ) {
             Ok(w) => {
                 println!("web: 配置文件热重载监听已启用（{}）", config_path);
@@ -393,6 +391,66 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
             EXIT_ENVIRONMENT
         }
     }
+}
+
+/// 文件监听器的 `post_reload` 钩子（外部手改 `live2d-ai.toml` / `.env` 之后的副作用）。
+///
+/// 抽成普通函数是为了**可单测**（`web_api::tests_reload` 直接构造它并断言实际
+/// 广播的帧原文），生产装配仍只有这一条路径。
+///
+/// 做三件事（顺序即生产行为）：
+/// 1. 刷新 `StatusContext` 的设置快照（解析失败保留旧快照并返回 `Err`）；
+/// 2. **无 supervisor** 且解析失败 → 广播既有 `error` 帧（S-007：没有 supervisor
+///    时 `apply_reload` 那条出口不存在，界面此前完全没有提示）；有 supervisor
+///    时**不**广播——那条失败由 `supervisor::reload::apply_reload` 统一投影，
+///    两处都发会让界面出现两条重复横幅；
+/// 3. 刷新 `.env` 密钥快照（rc.2：密钥真源被手改后必须生效）。
+///
+/// `had_supervisor` 是**本次事件发生时**槽位里是否真有 supervisor（由
+/// `file_watcher::on_config_changed` 现取后传入），不是启动时的静态值。
+pub(crate) fn config_watch_post_reload(
+    status: Arc<StatusContext>,
+    config_path: String,
+    broadcaster: ws::Broadcaster,
+) -> crate::web_api::file_watcher::PostReloadHook {
+    Box::new(move |had_supervisor: bool| {
+        match status.refresh_from_disk(&config_path) {
+            Ok(()) => tracing::info!(path = %config_path, "外部修改已同步进设置快照"),
+            Err(e) => {
+                if had_supervisor {
+                    // 有 supervisor：失败帧由 apply_reload 发（同一个 code），
+                    // 这里只留 debug——否则界面会出现两条一样的横幅。
+                    tracing::debug!(
+                        path = %config_path,
+                        error = %e,
+                        "手改配置解析失败；error 帧由 supervisor 的 apply_reload 分支发出"
+                    );
+                } else {
+                    // 无 supervisor：apply_reload 不会跑，这条失败没有任何出口。
+                    // 投影**同一个** AppEvent（同 code / stage / hint），前端既有
+                    // 错误横幅因此照常出现（不新增 WS 帧类型、不改 Dart）。
+                    tracing::error!(
+                        path = %config_path,
+                        error = %e,
+                        code = "config_reload_failed",
+                        "手改配置解析失败且当前没有 supervisor——保留旧快照，广播 error 帧"
+                    );
+                    let event = crate::app_event::AppEvent::Error(
+                        crate::app_event::AppErrorEvent::config_reload_failed(format!(
+                            "配置已保存到磁盘，但引擎没能用上它：{e}"
+                        )),
+                    );
+                    if let Some(frame) = ws::app_event_to_ws_frame(&event) {
+                        broadcaster.broadcast(&frame.to_string());
+                    }
+                }
+            }
+        }
+        match live2d_ai_runtime::secrets::refresh_from_disk() {
+            Ok(n) => tracing::info!(keys = n, "外部修改已同步进密钥快照"),
+            Err(e) => tracing::warn!(error = %e, "密钥快照刷新失败（沿用旧快照）"),
+        }
+    })
 }
 
 /// 装配 web 模式 supervisor（与 `backend/chat.rs` 同源的最小子集）。
