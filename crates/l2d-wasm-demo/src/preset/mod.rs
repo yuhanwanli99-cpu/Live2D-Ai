@@ -23,7 +23,8 @@
 //!   intensity 插值（1=难过相、3=生气相），intensity 不再二次相乘。
 //! - **双槽**：`PresetSlot::Face` 与 `PresetSlot::Gesture` 可**同轮并存**
 //!   （微笑 + 点头）。同槽换包**从换下去那一帧接上**（`handoff`），`id:"none"`
-//!   按槽**放回**（`release`）到点才清；同帧写入顺序 Face → Gesture，共享头/身由手势赢。
+//!   按槽**放回**（`release`）到点才清；手势槽 TTL 到期也走同一条放回，表情槽
+//!   到期立即清；同帧写入顺序 Face → Gesture，共享头/身由手势赢。
 //!
 //! # P1-1：表外置（2026-09-16）
 //!
@@ -40,13 +41,13 @@
 //!
 //! # 文件划分（AGENTS.md 行数纪律：源码 ≤500 行）
 //!
-//! - `mod.rs`（本文件）：模块装配 + 双槽到点撤销状态机；
+//! - `mod.rs`（本文件）：模块装配 + 双槽到期 / 放回状态机；
 //! - `data.rs`：类型 / 内建 fallback 表 / 强度 morph 描述；
 //! - `command.rs`：`preset` 协议解析；
 //! - `params.rs`：包络 / 强度 morph / 逐通道增益；
 //! - `table.rs`：外置 JSON → 表 + 校验；
 //! - `handoff.rs`：同槽换动作时的接力插值（2026-10-15）；
-//! - `release.rs`：`Revoke` 的放回（2026-10-15）；
+//! - `release.rs`：`Revoke` 与手势到期的放回（2026-10-15 / 2026-10-17）；
 //! - `scales.rs`：通道红线、用户可调倍率、最终下发；
 //! - `tests/`：协议（`mod.rs` 内联）+ 双槽 / morph（`packs.rs`）+ 资产（`assets.rs`）。
 //!
@@ -89,7 +90,8 @@
 //!
 //! 旧形状 `{"id": "smile"}` 继续可用（缺省 = 该预设时长、强度 1、来源
 //! `unknown`）。新增：
-//! - `id:"none"` = 撤销：每个还有姿势的槽**从屏幕值放回** 0（见 `release`）；
+//! - `id:"none"` = 撤销：每个还有姿势的槽**从屏幕值放回** 0（见 `release`；
+//!   手势槽 TTL 到期也走同一条放回，表情槽到期仍立即清）；
 //! - 可选 `intensity`（钳 `[0, 3]`）、`ttl_ms`（钳 `(0, 5000]`）、
 //!   `source`（`debug` / `director` / 其它 → `unknown`）。
 //!
@@ -163,7 +165,8 @@ pub trait PresetSink {
     fn clear_override_param(&mut self, id: &str) -> bool;
 }
 
-/// 清掉**一条**预设用到的 override 参数（到点按槽撤销；换包改走 `handoff` 接力）。
+/// 清掉**一条**预设用到的 override 参数（表情到点按槽撤销；换包走 `handoff`；
+/// 手势到点先走 `release` 放回，走满才调它）。
 pub fn clear_spec_overrides(spec: &PresetSpec, sink: &mut impl PresetSink) {
     for id in spec_channels(spec) {
         sink.clear_override_param(id);
@@ -231,8 +234,9 @@ impl PresetRuntime {
 
     /// 手势槽里是否**有活动预设**（表情槽不算）——待机摆头让开的判据。
     ///
-    /// 到点撤销在 `apply_frame` 里先行，所以每帧 `apply_frame` 之后取这个布尔，
-    /// 拿到的是「本帧还活着的手势」。表情不占手势槽（脸不该压住摆头）。
+    /// 到点 / 放回在 `apply_frame` 里先行，所以每帧 `apply_frame` 之后取这个布尔，
+    /// 拿到的是「本帧还活着的手势」；到期放回途中仍算占用，放回走满才让开。
+    /// 表情不占手势槽（脸不该压住摆头）。
     pub fn gesture_occupied(&self) -> bool {
         self.gesture.is_some()
     }
@@ -351,7 +355,8 @@ impl PresetRuntime {
         }
     }
 
-    /// 每帧把两个槽写进 `final_override`；到点 / 放回到点按槽撤销并清空该槽。
+    /// 每帧把两个槽写进 `final_override`；手势槽到点先转成放回（走满才清槽），
+    /// 表情槽到点立即清。
     ///
     /// 同帧写入顺序 Face → Gesture：共享的头 / 身通道由手势包赢（否则点头会被
     /// 表情包的小幅抬头盖掉）。
@@ -360,11 +365,26 @@ impl PresetRuntime {
             let expired = self.slot_ref(slot).is_some_and(|a| {
                 a.release.is_none() && (now_ms - a.started_ms).max(0.0) >= a.ttl_ms
             });
-            if expired {
-                if let Some(old) = self.slot_ref(slot) {
-                    clear_spec_overrides(old.spec, sink);
+            if !expired {
+                continue;
+            }
+            match slot {
+                // 手势槽到期 = 与 `Revoke` 同一条放回（2026-10-17 rc.3）：不从当帧
+                // 清参数，从这一帧屏幕上的值收到 0，走满 ttl×(1-HOLD_END) 才清槽。
+                PresetSlot::Gesture => {
+                    let scales = self.scales;
+                    if let Some(active) = self.slot_mut(slot) {
+                        let from = handoff::on_screen(active, now_ms, scales);
+                        active.release = Some(Release::new(from, active.ttl_ms, now_ms));
+                    }
                 }
-                *self.slot_mut(slot) = None;
+                // 表情槽到期仍**立即**清（不补放回段）。
+                PresetSlot::Face => {
+                    if let Some(old) = self.slot_ref(slot) {
+                        clear_spec_overrides(old.spec, sink);
+                    }
+                    *self.slot_mut(slot) = None;
+                }
             }
         }
         let scales = self.scales;

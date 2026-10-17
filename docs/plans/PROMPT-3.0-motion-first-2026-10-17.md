@@ -18,6 +18,12 @@
 - 若功能版把棘轮顶超限，`0.3.1` 的推送可收回重推为 `0.3.1-rc.1`；tag 操作等验收后由维护者确认。
 - 下表与节标题里的 `v0.3.2-rc.1/.2` 是旧编号；**rc2 已同步为 `0.3.1-rc.3` / `0.3.1-rc.5`**（2026-10-17），以本修正块为准。
 
+## 2026-10-17 执行方式（维护者裁决）
+
+- 所有 rc 只做**本地提交 + 本地附注 tag**；**不 push**。远端/云端由维护者在逐个小版本验收后提交。
+- 需要外部实机/云端的验证（Windows、公开第二仓库、真实云端端点）如实标“不做/未验证”，不伪造。
+- 后续 rc 号按实际交付顺序递增：棘轮超限时下一个号做拆分 + 工程清债；未超限时下一个号做下一功能。表内 `rc.4` / `rc.5` 是占位。
+
 ## 版本序列
 
 | 版本 | 队列 | 这一版交付什么 |
@@ -73,7 +79,7 @@
 
 导演仍是 Mod。`mod_count_is_six` 仍是 6。不新增预设，不改 `assets/actions/presets.json`，不改 `PRESET_IDS`，不改导演选包。
 
-手势槽时间到，现在在 `crates/l2d-wasm-demo/src/preset/mod.rs` 的 `apply_frame` 里直接 `clear_spec_overrides` 并把槽设成 `None`。手势槽改成与 `Revoke` 同一条 `Release`：从这一帧屏幕上的值放回 0，时长 `ttl_ms × (1 - HOLD_END)`。表情槽到期仍立即清。呼吸、眨眼、`BODY_LAG`、`ATTACK_END`、`HOLD_END`、同槽接力不动。
+手势槽时间到，原先在 `crates/l2d-wasm-demo/src/preset/mod.rs` 的 `apply_frame` 里直接 `clear_spec_overrides` 并把槽设成 `None`；`0.3.1-rc.3` 起改成与 `Revoke` 同一条 `Release`：从这一帧屏幕上的值放回 0，时长 `ttl_ms × (1 - HOLD_END)`，走满才清槽。表情槽到期仍立即清。呼吸、眨眼、`BODY_LAG`、`ATTACK_END`、`HOLD_END`、同槽接力不动。
 
 先让「手势到期立即清」的测试变红，再改绿。表情到期立即清的测试保持绿色。放回时长与现有撤销测试同一口径。逻辑若会把 `preset/mod.rs` 撑过 1000 行，同一版挪进 `release.rs`。
 

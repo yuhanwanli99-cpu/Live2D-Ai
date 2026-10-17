@@ -2,8 +2,10 @@
 //!
 //! 钉住「换下去那一帧 → 新动作」三类通道（共享 / 只旧有 / 只新有）在攻击段内的
 //! 插值，以及窗口结束（`progress >= ATTACK_END`）之后与不接旧值**逐值相同**。
-//! 空槽第一次施加、同一 id 再施加、到点立即清槽在这里；`Revoke` 的放回在
-//! `release.rs`，而**快照一律是屏幕上这一帧的值**（含接力 / 放回途中）。
+//! 空槽第一次施加、同一 id 再施加在这里；**手势** TTL 到期与 `Revoke` 同一条
+//! `Release`（到期帧开放回、走满 `ttl_ms × (1 - HOLD_END)` 才清槽），`Revoke`
+//! 的常态放回在 `release.rs`，表情到期仍立即清；而**快照一律是屏幕上这一帧的值**
+//! （含接力 / 放回途中）。
 
 use super::motion_curve::{ATTACK_END, HOLD_END};
 use super::*;
@@ -211,28 +213,45 @@ fn reapplying_the_same_id_still_restarts() {
     assert_eq!(ov(&sink, "ParamAngleY"), Some(0.0), "同一 id 照旧从 0 重开");
 }
 
-/// **到点**仍是立即清槽（`Revoke` 改走 `release.rs` 的放回，不在这里）。
+/// **手势 TTL 到期**：与 `Revoke` 同一条 `Release`——到期那一帧从屏幕值开一段
+/// 放回，槽仍占着；走满 `ttl_ms × (1 - HOLD_END)` 才清 override + 清槽。
 ///
-/// 到期那一帧的曲线值已经是 0，所以「到点直接清」不跳变、也不再补一段放回。
+/// 手势曲线在 `p = 1` 恰好为 0，所以 `from` 通常 ≈ 0；但到期帧的通道**仍要写**
+/// （q = 0 那一帧值 = from），不是当帧整批清掉。表情到期仍是立即清（见 `motion.rs`）。
 #[test]
-fn expiry_still_clears_immediately() {
+fn gesture_expiry_releases_then_clears() {
     let mut rt = PresetRuntime::default();
     let mut sink = FakeSink::default();
     let left = preset("look_left").unwrap();
+    let ttl = left.duration_ms;
+    let release = ttl * (1.0 - HOLD_END);
 
     rt.handle(apply("look_left"), 0.0, &mut sink);
-    rt.apply_frame(left.duration_ms, &mut sink);
-    assert!(rt.active_gesture().is_none(), "到点撤销");
-    assert!(sink.overrides.is_empty());
+    rt.apply_frame(ttl, &mut sink);
+    assert!(
+        rt.active_gesture().is_some(),
+        "手势到期应开一段放回，不是立即清槽"
+    );
+    assert!(
+        rt.active_gesture().unwrap().release.is_some(),
+        "到期帧应开 Release（与 Revoke 同一条放回）"
+    );
+    assert!(
+        sink.overrides.contains_key("ParamAngleX"),
+        "到期帧仍要写手势通道（q = 0，值为 from）"
+    );
+    assert!(
+        sink.overrides["ParamAngleX"].abs() < 1e-6,
+        "手势曲线 p = 1 恰好为 0，from 应为 0（实得 {}）",
+        sink.overrides["ParamAngleX"]
+    );
 
-    // 放回段尾部已经贴近 0（同一帧清槽不剪尾巴）。
-    rt.handle(apply("look_left"), 0.0, &mut sink);
-    rt.apply_frame(left.duration_ms * 0.99, &mut sink);
-    let tail = ov(&sink, "ParamAngleX").expect("放回段仍要写");
-    assert!(tail.abs() < 0.5, "放回段尾巴已接近 0（实得 {tail}）");
-    rt.apply_frame(left.duration_ms, &mut sink);
-    assert!(rt.active_gesture().is_none(), "到点仍然立即清槽");
-    assert!(sink.overrides.is_empty());
+    rt.apply_frame(ttl + release / 2.0, &mut sink);
+    assert!(rt.active_gesture().is_some(), "放回途中槽还占着");
+
+    rt.apply_frame(ttl + release, &mut sink);
+    assert!(rt.active_gesture().is_none(), "到点才清槽");
+    assert!(sink.overrides.is_empty(), "到点 override 全清");
 }
 
 /// **接力窗口内再换第三次**：第一帧等于第二次混合到一半的屏幕值，不是旧曲线、

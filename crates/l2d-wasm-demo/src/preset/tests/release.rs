@@ -133,3 +133,67 @@ fn swapping_mid_release_snapshots_the_half_released_value() {
         "攻击段结束丢掉快照"
     );
 }
+
+/// **手势短 TTL 到期**：与 `Revoke` 同一条 `Release`——到期帧槽仍 Some + 开 Release，
+/// 走满 `300 × (1 - HOLD_END) = 114ms` 才清槽 / 清 override；中途仍占着。
+#[test]
+fn gesture_short_ttl_expiry_releases_then_clears() {
+    let mut rt = PresetRuntime::default();
+    let mut sink = FakeSink::default();
+    let ttl = 300.0;
+    let release = 300.0 * (1.0 - HOLD_END);
+
+    rt.handle(
+        parse_command(Some("nod"), None, Some(ttl), None),
+        0.0,
+        &mut sink,
+    );
+    rt.apply_frame(ttl, &mut sink);
+    assert!(
+        rt.active_gesture().is_some(),
+        "手势短 ttl 到期应开一段放回，不是立即清槽"
+    );
+    assert!(
+        rt.active_gesture().unwrap().release.is_some(),
+        "到期帧应开 Release（与 Revoke 同一条放回）"
+    );
+    assert!(
+        sink.overrides.contains_key("ParamAngleY"),
+        "到期帧仍要写手势通道（q = 0，值为 from）"
+    );
+
+    // 中途（t = 350 < 300 + 114）：槽还占着，通道还在写。
+    rt.apply_frame(350.0, &mut sink);
+    assert!(rt.active_gesture().is_some(), "放回途中槽还占着");
+    assert!(
+        sink.overrides.contains_key("ParamAngleY"),
+        "放回途中仍在写通道"
+    );
+
+    // 到点（300 + 114 = 414）才清。
+    rt.apply_frame(ttl + release, &mut sink);
+    assert!(rt.active_gesture().is_none(), "到点才清槽");
+    assert!(sink.overrides.is_empty(), "到点 override 全清");
+}
+
+/// **表情短 TTL 对照**（与上一条紧邻）：同一 ttl 下表情槽仍**立即**清
+/// （槽 None + override 清掉），不走手势那条放回。
+#[test]
+fn face_short_ttl_expiry_still_clears_immediately() {
+    let mut rt = PresetRuntime::default();
+    let mut sink = FakeSink::default();
+    let ttl = 300.0;
+
+    rt.handle(
+        parse_command(Some("smile"), None, Some(ttl), None),
+        0.0,
+        &mut sink,
+    );
+    rt.apply_frame(ttl, &mut sink);
+    assert!(rt.active_face().is_none(), "表情到期仍立即清槽");
+    assert!(
+        !sink.overrides.contains_key("ParamMouthForm"),
+        "表情到期仍立即清掉自己的 override"
+    );
+    assert!(!sink.overrides.contains_key("ParamEyeLSmile"));
+}

@@ -84,7 +84,7 @@ fn switching_keeps_stale_until_attack_end_and_revoke_releases() {
 }
 
 #[test]
-fn motion_ramps_then_clears_at_ttl() {
+fn motion_ramps_then_expiry_releases_before_clearing() {
     let mut rt = PresetRuntime::default();
     let mut sink = FakeSink::default();
     rt.handle(parse_command(Some("nod"), None, None, None), 0.0, &mut sink);
@@ -102,9 +102,24 @@ fn motion_ramps_then_clears_at_ttl() {
             .abs()
             > 1.0
     );
+    // 到期帧：与 Revoke 同一条放回——槽仍占着，通道仍写（p = 1 处 from ≈ 0）。
     rt.apply_frame(MOTION_MS, &mut sink);
-    assert!(rt.active().is_none(), "到点撤销");
-    assert!(sink.overrides.is_empty());
+    assert!(
+        rt.active_gesture().is_some(),
+        "手势到期应开一段放回，不是立即清槽"
+    );
+    assert!(
+        rt.active_gesture().unwrap().release.is_some(),
+        "到期帧应开 Release"
+    );
+    assert!(
+        sink.overrides.contains_key("ParamAngleY"),
+        "到期帧仍要写手势通道（q = 0，值 = from ≈ 0）"
+    );
+    // 走满 ttl_ms × (1 - HOLD_END) 才清槽 + 清 override。
+    rt.apply_frame(MOTION_MS + MOTION_MS * (1.0 - HOLD_END), &mut sink);
+    assert!(rt.active_gesture().is_none(), "放回走满才清槽");
+    assert!(sink.overrides.is_empty(), "放回走满才清 override");
 }
 
 #[test]
