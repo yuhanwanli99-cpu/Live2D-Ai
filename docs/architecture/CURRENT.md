@@ -14,6 +14,15 @@
 - tag `v0.2.5-rc.1` 仍在原处：导演开启时按句清洗并按原文出动作；出厂不设人设。
 - **`v0.2.7` 是 2.0 稳定版，原 `v0.3.1` 内容是 `0.3.1-rc.1`（外部事件忙时合并）。** 其后各版与验收边界在 [`PROMPT-3.0-motion-first-2026-10-17.md`](../plans/PROMPT-3.0-motion-first-2026-10-17.md)：`0.3.1-rc.2` 基线拆分，`0.3.2-rc.1` 手势到期放回，`0.3.2-rc.2` 导演常驻 + 第二路并入核心，`0.3.3` 分仓库，`0.3.4` 多 TTS/LLM 厂商选择 + spawn-only `local-engine`，然后 `0.3.5` 多 Live2D、`0.4.0` Windows + 桌宠真实窗口（真实窗口/点火未验）。
 - **两仓（0.3.3 起）**：核心在主仓 `/home/skystar/Live2D-Ai`，六个 Mod 实现住 sibling 仓 `/home/skystar/Live2D-Ai-mods`，主仓经 `path` 依赖引用。主仓**不再 standalone**；公开前换 git 依赖或 CI 双 checkout，见 [`two-repo-mods.md`](two-repo-mods.md)。
+- **多 Live2D（0.3.5）**：设置 → 模型库可加载本机 `model3`。唯一真源仍是
+  `model_registry.json.active_id`；`GET /api/v1/app/status` 同时派生 `active_model_url`
+  （空 = 无模型），不加 DisplayPrefs/localStorage 字段、不加端点。白模 `bai` 出厂
+  seed、可从列表切回、不可删除；active 指向坏 entry / 缺 `model3` 时启动按无 active
+  回 bai（id/URL 同步回退，不写盘）。未授权模型不入库（`assets/models` 白名单只有
+  `README.md` / `.gitkeep` / `bai`），用户须自持授权。参数名不匹配的动作继续丢弃并
+  沿用 ack 原因；不新增 remap 表。**未验**：第二张合法 `model3`、浏览器肉眼、真实服务
+  HTTP 换模、公开远端 / CI；换模 / 回滚 / 字段映射仅 fixture 单测。known minor：
+  `ModelsSection` 仍硬编码 `bai`（后端 builtin id 真源），`FieldMap::for_model` 无直接单测。
 
 ## 3. 出厂不设人设
 
@@ -28,6 +37,9 @@
   **动作仍按每段原文走核心规则表**（不是无动作），表演层自己的 `cues` 不投递。
 - 动作链路：`action_cue` → 前端 → 渲染面 `preset`（表情槽 / 手势槽）。
   **不走 core reducer**；`ModServices.action_tx` 仍是休眠 sender。
+- **换模（0.3.5）**：iframe 热换、不重载 iframe；只认**匹配 URL 的 `loaded`**，
+  旧/错帧忽略。失败保留旧模型并给「重试换皮」；成功后按新 model id 重载
+  `/actions/field_map.json`，清旧贡献 / pending、保留 idle。
 - 同槽换动作从屏幕上的姿势接上。表情进出走曲线。撤销从屏幕值收回；手势到期也走同一条放回（`ttl × (1-HOLD_END)`），表情到期仍立即清槽。
 - 第二路失败（请求失败 / 超时 / 坏 JSON）：回退**按句规则表**。
 - 设置一级「**导演**」卡：常驻状态 + 动作幅度滑条；`dev_mode` 下才显示可观测四栏与调试面板。

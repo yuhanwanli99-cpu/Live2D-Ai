@@ -171,6 +171,8 @@ class ModelsSection extends StatelessWidget {
     this.onImport,
     this.busyId,
     this.activateMessage,
+    this.activateFailed = false,
+    this.onRetryModel,
     super.key,
   });
 
@@ -191,6 +193,10 @@ class ModelsSection extends StatelessWidget {
   /// 正在激活的模型 id（禁用该行按钮，防重复提交）。
   final String? busyId;
   final String? activateMessage;
+
+  /// 最近一次换模失败：显示「重试换皮」，**不**把舞台回退出厂白模。
+  final bool activateFailed;
+  final Future<void> Function()? onRetryModel;
 
   @override
   Widget build(BuildContext context) {
@@ -213,6 +219,18 @@ class ModelsSection extends StatelessWidget {
               style: theme.textTheme.bodySmall,
             ),
           ),
+        if (activateFailed && onRetryModel != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: Space.s2),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: onRetryModel,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('重试换皮'),
+              ),
+            ),
+          ),
         if (loading && models.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: Space.s4),
@@ -229,7 +247,10 @@ class ModelsSection extends StatelessWidget {
         else
           for (final ModelInfo m in models)
             AdminRow(
-              title: m.displayName.isEmpty ? m.id : m.displayName,
+              // bai 是出厂白模：标题说人话，但 id 仍原样显示在副标题里。
+              title: m.id == 'bai'
+                  ? '白模（bai）'
+                  : (m.displayName.isEmpty ? m.id : m.displayName),
               subtitle:
                   '${m.id} · v${m.version} · ${m.humanSize} · '
                   '${m.textureCount} 张贴图',
@@ -237,6 +258,7 @@ class ModelsSection extends StatelessWidget {
               // 「含物理」「有显示配置」是模型工程属性（开发者排障用）。
               badges: <String>[
                 if (m.active) '当前激活',
+                if (m.id == 'bai') '出厂白模',
                 if (devMode && m.hasPhysics) '含物理',
                 if (devMode && m.hasDisplayInfo) '有显示配置',
               ],
@@ -246,7 +268,11 @@ class ModelsSection extends StatelessWidget {
                       onPressed: busyId != null || onActivate == null
                           ? null
                           : () => onActivate!(m.id),
-                      child: Text(busyId == m.id ? '激活中…' : '激活'),
+                      child: Text(
+                        busyId == m.id
+                            ? '激活中…'
+                            : (m.id == 'bai' ? '切回白模' : '激活'),
+                      ),
                     ),
             ),
         if (onImport != null) ...<Widget>[

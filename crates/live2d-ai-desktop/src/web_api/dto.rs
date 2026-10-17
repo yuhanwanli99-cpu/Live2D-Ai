@@ -54,6 +54,12 @@ pub struct AppStatus {
     /// 当前激活的模型 id（读真实 registry；未激活过时为内置默认模型的 id，
     /// 详见 [`crate::web_api::models_routes::active_model_id`]）。
     pub active_model_id: String,
+    /// 当前模型的可加载 URL（`/models/<model3_rel_path>`；空串 = 没有模型）。
+    ///
+    /// 与 `active_model_id` **同源**（同一次 [`crate::web_api::models_routes::active_model`]
+    /// 决策），启动时前端据此恢复舞台——不另设 DisplayPrefs / localStorage
+    /// 模型字段，也不新增端点。
+    pub active_model_url: String,
     /// 音频后端描述。
     pub audio: AudioStatus,
     /// LLM 配置摘要。

@@ -43,6 +43,8 @@ pub mod registry;
 mod util;
 
 #[cfg(test)]
+mod tests_models_035;
+#[cfg(test)]
 mod tests_models_common;
 #[cfg(test)]
 mod tests_models_core;
@@ -179,6 +181,13 @@ impl ModelStore {
                 }
             }
         }
+        // 出厂白模：registry 可以是空的（首次启动 / 被清空），但只要
+        // `assets/models/bai/runtime/bai.model3.json` 在，就必须有一条 bai entry
+        // ——否则「列表里没有白模」等于把出厂模型变成不可切回的状态。
+        // 只在内存里 seed，不在这里写盘（启动路径不制造运行时文件）。
+        if let Ok(mut g) = store.inner.write() {
+            seed_builtin_entry(&mut g, &store.assets_root);
+        }
         store
     }
 
@@ -214,29 +223,126 @@ impl ModelStore {
 /// 2026-09-12（rc.2）之前这里恒为 `"bai_001"`——一个 registry 里根本不存在的
 /// 字符串，所以「激活了但状态栏不变」是必然的。
 pub(crate) fn active_model_id(store: &ModelStore) -> String {
-    let registered = store.inner.read().ok().and_then(|g| g.active_id.clone());
-    pick_active_model_id(
-        registered.as_deref(),
-        crate::web_api::model_root::builtin_model_id(),
-        crate::web_api::model_root::builtin_model3_path().is_file(),
+    active_model(store).id
+}
+
+/// 舞台此刻真正该显示的模型：id + 可 GET 的 URL。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ActiveModel {
+    pub id: String,
+    pub url: String,
+}
+
+/// 解析当前 active 模型，并做**启动恢复**校验（0.3.5）。
+///
+/// 规则（与 Lead 裁决逐条对应）：
+/// 1. registry.active_id 指向的 entry 存在、且 `model3_rel_path` 文件真的在盘上
+///    → 就用它；
+/// 2. 否则按**无 active** 回退出厂白模（id 与 URL 一起回退）并 warn；
+///    **不写盘**——registry 仍是用户/上次运行留下的样子，下一次 activate 才落盘；
+/// 3. 白模文件也不在 → 两者都空（诚实：没有模型可显示）。
+///
+/// 第 2 条同时覆盖「entry 不存在」与「entry 在 but model3 被删」两种坏状态；
+/// 前端因此永远拿不到一个必然 404 的 active URL。
+pub(crate) fn active_model(store: &ModelStore) -> ActiveModel {
+    let (registered, invalid_reason) = match store.inner.read() {
+        Ok(g) => {
+            let active = g.active_id.as_deref().filter(|id| !id.is_empty());
+            match active {
+                None => (None, None),
+                Some(id) => match g.entries.get(id) {
+                    None => (
+                        None,
+                        Some(format!("active_id {id:?} 在 registry 里没有 entry")),
+                    ),
+                    Some(e) if !store.assets_root.join(&e.model3_rel_path).is_file() => (
+                        None,
+                        Some(format!(
+                            "active_id {id:?} 的 model3 文件不存在：{}",
+                            e.model3_rel_path
+                        )),
+                    ),
+                    Some(e) => (Some((id.to_string(), e.model3_rel_path.clone())), None),
+                },
+            }
+        }
+        Err(e) => (None, Some(format!("registry 锁毒化：{e}"))),
+    };
+    if let Some(reason) = invalid_reason {
+        eprintln!("[warn] {reason}；按无 active 回退出厂白模（id/URL 同步回退，不写盘）");
+    }
+    let builtin_id = crate::web_api::model_root::builtin_model_id();
+    let builtin_rel = crate::web_api::model_root::builtin_model3_rel_path();
+    let builtin_present = store.assets_root.join(builtin_rel).is_file();
+    pick_active_model(
+        registered
+            .as_ref()
+            .map(|(id, rel)| (id.as_str(), rel.as_str())),
+        builtin_id,
+        builtin_rel,
+        builtin_present,
     )
 }
 
-/// [`active_model_id`] 的纯决策内核（不碰注册表与文件系统，便于穷举用例）。
-fn pick_active_model_id(
-    registered: Option<&str>,
+/// [`active_model`] 的纯决策内核（不碰注册表与文件系统，便于穷举用例）。
+fn pick_active_model(
+    registered: Option<(&str, &str)>,
     builtin_id: &str,
+    builtin_rel: &str,
     builtin_present: bool,
-) -> String {
-    if let Some(id) = registered
-        && !id.is_empty()
-    {
-        return id.to_string();
+) -> ActiveModel {
+    if let Some((id, rel)) = registered {
+        return ActiveModel {
+            id: id.to_string(),
+            url: crate::web_api::model_root::model_url_for_rel(rel),
+        };
     }
-    if builtin_present && !builtin_id.is_empty() {
-        return builtin_id.to_string();
+    if builtin_present && !builtin_id.is_empty() && !builtin_rel.is_empty() {
+        return ActiveModel {
+            id: builtin_id.to_string(),
+            url: crate::web_api::model_root::model_url_for_rel(builtin_rel),
+        };
     }
-    String::new()
+    ActiveModel::default()
+}
+
+/// 空 registry + 白模文件存在 → 在内存里补一条 `bai` entry（不写盘）。
+///
+/// manifest 从真实 `bai.model3.json` 解析（复用 import 的同一套
+/// `ModelPackage::load`），因此列表里的贴图数 / 物理 / 体积与手工 import
+/// 的模型是同一口径；解析失败只 warn，绝不阻断启动。
+fn seed_builtin_entry(reg: &mut ModelRegistry, assets_root: &Path) {
+    let id = crate::web_api::model_root::builtin_model_id();
+    if id.is_empty() || reg.entries.contains_key(id) {
+        return;
+    }
+    let rel = crate::web_api::model_root::builtin_model3_rel_path();
+    let model3_path = assets_root.join(rel);
+    if !model3_path.is_file() {
+        return;
+    }
+    let package = match l2d::asset::ModelPackage::load(&model3_path) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!(
+                "[warn] 出厂白模 {} 解析失败（{e}）；模型库不自动收录它",
+                model3_path.display()
+            );
+            return;
+        }
+    };
+    let entry = registry::ModelEntry {
+        id: id.to_string(),
+        display_name: id.to_string(),
+        source: registry::ModelSource::LocalImport,
+        relative_dir: id.to_string(),
+        model3_rel_path: rel.to_string(),
+        manifest: registry::StoredManifest::from(package.manifest()),
+        display: registry::ModelDisplay::default(),
+        stage: registry::default_stage(),
+        imported_at: util::now_iso8601(),
+    };
+    reg.entries.insert(id.to_string(), entry);
 }
 
 fn default_paths() -> (PathBuf, PathBuf) {
@@ -314,31 +420,44 @@ fn append_corrupt_suffix(path: &Path, ts: i64) -> PathBuf {
 
 #[cfg(test)]
 mod active_model_id_tests {
-    use super::pick_active_model_id;
+    use super::{ActiveModel, pick_active_model};
 
-    #[test]
-    fn registered_wins() {
-        assert_eq!(pick_active_model_id(Some("neko"), "bai", true), "neko");
+    fn pick(registered: Option<(&str, &str)>, builtin_present: bool) -> ActiveModel {
+        pick_active_model(
+            registered,
+            "bai",
+            "bai/runtime/bai.model3.json",
+            builtin_present,
+        )
     }
 
-    /// 没有激活过任何模型时，报**stage 实际会加载的那个**——而不是空串，
-    /// 也不是一个 registry 里不存在的 id。
+    #[test]
+    fn registered_wins_and_url_is_derived_from_the_same_entry() {
+        assert_eq!(
+            pick(Some(("neko", "neko/runtime/neko.model3.json")), true),
+            ActiveModel {
+                id: "neko".into(),
+                url: "/models/neko/runtime/neko.model3.json".into(),
+            }
+        );
+    }
+
+    /// 没有激活过任何模型时，报**stage 实际会加载的那个**——id 与 URL 一起。
     #[test]
     fn falls_back_to_the_builtin_that_actually_exists() {
-        assert_eq!(pick_active_model_id(None, "bai", true), "bai");
+        assert_eq!(
+            pick(None, true),
+            ActiveModel {
+                id: "bai".into(),
+                url: "/models/bai/runtime/bai.model3.json".into(),
+            }
+        );
     }
 
     /// 内置模型文件不在磁盘上时**不许**报它：那会变成「状态栏说有模型、
-    /// 舞台上什么都没有」的新假广告。
+    /// 舞台上什么都没有」的新假广告。id 与 URL 同时为空。
     #[test]
     fn missing_builtin_reports_nothing() {
-        assert_eq!(pick_active_model_id(None, "bai", false), "");
-        assert_eq!(pick_active_model_id(None, "", true), "");
-    }
-
-    #[test]
-    fn empty_registered_value_is_treated_as_absent() {
-        assert_eq!(pick_active_model_id(Some(""), "bai", true), "bai");
-        assert_eq!(pick_active_model_id(Some(""), "bai", false), "");
+        assert_eq!(pick(None, false), ActiveModel::default());
     }
 }

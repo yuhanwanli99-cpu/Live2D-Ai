@@ -103,9 +103,14 @@ class Live2DStage extends StatefulWidget {
     this.onProgress,
     this.onAck,
     this.onRenderEvent,
+    this.onModelSwapFailed,
   });
 
   /// 可选：渲染面模型路径（缺省由渲染端决定）。
+  ///
+  /// 这个字段变化时（例如刷新后 `app/status.active_model_url` 恢复、或
+  /// 用户 activate 后宿主 setState），[Live2DStageState.didUpdateWidget]
+  /// 会走热换并等**匹配 URL 的 loaded**；不会重载 iframe。
   final String? model;
   final double scale;
   final bool dark;
@@ -182,6 +187,12 @@ class Live2DStage extends StatefulWidget {
   /// 快照是唯一例外，且它同样只由 ack 驱动。
   final ValueChanged<RenderEvent>? onRenderEvent;
 
+  /// 热换失败回调（0.3.5）：`didUpdateWidget` 自动换模失败时调用。
+  ///
+  /// 失败**保留旧模型**（wasm 侧已回滚），宿主据此显示错误并提供重试；
+  /// 这里不把整个舞台打成 error，否则用户会失去仍在正常显示的旧皮套。
+  final ValueChanged<String>? onModelSwapFailed;
+
   /// 渲染面就绪回调（**每次**进入 ready 都触发，含错误后 [Live2DStageState.retry]
   /// 重建 iframe）。
   ///
@@ -198,6 +209,10 @@ class Live2DStageState extends State<Live2DStage>
     with SingleTickerProviderStateMixin {
   Live2DBridge? _bridge;
   String? _hostError;
+
+  /// 正在等回执的换模 URL（0.3.5）：`didUpdateWidget` 用它避免和
+  /// `_activateModel` 的显式 `swapModel` 重复发同一帧。
+  String? _pendingSwapUrl;
 
   /// 最近一条渲染面回执。**收到它才说明渲染面真的应用了**——
   /// 收条之前不得提示「已生效」（R2 的规矩）。
@@ -276,6 +291,15 @@ class Live2DStageState extends State<Live2DStage>
   @override
   void didUpdateWidget(Live2DStage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // 模型是独立通道（0.3.5）：父级换了 model（activate / app/status 恢复）
+    // 就热换，**不重载 iframe**。显式 swapModel 已占住同一 URL 时不重复发。
+    final String? nextModel = widget.model;
+    if (nextModel != null &&
+        nextModel.isNotEmpty &&
+        nextModel != oldWidget.model &&
+        _pendingSwapUrl != nextModel) {
+      unawaited(_swapFromWidget(nextModel));
+    }
     // 背景图是独立通道：先处理它，**不能**因为底色没变就被下面的 return 跳过。
     if (widget.stageImage != oldWidget.stageImage) {
       unawaited(
@@ -542,7 +566,27 @@ class Live2DStageState extends State<Live2DStage>
   }) async {
     final Live2DBridge? bridge = _bridge;
     if (bridge == null) return false;
-    return bridge.swapModel(url, timeout: timeout);
+    _pendingSwapUrl = url;
+    try {
+      return await bridge.swapModel(url, timeout: timeout);
+    } finally {
+      if (_pendingSwapUrl == url) _pendingSwapUrl = null;
+    }
+  }
+
+  /// `didUpdateWidget` 触发的后台热换：失败只上报，不打断旧模型。
+  Future<void> _swapFromWidget(String url) async {
+    // 桥还没挂上：`_attach` 会用 widget.model 作为首帧 sync，不需要额外换模，
+    // 更不能把「还没开始」误报成失败。
+    if (_bridge == null) return;
+    final bool ok = await swapModel(url);
+    if (!mounted || ok) return;
+    final String? detail = _bridge?.lastSwapError;
+    widget.onModelSwapFailed?.call(
+      detail == null || detail.isEmpty
+          ? '舞台未能确认加载 $url（旧模型仍保留，可重试）'
+          : '舞台未能确认加载 $url：$detail（旧模型仍保留，可重试）',
+    );
   }
 
   /// 下发动作幅度倍率（`sync.actionScales`，三项都必须有限）。

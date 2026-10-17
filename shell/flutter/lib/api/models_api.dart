@@ -101,6 +101,15 @@ class ActivateResult {
   );
 }
 
+/// 从 `GET /api/v1/app/status` 的 map 取 `active_model_url`。
+///
+/// 空串 / 缺字段 / 类型不对 → `null`（= 没有可显示的模型）。这个纯函数只被
+/// 启动恢复与模型库刷新共用，保证两处不会各自解释一遍空值。
+String? activeModelUrlFromStatus(Map<String, Object?> status) {
+  final Object? raw = status['active_model_url'];
+  return raw is String && raw.isNotEmpty ? raw : null;
+}
+
 class ModelsApi {
   ModelsApi({String? base, http.Client? client})
     : _base = _normalize(base ?? const String.fromEnvironment('API_BASE')),

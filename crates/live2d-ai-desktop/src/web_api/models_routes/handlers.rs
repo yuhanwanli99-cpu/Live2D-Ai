@@ -82,10 +82,13 @@ pub(crate) fn handle_list(store: &ModelStore) -> Response<Cursor<Vec<u8>>> {
         Ok(g) => g.clone(),
         Err(e) => return persist_failed_response(&format!("registry 锁毒化: {e}")),
     };
+    // 用**派生后的** active id（含「active_id 指向坏 entry → 回落 bai」），
+    // 而不是 raw registry.active_id：否则白模回退时列表没有任何一行标 active。
+    let active_id = super::active_model_id(store);
     let mut items: Vec<ModelListItem> = snapshot
         .entries
         .values()
-        .map(|e| entry_to_list_item(store, e, snapshot.active_id.as_deref()))
+        .map(|e| entry_to_list_item(store, e, Some(active_id.as_str())))
         .collect();
     items.sort_by(|a, b| a.id.cmp(&b.id));
     json_response(StatusCode(200), &ModelListResponse { models: items })
@@ -127,7 +130,8 @@ pub(crate) fn handle_get(store: &ModelStore, id: &str) -> Response<Cursor<Vec<u8
     };
     match snapshot.entries.get(&normalized) {
         Some(e) => {
-            let item = entry_to_list_item(store, e, snapshot.active_id.as_deref());
+            let active_id = super::active_model_id(store);
+            let item = entry_to_list_item(store, e, Some(active_id.as_str()));
             json_response(StatusCode(200), &item)
         }
         None => not_found_response("model_not_found", &format!("模型 {normalized:?} 不存在")),
@@ -250,16 +254,24 @@ pub(crate) fn handle_activate(store: &ModelStore, id: &str) -> Response<Cursor<V
             Ok(g) => g,
             Err(e) => return persist_failed_response(&format!("registry 锁毒化: {e}")),
         };
-        if !g.entries.contains_key(&normalized) {
+        let Some(entry) = g.entries.get(&normalized) else {
             return not_found_response("model_not_found", &format!("模型 {normalized:?} 不存在"));
+        };
+        // 激活 = 承诺「这个 URL 能 GET」。entry 在但 model3 被删时若照样
+        // 写 active_id，状态栏/下一次启动都会指向一个必然 404 的地址——
+        // 这正是 0.3.5 要堵的启动恢复缺口。
+        if !store.assets_root.join(&entry.model3_rel_path).is_file() {
+            return bad_request(
+                "invalid_model3_json",
+                &format!(
+                    "模型 {normalized:?} 的 model3 文件不存在：{}",
+                    entry.model3_rel_path
+                ),
+            );
         }
         let prev = g.active_id.clone();
         // 克隆 model3_rel_path 用于构造 runtime URL（在释放写锁前）。
-        let model_url = g
-            .entries
-            .get(&normalized)
-            .map(|e| format!("/models/{}", e.model3_rel_path))
-            .unwrap_or_else(|| format!("/models/{normalized}/runtime/{normalized}.model3.json"));
+        let model_url = format!("/models/{}", entry.model3_rel_path);
         g.active_id = Some(normalized.clone());
         (prev, model_url)
     };
@@ -346,11 +358,11 @@ pub(crate) fn handle_display(
         return persist_failed_response(&e);
     }
     // 200 + 回最新 entry 摘要。
-    let active = store.inner.read().ok().and_then(|g| g.active_id.clone());
+    let active = super::active_model_id(store);
     let item = entry_to_list_item(
         store,
         &updated_entry.expect("entry just set"),
-        active.as_deref(),
+        Some(active.as_str()),
     );
     json_response(StatusCode(200), &item)
 }
@@ -361,6 +373,11 @@ pub(crate) fn handle_delete(store: &ModelStore, id: &str) -> Response<Cursor<Vec
         Ok(s) => s,
         Err(e) => return bad_request("invalid_resource_path", &format!("id 非法: {e}")),
     };
+    // 白模是出厂模型：**不提供删除 / 隐藏入口**（0.3.5 裁决）。即使它当前
+    // 不是 active，也不允许把「回退出厂白模」这条路从 registry 里拿掉。
+    if normalized == crate::web_api::model_root::builtin_model_id() {
+        return conflict_response("model_builtin", "出厂白模不可删除（也不提供隐藏入口）");
+    }
     // 关键：先在写锁中完成内存变更，**释放写锁**再调 `persist`（避免死锁）。
     let prev_entry: Option<ModelEntry> = {
         let mut g = match store.inner.write() {

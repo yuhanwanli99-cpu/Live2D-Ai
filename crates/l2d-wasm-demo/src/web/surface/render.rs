@@ -50,6 +50,11 @@ pub(crate) struct FrameState {
     /// rAF 时间戳到达时累加 real_dt，直到累积 >= FIXED_DT_60HZ 再消费一次
     /// core.update，避免 240Hz 时物理/姿态模拟跑到 4× 速度。
     pub(crate) last_layout_transform: Affine2,
+    /// 当前成功装进 core 的 model3 URL（0.3.5：换模失败时用它回滚）。
+    pub(crate) current_model_url: String,
+    /// 换模请求代际：每来一次新请求 +1；异步结果只在代际未变时生效，
+    /// 防止「先发的慢请求」把后发的模型覆盖掉。
+    pub(crate) model_generation: u64,
     /// adapter 的 `max_texture_dimension_2d`（2026-10-10）：档位边长超过它时
     /// 逐级回落（16384→8192→4096）。init 时快照一次。
     pub(crate) adapter_max_dim: u32,

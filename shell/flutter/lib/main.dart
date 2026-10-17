@@ -300,6 +300,10 @@ class _ShellRootState extends State<ShellRoot> {
   /// （`sync.payload.model`）。不把它存下来，舞台在 retry / 重建 iframe 之后
   /// 会退回默认模型——「激活了但没换皮」的另一种形态。
   String? _activeModelUrl;
+
+  /// 最近一次换模是否失败（0.3.5）：失败时模型库显示「重试换皮」。
+  /// 只表达「服务端已登记、舞台未确认」，**不代表回退出厂白模**。
+  bool _modelSwapFailed = false;
   List<ModInfo> _mods = const <ModInfo>[];
 
   /// voice-input Mod 是否启用（`null` = 还没读到，**不误报**红字）。
@@ -583,6 +587,14 @@ class _ShellRootState extends State<ShellRoot> {
             // 放大/缩小时才读，于是初始状态一直显示「—」。
             // 渲染面事件级 ack（协议 §7）→ **喂导演的日志文本**（§7.3）。
             onRenderEvent: _directorLog.add,
+            // 自动热换失败（didUpdateWidget 路径）：保留旧模型，只把错误
+            // 交给模型库，给出「重试换皮」；**不**静默回白模。
+            onModelSwapFailed: (String message) {
+              if (!mounted) return;
+              _modelSwapFailed = true;
+              _adminMessage = message;
+              _refresh();
+            },
             onAck: (StageAckEvent ack) {
               if (mounted && ack.scale != _stageScaleFromAck) {
                 setState(() => _stageScaleFromAck = ack.scale);

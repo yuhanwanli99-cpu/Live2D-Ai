@@ -88,10 +88,11 @@ pub fn dispatch_with_security(
     let resp = match route {
         RouteId::AppCapabilities => handle_capabilities(),
         RouteId::AppStatus => {
-            // `active_model_id` 从**真实 registry** 读（rc.2 2026-09-12 之前写死
-            // `"bai_001"`，所以「激活了但状态栏不变」是必然的）。
-            let model_id = crate::web_api::models_routes::active_model_id(&ctx.models);
-            handle_status(&ctx.status_ctx, model_id)
+            // `active_model_id` / `active_model_url` 从**真实 registry** 读
+            // （rc.2 2026-09-12 之前写死 `"bai_001"`，所以「激活了但状态栏不变」
+            // 是必然的）。两者必须来自同一次决策（0.3.5 启动恢复）。
+            let active = crate::web_api::models_routes::active_model(&ctx.models);
+            handle_status(&ctx.status_ctx, active.id, active.url)
         }
         RouteId::Env => {
             // GET = 读键名 + 是否已设置（永不回显值）；PUT = 写 `.env` + 热重载。

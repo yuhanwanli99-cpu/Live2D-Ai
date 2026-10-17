@@ -127,4 +127,57 @@ void main() {
     );
     expect(button.onPressed, isNull, reason: '忙时不得再提交');
   });
+
+  testWidgets('白模行：标明「出厂白模」，可就地切回', (WidgetTester tester) async {
+    final List<String> activated = <String>[];
+    await _pump(
+      tester,
+      ModelsSection(
+        models: <ModelInfo>[_model('bai'), _model('neko', active: true)],
+        loading: false,
+        onActivate: (String id) async => activated.add(id),
+        onImport: (String id) async {},
+      ),
+    );
+
+    expect(find.text('白模（bai）'), findsOneWidget);
+    expect(find.text('出厂白模'), findsOneWidget);
+    await tester.tap(find.text('切回白模'));
+    await tester.pumpAndSettle();
+    expect(activated, <String>['bai'], reason: '白模必须能从列表切回');
+  });
+
+  testWidgets('换模失败：显示「重试换皮」，不把失败说成已切换', (WidgetTester tester) async {
+    int retries = 0;
+    await _pump(
+      tester,
+      ModelsSection(
+        models: <ModelInfo>[_model('bai', active: true), _model('neko')],
+        loading: false,
+        activateMessage: '已登记 neko，但渲染面未确认：舞台仍显示上一个模型',
+        activateFailed: true,
+        onRetryModel: () async => retries++,
+        onActivate: (String id) async {},
+        onImport: (String id) async {},
+      ),
+    );
+
+    expect(find.textContaining('舞台仍显示上一个模型'), findsOneWidget);
+    await tester.tap(find.text('重试换皮'));
+    await tester.pumpAndSettle();
+    expect(retries, 1);
+  });
+
+  testWidgets('导入错误原文照显（不伪装成空列表）', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      ModelsSection(
+        models: const <ModelInfo>[],
+        loading: false,
+        error: '导入失败：目录不存在',
+        onImport: (String id) async {},
+      ),
+    );
+    expect(find.text('导入失败：目录不存在'), findsOneWidget);
+  });
 }

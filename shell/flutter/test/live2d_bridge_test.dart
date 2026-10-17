@@ -205,7 +205,7 @@ void _mainSwapModelTests() {
     bridge.dispose();
   });
 
-  test('swapModel：回执报的是**别的** url → false（没换成）', () async {
+  test('swapModel：忽略**旧/错 URL** 的 loaded，继续等匹配回执', () async {
     final transport = _FakeTransport();
     final bridge = Live2DBridge(transport);
     transport.emit('{"version":1,"type":"ready","payload":{}}');
@@ -213,10 +213,42 @@ void _mainSwapModelTests() {
 
     final Future<bool> pending = bridge.swapModel('/models/wanted.model3.json');
     await Future<void>.delayed(Duration.zero);
+    // 上一轮/别处的 loaded 先到：不得据此说「换成」。
     transport.emit(
       '{"version":1,"type":"loaded","payload":{"url":"/models/other.model3.json"}}',
     );
-    expect(await pending, isFalse, reason: '换了别的模型不算「换成」');
+    await Future<void>.delayed(Duration.zero);
+    // 匹配的 loaded 才结束等待。
+    transport.emit(
+      '{"version":1,"type":"loaded","payload":{"url":"/models/wanted.model3.json"}}',
+    );
+    expect(await pending, isTrue, reason: '匹配回执到了才算换成');
+    bridge.dispose();
+  });
+
+  test('swapModel：换模 error → false，且桥保留 ready（旧模型继续显示）', () async {
+    final transport = _FakeTransport();
+    final bridge = Live2DBridge(transport);
+    transport.emit('{"version":1,"type":"ready","payload":{}}');
+    await Future<void>.delayed(Duration.zero);
+    transport.emit(
+      '{"version":1,"type":"loaded","payload":{"url":"/models/old.model3.json"}}',
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    final Future<bool> pending = bridge.swapModel('/models/bad.model3.json');
+    await Future<void>.delayed(Duration.zero);
+    transport.emit(
+      '{"version":1,"type":"error","payload":{"message":"模型加载失败"}}',
+    );
+    expect(await pending, isFalse);
+    expect(bridge.lastSwapError, '模型加载失败');
+    expect(
+      bridge.phase,
+      Live2DBridgePhase.ready,
+      reason: '换模失败不能把整个桥打成 error——旧模型还在渲染',
+    );
+    expect(bridge.model, '/models/old.model3.json');
     bridge.dispose();
   });
 

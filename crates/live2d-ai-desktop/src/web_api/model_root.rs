@@ -34,6 +34,21 @@ use std::path::PathBuf;
 /// 故此处重述；改一处必须改两处）。
 pub(crate) const BUILTIN_MODEL_URL: &str = "/models/bai/runtime/bai.model3.json";
 
+/// 内置模型相对**模型根**的 `*.model3.json` 路径（`bai/runtime/bai.model3.json`）。
+///
+/// 与 [`BUILTIN_MODEL_URL`] 是同一份事实的两种表达：URL 给前端 / 渲染面，
+/// 相对路径给 registry / 文件存在性检查。**不得**各写一份字面量。
+pub(crate) fn builtin_model3_rel_path() -> &'static str {
+    BUILTIN_MODEL_URL
+        .strip_prefix("/models/")
+        .unwrap_or(BUILTIN_MODEL_URL)
+}
+
+/// 把 registry 里相对模型根的路径转成舞台 URL。
+pub(crate) fn model_url_for_rel(rel: &str) -> String {
+    format!("/models/{rel}")
+}
+
 /// 仓库内模型根：`<cwd>/assets/models`；cwd 不在仓库根时**向上找**仓库根。
 ///
 /// 静态服务与 registry / import 都只能用它，见模块头注。
@@ -75,7 +90,9 @@ pub(crate) fn builtin_model_id() -> &'static str {
         .unwrap_or("")
 }
 
-/// 默认模型在磁盘上的 `*.model3.json` 绝对路径。
+/// 默认模型在磁盘上的 `*.model3.json` 绝对路径（仅测试使用；运行期
+/// 一律用 `assets_root.join(builtin_model3_rel_path())`，避免第二个根）。
+#[cfg(test)]
 pub(crate) fn builtin_model3_path() -> PathBuf {
     let rel = BUILTIN_MODEL_URL
         .strip_prefix("/models/")

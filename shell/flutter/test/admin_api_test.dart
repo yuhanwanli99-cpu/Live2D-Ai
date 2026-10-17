@@ -294,6 +294,27 @@ void main() {
       expect((s['audio']! as Map<String, Object?>)['available'], isFalse);
     });
 
+    test('active_model_url：启动恢复只认非空字符串', () {
+      expect(
+        activeModelUrlFromStatus(<String, Object?>{
+          'active_model_url': '/models/neko/runtime/neko.model3.json',
+        }),
+        '/models/neko/runtime/neko.model3.json',
+      );
+      expect(
+        activeModelUrlFromStatus(<String, Object?>{
+          'active_model_url': '',
+        }),
+        isNull,
+        reason: '空串 = 没有模型，舞台保持渲染面默认',
+      );
+      expect(
+        activeModelUrlFromStatus(const <String, Object?>{}),
+        isNull,
+        reason: '缺字段 / 旧服务端不得凭空造一个 URL',
+      );
+    });
+
     test('logs 非 dev → 403 dev_mode_required 抛结构化错误（不是空列表）', () async {
       final DiagnosticsApi api = DiagnosticsApi(
         base: 'http://x',

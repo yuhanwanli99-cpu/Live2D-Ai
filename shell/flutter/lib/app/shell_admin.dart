@@ -16,8 +16,14 @@ extension _ShellAdminWiring on _ShellRootState {
   Future<void> _loadAppStatus() async {
     try {
       final Map<String, Object?> status = await _api.fetchStatus();
+      if (!mounted) return;
       final bool dev = status['dev_mode'] == true;
-      if (mounted && dev != _devMode) {
+      // 0.3.5 启动恢复：status 的 `active_model_url` 与 `active_model_id`
+      // 同源（服务端派生，不是第二套真相）。刷新页面后必须把它写回舞台，
+      // 否则 `_activeModelUrl` 一直是 null，iframe 重建就退回白模。
+      final String? url = activeModelUrlFromStatus(status);
+      bool changed = false;
+      if (dev != _devMode) {
         _devMode = dev;
         // 2026-10-09：一级「诊断」已取消（内容收进「开发模式」页，且只在
         // devMode 为真时渲染）⇒ **没有任何一级分区会随 dev_mode 消失**，
@@ -26,10 +32,15 @@ extension _ShellAdminWiring on _ShellRootState {
         //
         // 仍然只经 [_gotoSection] 换分区（唯一入口）：它清一次性结果，
         // transient_results_test 用源码扫描钉住「只有一处写 _section」。
-        _refresh();
+        changed = true;
       }
+      if (url != _activeModelUrl) {
+        _activeModelUrl = url;
+        changed = true;
+      }
+      if (changed) _refresh();
     } catch (_) {
-      // 忽略：保持 false。
+      // 忽略：保持旧值（不要把一次网络失败当成「没有 active 模型」）。
     }
   }
 
@@ -88,6 +99,10 @@ extension _ShellAdminWiring on _ShellRootState {
       _voiceInputEnabled = _enabledOf(mods, 'voice-input');
       _status = status;
       if (activeModel is String) _modelName = activeModel;
+      // 与 id 同源：activate 之后 / 刷新之后舞台都靠它恢复。
+      if (status.containsKey('active_model_url')) {
+        _activeModelUrl = activeModelUrlFromStatus(status);
+      }
       _capabilities = caps;
       _envStatus = env;
       _adminLoading = false;
@@ -154,6 +169,7 @@ extension _ShellAdminWiring on _ShellRootState {
   Future<void> _activateModel(String id) async {
     _busyId = id;
     _adminMessage = '正在切换模型…';
+    _modelSwapFailed = false;
     _refresh();
     try {
       final ActivateResult r = await _modelsApi.activate(id);
@@ -161,6 +177,7 @@ extension _ShellAdminWiring on _ShellRootState {
       if (r.modelUrl.isEmpty) {
         // 没给可加载地址 = 换不了皮，如实说，别报成功。
         _busyId = null;
+        _modelSwapFailed = true;
         _adminMessage = '已登记 ${r.activeId}，但服务端没有返回可加载的 model_url，舞台未切换';
         _refresh();
         await _loadAdmin();
@@ -173,21 +190,45 @@ extension _ShellAdminWiring on _ShellRootState {
           await _stageKey.currentState?.swapModel(r.modelUrl) ?? false;
       if (!mounted) return;
       _busyId = null;
+      _modelSwapFailed = !swapped;
       if (swapped) {
         _adminMessage = '已切换到 ${r.activeId}（舞台已确认生效）';
       } else if (r.requiresRestart) {
         _adminMessage = '已切换到 ${r.activeId}，但渲染面未确认；服务端称需重启生效';
       } else {
-        _adminMessage = '已登记 ${r.activeId}，但渲染面未回执：舞台可能仍是上一个模型（可重试或看舞台错误层）';
+        // 用户主动切换失败**不得静默回白模**：registry 已是新模型，舞台保留
+        // 旧皮套；这里只说事实，并给出「重试换皮」。
+        _adminMessage = '已登记 ${r.activeId}，但渲染面未确认：舞台仍显示上一个模型（可重试换皮）';
       }
       _refresh();
       await _loadAdmin();
     } on ApiException catch (e) {
       if (!mounted) return;
       _busyId = null;
+      _modelSwapFailed = true;
       _adminMessage = '激活失败：${e.message}';
       _refresh();
     }
+  }
+
+  /// 重试换皮：只重发 `sync(model)`，**不重新 activate**（registry 已登记）。
+  ///
+  /// 失败仍是失败：不回落 bai、不把舞台错误态当成功。
+  Future<void> _retryModelSwap() async {
+    final String? url = _activeModelUrl;
+    if (url == null || url.isEmpty) return;
+    _busyId = _modelName.isEmpty ? null : _modelName;
+    _adminMessage = '正在重试换皮…';
+    _refresh();
+    final bool swapped =
+        await _stageKey.currentState?.swapModel(url) ?? false;
+    if (!mounted) return;
+    _busyId = null;
+    _modelSwapFailed = !swapped;
+    _adminMessage = swapped
+        ? '已切换到 ${_modelName.isEmpty ? url : _modelName}（舞台已确认生效）'
+        : '舞台仍未确认 ${_modelName.isEmpty ? url : _modelName}（旧模型保留）';
+    _refresh();
   }
 
   /// 导入一个已在 `assets/models/<id>/` 下的模型目录。

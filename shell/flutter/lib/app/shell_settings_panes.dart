@@ -69,7 +69,9 @@ extension _ShellSettingsPanes on _ShellRootState {
           devMode: _devMode,
           busyId: _busyId,
           activateMessage: _adminMessage,
+          activateFailed: _modelSwapFailed,
           onActivate: _activateModel,
+          onRetryModel: _retryModelSwap,
           onImport: _importModel,
           onReload: _loadAdmin,
         );

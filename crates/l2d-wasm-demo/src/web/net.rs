@@ -3,7 +3,7 @@
 //! 承载：
 //! - [`fetch_bytes`]：fetch URL → 完整字节（非 2xx 视为错误）。
 //! - [`model_url_from_query`]：从 `?model=` 取清单地址，缺省回退 [`super::DEFAULT_MODEL_URL`]。
-//! - [`resolve_relative`]：把清单相对引用拼到 model3 URL 所在目录下。
+//! - [`resolve_relative`]：校验清单相对引用，再拼到 model3 URL 所在目录下。
 //! - [`extract_refs`] / [`ModelRefs`]：model3.json 的 `FileReferences` 提取。
 
 use std::collections::BTreeSet;
@@ -48,18 +48,12 @@ pub(crate) fn model_url_from_query(window: &Window) -> String {
     DEFAULT_MODEL_URL.to_owned()
 }
 
-/// 把清单相对引用拼到 model3 URL 所在目录下（只做目录拼接，不改写查询串）。
-pub(crate) fn resolve_relative(model_url: &str, rel: &str) -> String {
-    let dir = match model_url.rsplit_once('/') {
-        Some((dir, _)) => dir,
-        None => "",
-    };
-    let rel = rel.strip_prefix("./").unwrap_or(rel);
-    if dir.is_empty() {
-        rel.to_owned()
-    } else {
-        format!("{dir}/{rel}")
-    }
+/// 把清单相对引用拼到 model3 URL 所在目录下（**先校验**，不改写查询串）。
+///
+/// 校验逻辑住在平台无关的 [`crate::model_ref`]（原生 `cargo test` 可回归——
+/// 这个模块本身是 wasm-only，不能把唯一回归放在这里）。
+pub(crate) fn resolve_relative(model_url: &str, rel: &str) -> Result<String, String> {
+    crate::model_ref::resolve_relative(model_url, rel)
 }
 
 /// model3.json 的 `FileReferences` 提取（demo 只负责取 URL 集合；

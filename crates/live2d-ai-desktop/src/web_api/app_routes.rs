@@ -229,11 +229,13 @@ pub fn handle_capabilities() -> Response<std::io::Cursor<Vec<u8>>> {
 /// `has_api_key` 的来源是**密钥真源**（`.env` 快照 > 进程环境，见
 /// `live2d_ai_runtime::secrets`）：用 `std::env::var` 直接读会让「界面上刚写了
 /// key、状态栏还说未配置」。
-/// `active_model_id` 由调用方从**真实 registry** 读出（见
-/// [`crate::web_api::models_routes::active_model_id`]）——这里不再有写死的 id。
+/// `active_model_id` / `active_model_url` 由调用方从**真实 registry** 读出
+/// （见 [`crate::web_api::models_routes::active_model`]）——这里不再有写死的 id，
+/// 也不在这里各自推算（两者必须同源）。
 pub fn handle_status(
     ctx: &StatusContext,
     active_model_id: String,
+    active_model_url: String,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
     let settings = ctx.settings_snapshot();
     let status = build_status(
@@ -241,19 +243,22 @@ pub fn handle_status(
         &settings,
         &live2d_ai_runtime::secrets::lookup,
         active_model_id,
+        active_model_url,
     );
     json_response(StatusCode(200), &status)
 }
 
 /// 把 [`StatusContext`] 序列化为 [`dto::AppStatus`]。
 ///
-/// `active_model_id` 是**入参**而不是这里算出来的：它来自模型 registry
-/// （`ModelStore`），而 `StatusContext` 只持配置与 epoch，看不到 registry。
+/// `active_model_id` / `active_model_url` 是**入参**而不是这里算出来的：它们
+/// 来自模型 registry（`ModelStore`），而 `StatusContext` 只持配置与 epoch，
+/// 看不到 registry。两者由同一次 `active_model` 决策给出。
 pub fn build_status(
     ctx: &StatusContext,
     settings: &AppSettings,
     env_lookup: &dyn Fn(&str) -> Option<String>,
     active_model_id: String,
+    active_model_url: String,
 ) -> dto::AppStatus {
     let uptime_s = SystemTime::now()
         .duration_since(ctx.started_at)
@@ -272,6 +277,7 @@ pub fn build_status(
         uptime_s,
         config_path: ctx.config_path.clone(),
         active_model_id,
+        active_model_url,
         // 2026-10-09：这里的两个数**读 `[tts]`**（出声链路的真实规格），
         // 不再回播放侧的调度常量 24000——那只是「没配音频时按多少赫兹理解」，
         // 把它显示成「当前语音采样率」就是在说一件用户以为的事
@@ -428,7 +434,13 @@ mod tests {
     fn status_unconfigured_shows_zero_or_empty() {
         let settings = AppSettings::default();
         let ctx = StatusContext::new(settings, "/tmp/cfg.toml".into(), None);
-        let st = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
+        let st = build_status(
+            &ctx,
+            &AppSettings::default(),
+            &env_no_keys,
+            String::new(),
+            String::new(),
+        );
         assert_eq!(st.config_path, "/tmp/cfg.toml");
         assert!(!st.llm.configured);
         // 2026-10-09（0.2.3-rc.1）：出厂 `[tts]` **有**端点（仓库自带的
@@ -448,8 +460,27 @@ mod tests {
         // **显式**清空 `[tts].base_url` 才是「未配置」（空句路径）。
         let mut blank = AppSettings::default();
         blank.tts.base_url = String::new();
-        let st_blank = build_status(&ctx, &blank, &env_no_keys, String::new());
+        let st_blank = build_status(&ctx, &blank, &env_no_keys, String::new(), String::new());
         assert!(!st_blank.tts.configured, "空 base_url = 未配置");
+    }
+
+    #[test]
+    fn status_carries_active_model_id_and_url_from_the_same_source() {
+        let ctx = StatusContext::new(AppSettings::default(), "/tmp/cfg.toml".into(), None);
+        let st = build_status(
+            &ctx,
+            &AppSettings::default(),
+            &env_no_keys,
+            "bai".into(),
+            "/models/bai/runtime/bai.model3.json".into(),
+        );
+        assert_eq!(st.active_model_id, "bai");
+        assert_eq!(st.active_model_url, "/models/bai/runtime/bai.model3.json");
+        let json = serde_json::to_string(&st).unwrap();
+        assert!(
+            json.contains(r#""active_model_url":"/models/bai/runtime/bai.model3.json""#),
+            "{json}"
+        );
     }
 
     #[test]
@@ -460,10 +491,10 @@ mod tests {
         s.llm.api_key_env = Some("LIVE2D_AI_LLM_API_KEY".into());
         let ctx = StatusContext::new(s.clone(), "/tmp/cfg.toml".into(), None);
         // env 注入 → true。
-        let st = build_status(&ctx, &s, &env_with_keys, String::new());
+        let st = build_status(&ctx, &s, &env_with_keys, String::new(), String::new());
         assert!(st.llm.has_api_key);
         // env 未注入 → false。
-        let st = build_status(&ctx, &s, &env_no_keys, String::new());
+        let st = build_status(&ctx, &s, &env_no_keys, String::new(), String::new());
         assert!(!st.llm.has_api_key);
     }
 
@@ -524,22 +555,46 @@ mod tests {
     fn status_current_epoch_defaults_to_zero_and_overridable() {
         let ctx = StatusContext::new(AppSettings::default(), "/tmp/cfg.toml".into(), None);
         // 默认读源 = 常 0。
-        let s0 = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
+        let s0 = build_status(
+            &ctx,
+            &AppSettings::default(),
+            &env_no_keys,
+            String::new(),
+            String::new(),
+        );
         assert_eq!(s0.current_epoch, 0, "默认应 = 0");
 
         // 注入读源（v1 占位：返回固定 42）。
         ctx.set_epoch_source(Box::new(|| 42));
-        let s1 = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
+        let s1 = build_status(
+            &ctx,
+            &AppSettings::default(),
+            &env_no_keys,
+            String::new(),
+            String::new(),
+        );
         assert_eq!(s1.current_epoch, 42, "注入后应 = 42");
 
         // 二次注入：返回 7。
         ctx.set_epoch_source(Box::new(|| 7));
-        let s2 = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
+        let s2 = build_status(
+            &ctx,
+            &AppSettings::default(),
+            &env_no_keys,
+            String::new(),
+            String::new(),
+        );
         assert_eq!(s2.current_epoch, 7, "二次注入覆盖前值");
 
         // 兜底：清空到常量 0。
         ctx.set_epoch_source(Box::new(|| 0));
-        let s3 = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
+        let s3 = build_status(
+            &ctx,
+            &AppSettings::default(),
+            &env_no_keys,
+            String::new(),
+            String::new(),
+        );
         assert_eq!(s3.current_epoch, 0, "再覆回 0");
     }
 
@@ -557,12 +612,24 @@ mod tests {
         }));
 
         // 第一次读：counter=10。
-        let s0 = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
+        let s0 = build_status(
+            &ctx,
+            &AppSettings::default(),
+            &env_no_keys,
+            String::new(),
+            String::new(),
+        );
         assert_eq!(s0.current_epoch, 10);
 
         // counter 推进到 99，**不**重新注入；下次 build_status 仍走读源。
         counter.store(99, Ordering::Release);
-        let s1 = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
+        let s1 = build_status(
+            &ctx,
+            &AppSettings::default(),
+            &env_no_keys,
+            String::new(),
+            String::new(),
+        );
         assert_eq!(s1.current_epoch, 99, "读源应每次调用（不缓存）");
     }
 }

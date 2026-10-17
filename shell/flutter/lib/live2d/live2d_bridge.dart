@@ -102,6 +102,15 @@ class Live2DBridge extends ChangeNotifier {
   final StreamController<String> _modelLoads =
       StreamController<String>.broadcast();
 
+  /// 当前在等的换模请求（0.3.5）。
+  ///
+  /// 为什么不用 `_modelLoads.stream.first`：那会把**上一轮**的 `loaded` 当成
+  /// 本轮回执（旧帧 / 错 URL 都会被误认）。这里只接受 `url == _pendingSwapUrl`
+  /// 的 `loaded`；不匹配的帧直接忽略，继续等自己的回执。
+  Completer<bool>? _pendingSwap;
+  String? _pendingSwapUrl;
+  String? _lastSwapError;
+
   /// 渲染面**事件级回执**流（协议 §7：四条 ack + segment-ended，O13 冻结名）。
   ///
   /// 与 [acks]（历史形状的 `stage-ack`）是两条通道：后者是「下行消息应用回声」，
@@ -186,15 +195,28 @@ class Live2DBridge extends ChangeNotifier {
     if (url.isEmpty || _disposed || _phase == Live2DBridgePhase.error) {
       return false;
     }
-    // 先挂监听再发：本地 iframe 的回执可能比 await 还快。
-    final Future<String> loaded = _modelLoads.stream.first;
-    await sendSync(model: url);
+    // 同一时刻只允许一个换模请求：第二次点击不得抢走第一条的等回执权。
+    if (_pendingSwap != null) return false;
+    final Completer<bool> pending = Completer<bool>();
+    _pendingSwap = pending;
+    _pendingSwapUrl = url;
+    _lastSwapError = null;
     try {
-      return await loaded.timeout(timeout) == url;
+      // 先挂等待再发：本地 iframe 的回执可能比 await 还快。
+      await sendSync(model: url);
+      return await pending.future.timeout(timeout, onTimeout: () => false);
     } on TimeoutException {
       return false;
+    } finally {
+      if (identical(_pendingSwap, pending)) {
+        _pendingSwap = null;
+        _pendingSwapUrl = null;
+      }
     }
   }
+
+  /// 最近一次换模失败的可读原因（仅诊断/提示用，不参与换模判定）。
+  String? get lastSwapError => _lastSwapError;
 
   /// 启动 ready 超时计时（由宿主在挂载 iframe 后调用）。
   void start() {
@@ -476,8 +498,15 @@ class Live2DBridge extends ChangeNotifier {
         final name = payload['model'] ?? payload['url'];
         if (name is String) {
           _model = name;
-          // 换模等待方按这个名字确认「换的正是我要的那个」。
           if (!_modelLoads.isClosed) _modelLoads.add(name);
+          // 只有**匹配当前请求 URL** 的 loaded 才算换模成功。旧帧 / 错帧
+          // 一律忽略并继续等（0.3.5：不能再把上一轮的 loaded 当本轮回执）。
+          if (_pendingSwap != null &&
+              !_pendingSwap!.isCompleted &&
+              name == _pendingSwapUrl) {
+            _lastSwapError = null;
+            _pendingSwap!.complete(true);
+          }
         }
         notifyListeners();
       case 'progress':
@@ -488,7 +517,19 @@ class Live2DBridge extends ChangeNotifier {
         }
       case 'error':
         final message = payload['message'];
-        _fail(message is String && message.isNotEmpty ? message : '渲染面报告未知错误');
+        final text =
+            message is String && message.isNotEmpty ? message : '渲染面报告未知错误';
+        // 换模期间的 error 只结束**这次换模**：不把整个桥打成 error，
+        // 旧模型仍在渲染，UI 走「已登记但舞台未确认 + 重试」。
+        if (_pendingSwap != null && !_pendingSwap!.isCompleted) {
+          _lastSwapError = text;
+          _pendingSwap!.complete(false);
+          _pendingSwap = null;
+          _pendingSwapUrl = null;
+          notifyListeners();
+          return;
+        }
+        _fail(text);
       case 'fps':
         final value = payload['fps'];
         if (value is num) {
@@ -548,6 +589,10 @@ class Live2DBridge extends ChangeNotifier {
     _readyTimer?.cancel();
     _mouthTimer?.cancel();
     _fpsNotifier.dispose();
+    // 销毁时叫醒还在等回执的换模方（返回 false，不吊死超时）。
+    if (_pendingSwap != null && !_pendingSwap!.isCompleted) {
+      _pendingSwap!.complete(false);
+    }
     unawaited(_acks.close());
     unawaited(_modelLoads.close());
     unawaited(_renderEvents.close());

@@ -42,6 +42,10 @@
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod mouth;
 
+/// model3 清单相对引用的校验 / 拼接（平台无关：原生 cargo test 可回归）。
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod model_ref;
+
 /// 舞台背景的纯逻辑（**平台无关**：原生与 wasm 都编译）。
 ///
 /// 同样刻意**不**放在 wasm-only 的 [`web`] 里——「换算藏在 wasm 门控后面、
@@ -92,6 +96,7 @@ mod web {
 
     pub(crate) mod net;
     pub(crate) mod surface;
+    mod swap;
 
     use surface::{
         FrameSlot, SharedState, adapter_info, canvas_css_metrics, init_gpu, install_resize_handler,
@@ -169,7 +174,9 @@ mod web {
         let paths = refs.unique_paths();
         let total = paths.len().max(1);
         for (idx, rel) in paths.into_iter().enumerate() {
-            let url = net::resolve_relative(model_url, &rel);
+            // P1（0.3.5）：**先校验引用再 fetch**。绝对路径 / scheme / .. 一律
+            // 拒掉，错误信息带上原始引用，便于定位坏 model3。
+            let url = net::resolve_relative(model_url, &rel)?;
             let bytes = net::fetch_bytes(window, &url)
                 .await
                 .map_err(|e| format!("资源 `{rel}` 加载失败（{url}）：{e}"))?;
@@ -228,11 +235,27 @@ mod web {
     ) -> String {
         let bytes = match net::fetch_bytes(window, FIELD_MAP_URL).await {
             Ok(b) => b,
-            Err(e) => return format!("字段映射覆盖表未加载（{e}），用内建默认表"),
+            Err(e) => {
+                // 换模型后取不到覆盖表：内建表 + **新 model id**，绝不把旧 id
+                // 的覆盖表留在新皮套上。
+                state
+                    .borrow_mut()
+                    .bridge
+                    .fields
+                    .set_map(crate::preset::FieldMap::for_model(model_id));
+                return format!("字段映射覆盖表未加载（{e}），用内建默认表");
+            }
         };
         let text = match String::from_utf8(bytes) {
             Ok(t) => t,
-            Err(e) => return format!("字段映射覆盖表不是 UTF-8（{e}），用内建默认表"),
+            Err(e) => {
+                state
+                    .borrow_mut()
+                    .bridge
+                    .fields
+                    .set_map(crate::preset::FieldMap::for_model(model_id));
+                return format!("字段映射覆盖表不是 UTF-8（{e}），用内建默认表");
+            }
         };
         match crate::preset::FieldMap::with_override_json(model_id, &text) {
             Ok(map) => {
@@ -249,7 +272,14 @@ mod web {
                     )
                 }
             }
-            Err(e) => format!("字段映射覆盖表校验失败（{e}），用内建默认表"),
+            Err(e) => {
+                state
+                    .borrow_mut()
+                    .bridge
+                    .fields
+                    .set_map(crate::preset::FieldMap::for_model(model_id));
+                format!("字段映射覆盖表校验失败（{e}），用内建默认表")
+            }
         }
     }
 
@@ -309,6 +339,8 @@ mod web {
             bridge: surface::BridgeState::default(),
             idle,
             last_layout_transform: layout_transform,
+            current_model_url: model_url.clone(),
+            model_generation: 0,
             adapter_max_dim,
             // 运行期重配 surface 时要 `&Adapter`（`get_default_config`）；这里
             // 克隆一份进共享态，`adapter` 本身留给下面的 adapter_info 快照。
@@ -602,45 +634,8 @@ mod web {
                         if let Some(url) = payload.get("url").and_then(|x| x.as_str()) {
                             let url = url.to_owned();
                             applied = true;
-                            // 异步换模型：不要阻塞 rAF 循环。
-                            let reload_state = handler_state.clone();
-                            let window = web_sys::window();
-                            wasm_bindgen_futures::spawn_local(async move {
-                                status("切换模型中…");
-                                match window {
-                                    Some(win) => match load_model_from_url(&win, &url).await {
-                                        Ok(loaded) => {
-                                            match reload_state.borrow_mut().core.load_model(&loaded)
-                                            {
-                                                Ok(()) => {
-                                                    status("模型已切换");
-                                                    emit_event(
-                                                        "loaded",
-                                                        serde_json::json!({ "url": url }),
-                                                    );
-                                                }
-                                                Err(e) => {
-                                                    let msg = format!("渲染核心换模型失败：{e}");
-                                                    status(&msg);
-                                                    emit_event(
-                                                        "error",
-                                                        serde_json::json!({ "message": msg }),
-                                                    );
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            let msg = format!("切换失败: {e}");
-                                            status(&msg);
-                                            emit_event(
-                                                "error",
-                                                serde_json::json!({ "message": msg }),
-                                            );
-                                        }
-                                    },
-                                    None => status("切换失败: 无 window 对象"),
-                                }
-                            });
+                            // 异步换模型：不阻塞 rAF；失败回滚见 spawn_swap_model。
+                            swap::spawn_swap_model(handler_state.clone(), url);
                         }
                     }
                     // v1 `destroy`：舞台复位（iframe 由宿主销毁，这里只做状态收尾）。
@@ -664,36 +659,9 @@ mod web {
             for event in field_acks {
                 emit_event(event.kind.wire_type(), event.to_json());
             }
-            // v1 `sync.payload.model`：异步换模型（与 `load-model` 同路径）。
+            // v1 `sync.payload.model`：异步换模型（与 `load-model` 同一实现）。
             if let Some(url) = sync_model_url {
-                let reload_state = handler_state.clone();
-                let window = web_sys::window();
-                wasm_bindgen_futures::spawn_local(async move {
-                    status("切换模型中…");
-                    match window {
-                        Some(win) => match load_model_from_url(&win, &url).await {
-                            Ok(loaded) => {
-                                match reload_state.borrow_mut().core.load_model(&loaded) {
-                                    Ok(()) => {
-                                        status("模型已切换");
-                                        emit_event("loaded", serde_json::json!({ "url": url }));
-                                    }
-                                    Err(e) => {
-                                        let msg = format!("渲染核心换模型失败：{e}");
-                                        status(&msg);
-                                        emit_event("error", serde_json::json!({ "message": msg }));
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                let msg = format!("切换失败: {e}");
-                                status(&msg);
-                                emit_event("error", serde_json::json!({ "message": msg }));
-                            }
-                        },
-                        None => status("切换失败: 无 window 对象"),
-                    }
-                });
+                swap::spawn_swap_model(handler_state.clone(), url);
             }
             // **R2**：应用成功 → 回 `stage-ack` 给父页（父页收 ACK 前不得提示"已生效"）。
             if applied {

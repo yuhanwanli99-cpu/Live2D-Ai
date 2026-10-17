@@ -237,6 +237,20 @@ impl FieldMap {
         }
     }
 
+    /// 内建默认表 + 指定 model id（不读外置文件）。
+    ///
+    /// 换模型后如果 `field_map.json` 取不到 / 坏了，必须把 map 的 `model`
+    /// 标成**新 id**——否则旧模型的覆盖表会继续作用在新皮套上。
+    pub fn for_model(model_id: &str) -> Self {
+        let mut map = Self::builtin();
+        map.model = if model_id.is_empty() {
+            "default".to_string()
+        } else {
+            model_id.to_string()
+        };
+        map
+    }
+
     /// 用**可选**的单文件覆盖 JSON 合并内建表（O9）。
     ///
     /// 形状（`models` 可省略成扁平对象；取不到本 model 就退 `default` 节）：
@@ -257,12 +271,7 @@ impl FieldMap {
     pub fn with_override_json(model_id: &str, json: &str) -> Result<Self, String> {
         let value: serde_json::Value =
             serde_json::from_str(json).map_err(|e| format!("不是合法 JSON：{e}"))?;
-        let mut map = Self::builtin();
-        map.model = if model_id.is_empty() {
-            "default".to_string()
-        } else {
-            model_id.to_string()
-        };
+        let mut map = Self::for_model(model_id);
         let section = value
             .get("models")
             .and_then(|models| models.get(model_id).or_else(|| models.get("default")))
