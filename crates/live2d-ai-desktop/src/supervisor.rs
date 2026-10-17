@@ -407,6 +407,9 @@ mod tests_assistant_event;
 mod tests_fault;
 #[cfg(test)]
 mod tests_loop;
+/// stop / 收口 / 跨代次 / 失败轮回归（tests_loop 拆分，2026-10-17）。
+#[cfg(test)]
+mod tests_loop_stop;
 #[cfg(test)]
 mod tests_pcm;
 #[cfg(test)]

@@ -111,6 +111,9 @@ mod tests_security;
 mod tests_security_e2e;
 #[cfg(test)]
 mod tests_ws;
+/// WS ack / 事件投影 + broadcaster 槽位簿记（tests_ws 拆分，2026-10-17）。
+#[cfg(test)]
+mod tests_ws_acks;
 /// WS 测试端握手/帧读取辅助（缓冲客户端）+ 「101 与首帧同批」确定性回归。
 /// 单独承载：`tests_ws.rs` 已贴测试文件行数上限，修复不再让它增长。
 #[cfg(test)]

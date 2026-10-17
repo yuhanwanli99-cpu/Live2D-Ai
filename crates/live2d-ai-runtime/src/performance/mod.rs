@@ -42,6 +42,9 @@ pub mod question;
 
 #[cfg(test)]
 mod tests;
+/// wire / schema / 客户端 runtime 回归（tests 拆分，2026-10-17）。
+#[cfg(test)]
+mod tests_client_wire;
 #[cfg(test)]
 mod tests_golden;
 #[cfg(test)]

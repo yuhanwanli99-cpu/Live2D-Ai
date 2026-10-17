@@ -31,6 +31,9 @@
 //! ```
 //! 全部字段与默认值见 [`AppSettings::example_toml`]。视图/补丁/原子写回规划见子模块 [`view`] / [`patch`]（`patch_tests` 仅测试构建，避免 patch.rs 撞 500 行硬上限）。
 pub mod patch;
+/// 2026-10-17：max_tokens / `[action]` 回归（patch_tests 拆分为两片）。
+#[cfg(test)]
+mod patch_new_tests;
 #[cfg(test)]
 mod patch_tests;
 /// 2026-10-09：`[tts]` 语音来源二选一（local / cloud）的回归**单列**——
@@ -40,6 +43,9 @@ mod patch_tests;
 mod patch_tts_mode_tests;
 #[cfg(test)]
 mod settings_tests;
+/// 2026-10-17：写回 / round-trip / merge 回归（settings_tests 拆分为两片）。
+#[cfg(test)]
+mod settings_tests_roundtrip;
 pub mod view;
 use std::collections::BTreeMap;
 use std::path::Path;

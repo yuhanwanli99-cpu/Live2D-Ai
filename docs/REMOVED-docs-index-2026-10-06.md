@@ -79,3 +79,43 @@ git show --name-status <删除提交> | awk '$1=="D"{print $2}'
 - 未动 `docs/audit/**`（过程产物，只读）；
 - 未动研究类 `docs/research/**`（结论仍被引用，未被取代）；
 - 未做「真合并 / 压缩改写」——不存在把 25k 行历史压成 2k 行的诚实做法。
+
+## 7. 2026-10-17 追加移出
+
+| 路径 | md 行 | 为什么移出 |
+|---|---:|---|
+| `docs/plans/PROMPT-frontend-nightly-audit-2026-09-27.md` | 316 | 永动审计提示词，对象是已删除的工作树 `Live2D-Ai-fe`。前端审计账本已封口。取回：`git show v0.3.1:docs/plans/PROMPT-frontend-nightly-audit-2026-09-27.md` |
+
+## 8. 2026-10-17 rc2 移出
+
+**口径：本轮移出前最后提交 = `7178e6f`**（`main` 的 HEAD）。下表每一行的取回命令都以它为基准。
+
+| 路径 | md 行 | 为什么移出 | 取回 |
+|---|---:|---|---|
+| `docs/plans/PROMPT-shell-base-2026-10-08.md` | 212 | 0.2.3-rc.1 已发布，任务已收口；历史链接已改指本索引 | `git show 7178e6f:docs/plans/PROMPT-shell-base-2026-10-08.md` |
+| `docs/plans/PROMPT-cosyvoice3-settings-ia-2026-10-09.md` | 174 | 0.2.3-rc.1 已发布，任务已收口；历史链接已改指本索引 | `git show 7178e6f:docs/plans/PROMPT-cosyvoice3-settings-ia-2026-10-09.md` |
+| `docs/plans/PROMPT-settings-plain-language-2026-10-08.md` | 145 | 0.2.3-rc.1 已发布，任务已收口；历史链接已改指本索引 | `git show 7178e6f:docs/plans/PROMPT-settings-plain-language-2026-10-08.md` |
+| `docs/plans/PROMPT-appearance-card-2026-10-07.md` | 127 | 0.2.3-rc.1 已发布，任务已收口；历史链接已改指本索引 | `git show 7178e6f:docs/plans/PROMPT-appearance-card-2026-10-07.md` |
+| `docs/plans/PROMPT-tts-llm-clean-2026-10-08.md` | 124 | 0.2.3-rc.1 已发布，任务已收口；历史链接已改指本索引 | `git show 7178e6f:docs/plans/PROMPT-tts-llm-clean-2026-10-08.md` |
+| `docs/plans/PROMPT-0.2.3-rc.1-oob-2026-10-09.md` | 116 | 0.2.3-rc.1 已发布，任务已收口；历史链接已改指本索引 | `git show 7178e6f:docs/plans/PROMPT-0.2.3-rc.1-oob-2026-10-09.md` |
+| `docs/plans/PROMPT-director-expression-2026-10-07.md` | 116 | 0.2.3-rc.1 已发布，任务已收口；历史链接已改指本索引 | `git show 7178e6f:docs/plans/PROMPT-director-expression-2026-10-07.md` |
+| `docs/plans/PROMPT-silent-error-hunt-2026-10-09.md` | 102 | 0.2.3-rc.1 已发布，任务已收口；历史链接已改指本索引 | `git show 7178e6f:docs/plans/PROMPT-silent-error-hunt-2026-10-09.md` |
+| `docs/plans/PROMPT-director-tts-2026-10-07.md` | 99 | 0.2.3-rc.1 已发布，任务已收口；历史链接已改指本索引 | `git show 7178e6f:docs/plans/PROMPT-director-tts-2026-10-07.md` |
+| `docs/plans/PROMPT-persona-voice-2026-10-07.md` | 98 | 0.2.3-rc.1 已发布，任务已收口；历史链接已改指本索引 | `git show 7178e6f:docs/plans/PROMPT-persona-voice-2026-10-07.md` |
+| `docs/plans/PROMPT-align-0.2.3-rc.1-2026-10-09.md` | 59 | 0.2.3-rc.1 已发布，任务已收口；历史链接已改指本索引 | `git show 7178e6f:docs/plans/PROMPT-align-0.2.3-rc.1-2026-10-09.md` |
+| `docs/plans/PLAN-align-0.2.3-rc.1-2026-10-09.md` | 50 | 0.2.3-rc.1 已发布，任务已收口；历史链接已改指本索引 | `git show 7178e6f:docs/plans/PLAN-align-0.2.3-rc.1-2026-10-09.md` |
+| `docs/plans/PROMPT-0.2-closeout-2026-10-13.md` | 223 | 0.2.7 已发布，由 PROMPT-3.0 取代 | `git show 7178e6f:docs/plans/PROMPT-0.2-closeout-2026-10-13.md` |
+| `docs/plans/PROMPT-identity-base-2026-10-12.md` | 187 | 0.2.7 已发布，由 PROMPT-3.0 取代 | `git show 7178e6f:docs/plans/PROMPT-identity-base-2026-10-12.md` |
+| `docs/plans/PLAN-0.2-closeout-2026-10-13.md` | 159 | 0.2.7 已发布，由 PROMPT-3.0 取代 | `git show 7178e6f:docs/plans/PLAN-0.2-closeout-2026-10-13.md` |
+| `docs/plans/PROMPT-base-followup-2026-10-13.md` | 152 | 0.2.7 已发布，由 PROMPT-3.0 取代 | `git show 7178e6f:docs/plans/PROMPT-base-followup-2026-10-13.md` |
+| `docs/plans/PROMPT-current-contract-page-2026-10-13.md` | 46 | 0.2.7 已发布，由 PROMPT-3.0 取代 | `git show 7178e6f:docs/plans/PROMPT-current-contract-page-2026-10-13.md` |
+| `docs/plans/TASKS-2026-10-07.md` | 62 | 历史任务账已收口，且引用两份移出件 | `git show 7178e6f:docs/plans/TASKS-2026-10-07.md` |
+
+**合计 18 份 / 2,251 md 行。**
+
+根文件（随本轮删除并登记）：
+
+| 路径 | md 行 | 为什么移出 | 取回 |
+|---|---:|---|---|
+| `此项目的调研结果.md`（仓库根） | 392 | `767a286`（0.2.6-rc.1）误入库的旧调研，非 docs 预算、无活文档引用 | `git show 767a286:此项目的调研结果.md`（注：`767a286` 是该文件的入库提交） |
+
