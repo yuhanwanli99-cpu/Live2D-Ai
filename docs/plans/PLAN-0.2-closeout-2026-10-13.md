@@ -138,7 +138,7 @@ S3 的测试与第 7 节通过之后：
 - `AGENTS.md` 变更历史里的「桌宠」。
 - 拆 `supervisor.rs` / `engine.rs`、给 `AGENTS.md` 减肥、生产 `unwrap` 清点 —— **2026-10-16 `74b1ecb` 已做**（`supervisor.rs` 492 / `engine.rs` 236，>500 棘轮 42；清点见 `docs/audit/2026-10-16-unwrap-inventory.md`）。
 - 静默错误 S-000–S-007 —— **2026-10-16 `74b1ecb` 已做**；S-007 的无 supervisor 分支 2026-10-17 补齐。
-- CI 真 runner（D1）、wasm 体积 —— **仍开**：D1 待真 runner 出结果；wasm 本机无 `wasm-opt`，按 D8 停。
+- CI 真 runner（D1）—— **2026-10-17 已做**：Nightly `39025484355`（headSha `b957775`）success；wasm 体积 —— **仍开**：本机无 `wasm-opt`，按 D8 停。
 - 核心开发者页上的表情 / 动作调试面板。不在本时代搬家。
 - 不挂回 `pet-desktop`、`wallpaper`、`local-llm`。
 
