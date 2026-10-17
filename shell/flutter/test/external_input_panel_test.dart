@@ -178,7 +178,7 @@ void main() {
       );
       expect(panel.stateLabels['accepts'], '已接受');
       expect(panel.stateLabels['rejects'], '已拒绝');
-      expect(panel.stateLabels['busy'], '忙碌拒绝');
+      expect(panel.stateLabels['busy'], '忙碌合并');
       expect(panel.stateLabels['v2_ignored'], '礼物 v2 兜底');
       expect(panel.stateLabels['ready'], '已就绪');
       expect(panel.stateLabels['token_set'], '令牌已设置');
@@ -187,11 +187,11 @@ void main() {
     test('counterSummary 是一行人话；缺字段按 0', () {
       expect(
         counterSummary(_state(accepts: 12, rejects: 1, busy: 3, v2: 0)),
-        '已接受 12 条弹幕/礼物 · 拒绝 1 · 忙碌丢弃 3 · 礼物 v2 兜底 0',
+        '已接受 12 条弹幕/礼物 · 拒绝 1 · 忙碌合并 3 · 礼物 v2 兜底 0',
       );
       expect(
         counterSummary(const <String, Object?>{}),
-        '已接受 0 条弹幕/礼物 · 拒绝 0 · 忙碌丢弃 0 · 礼物 v2 兜底 0',
+        '已接受 0 条弹幕/礼物 · 拒绝 0 · 忙碌合并 0 · 礼物 v2 兜底 0',
       );
     });
 

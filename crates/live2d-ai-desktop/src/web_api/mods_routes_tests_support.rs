@@ -27,6 +27,7 @@ pub(super) fn dummy_ctx(sec: SecurityContext) -> ServerContext {
         mod_registry: std::sync::Arc::new(std::sync::Mutex::new(
             crate::mod_registry::ModRegistry::new(&[], &serde_json::json!({})),
         )),
+        external_coalescer: Default::default(),
     }
 }
 

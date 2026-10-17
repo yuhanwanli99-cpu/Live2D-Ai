@@ -5,7 +5,7 @@
 use super::tests_support::*;
 use super::*;
 
-// --- 可观察计数（Wave 3）：3 成功 / 1 坏 token / 1 忙 ---
+// --- 可观察计数（Wave 3）：4 收下（含 1 条忙时合并）/ 1 坏 token ---
 
 /// 用注入点驱动 handler 的计数分支；再经**真实注册表**读 state_json
 /// （与 `GET /api/v1/mods/external-input/state` 同一条路径）。
@@ -54,8 +54,9 @@ fn handler_counts_accepts_rejects_busy_into_state() {
     assert_eq!(resp.status_code(), StatusCode(401));
 
     let after = live2d_ai_mod_external_input::counters_snapshot();
-    assert_eq!(after["accepts"], base("accepts") + 3, "3 次成功");
-    assert_eq!(after["busy"], base("busy") + 1, "1 次忙");
+    // 3 次直送 + 第 4 次忙时**收下**进合并窗口（2026-10-17 起不再丢弃）。
+    assert_eq!(after["accepts"], base("accepts") + 4, "4 条都收下");
+    assert_eq!(after["busy"], base("busy") + 1, "其中 1 条忙时合并");
     assert_eq!(after["rejects"], base("rejects") + 1, "1 次坏 token");
 
     // state_json（`GET /mods/external-input/state` 的真源）逐键一致。

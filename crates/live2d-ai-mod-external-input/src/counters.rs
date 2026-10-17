@@ -21,8 +21,8 @@
 //!
 //! | 计数 | 含义 | 对应分支 |
 //! |---|---|---|
-//! | `accepts` | 文本已送进主链路（`supervisor.say` 返回 `true`） | 200 `ok:true` |
-//! | `busy` | supervisor 忙碌，文本被丢弃 | 200 `ok:false`（code `busy`） |
+//! | `accepts` | 文本被收下（直送成功，或 HTTP 端点进忙时合并窗口） | 200 `ok:true` |
+//! | `busy` | 忙时到达（HTTP 端点进合并窗口；窗口满兜底丢弃也算。命令通道 `test_inject` 忙碌丢弃也计） | 200 `ok:true` coalesced / `ok:false` busy；命令 `accepted:false` |
 //! | `rejects` | **策略拒绝**：token 鉴权失败（401）或 Mod 停用（403 `mod_disabled`） | 401 / 403 |
 //! | `v2_ignored` | sidecar 上报的 `SEND_GIFT_V2` 忽略累计值 | body 可选字段 `v2_ignored` |
 //!
@@ -55,7 +55,7 @@ impl ExternalInputCounters {
         }
     }
 
-    /// 主链路接受了这条文本。
+    /// 文本被收下（直送成功，或 HTTP 端点进了忙时合并窗口）。
     pub fn record_accept(&self) {
         self.accepts.fetch_add(1, Ordering::Relaxed);
     }
@@ -65,7 +65,7 @@ impl ExternalInputCounters {
         self.rejects.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// supervisor 忙碌，本条文本被丢弃。
+    /// 忙时到达：HTTP 端点进合并窗口（或窗口满兜底丢弃）、命令通道忙碌丢弃。
     pub fn record_busy(&self) {
         self.busy.fetch_add(1, Ordering::Relaxed);
     }

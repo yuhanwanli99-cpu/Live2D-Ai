@@ -64,8 +64,8 @@
 //! `AtomicU64`，见 `live2d_ai_mod_external_input::counters`），并可经
 //! `GET /api/v1/mods/external-input/state` 读到：
 //!
-//! - `accepts`：`ok:true` 分支；
-//! - `busy`：`ok:false` 分支（code `busy`）；
+//! - `accepts`：端口收下（直送成功 / 进忙时合并窗口都算）；
+//! - `busy`：忙时到达的条数（进合并窗口；窗口满兜底丢弃也算）；
 //! - `rejects`：**策略拒绝**——`401 unauthorized` 与 `403 mod_disabled`。
 //!   400（负载非法 / 超长）、405、415、503（未装配）**不计数**；
 //! - `v2_ignored`：body 可选字段 `v2_ignored`（sidecar 上报的
@@ -80,14 +80,19 @@
 //! - **文本长度**：渲染后 ≤2000 字符，否则 `400 text_too_long`。
 //! - **JSON 解析失败 / `text` 非字符串 / 空**：`400 invalid_payload`。
 //! - **supervisor 未就绪**：`503 supervisor_unavailable`。
-//! - **supervisor 忙碌（pending 缓冲已满）**：HTTP `200` + `{"ok":false,
-//!   "error":{"code":"busy"}}` —— 文本已被丢弃，发送方应自行退避重试。
+//! - **上一条还没处理完（supervisor 在飞一轮）**：HTTP `200` +
+//!   `{"ok":true,"coalesced":true}` —— 文本**收下**、先不注入，进忙时合并
+//!   窗口；这一轮收口后整窗按到达顺序拼成一条注入一次（3.0 队首第一片，
+//!   2026-10-17；实现见 [`crate::web_api::external_coalesce`]）。
+//! - **合并窗口满（≥`MAX_TEXT_LEN` 字符）**：回退旧的 `200` +
+//!   `{"ok":false,"error":{"code":"busy"}}` —— 本条被丢弃，发送方退避重试。
 
 use std::io::Cursor;
 
 use tiny_http::{Header, Method, Response, StatusCode};
 
 use crate::web_api::ServerContext;
+use crate::web_api::external_coalesce::{MAX_WINDOW_CHARS, PushOutcome};
 
 /// 鉴权 token 环境变量名（**优先于** Mod config 的 `token`）。
 const TOKEN_ENV_VAR: &str = "EXTERNAL_INPUT_TOKEN";
@@ -288,30 +293,65 @@ fn handle_external_chat_with(
             ),
         ));
     }
+    // 忙时合并窗口（2026-10-17）：满足任一条件就**收下、先不注入**——
+    // ① 上一条还没处理完（supervisor 在飞一轮）；② 窗口已经开着。
+    // ① 保证「一等这一轮结束、整窗合成一条推一次」，② 保证到达顺序（窗口开着
+    // 时直送一条会把顺序插到已积压的那批前面）。
+    if ctx.external_coalescer.has_backlog()
+        || ctx.try_get_supervisor().is_some_and(|s| s.turn_in_flight())
+    {
+        return Some(coalesce_response(ctx, text));
+    }
     // 执行：经注入点把文本交给 supervisor。
-    let ok = match inject(ctx, text.clone()) {
-        Some(ok) => ok,
-        None => {
-            return Some(json_error(
-                StatusCode(503),
-                "supervisor_unavailable",
-                "supervisor 未就绪，无法注入文本",
-            ));
+    match inject(ctx, text.clone()) {
+        Some(true) => {
+            live2d_ai_mod_external_input::record_accept();
+            let body = serde_json::json!({"ok": true, "endpoint": "external.chat"});
+            Some(ok_response(StatusCode(200), &body.to_string()))
         }
-    };
-    // 返回 {"ok": true/false, ...}；计数与分支一一对应（见 counters.rs 头注）。
-    let body_json = if ok {
-        live2d_ai_mod_external_input::record_accept();
-        serde_json::json!({"ok": true, "endpoint": "external.chat"})
-    } else {
-        live2d_ai_mod_external_input::record_busy();
-        serde_json::json!({
-            "ok": false,
-            "endpoint": "external.chat",
-            "error": {"code": "busy", "message": "supervisor 忙碌（pending 缓冲已满），本条文本已被丢弃"}
-        })
-    };
-    Some(ok_response(StatusCode(200), &body_json.to_string()))
+        // 主链忙：开合并窗口收下（不再丢弃）。常驻线程在主链空出来后把整窗
+        // 拼成一条注入一次。
+        Some(false) => Some(coalesce_response(ctx, text)),
+        None => Some(json_error(
+            StatusCode(503),
+            "supervisor_unavailable",
+            "supervisor 未就绪，无法注入文本",
+        )),
+    }
+}
+
+/// 忙时收下：把文本追加进合并窗口。
+///
+/// - 窗口未满 → `200 {"ok":true,"coalesced":true}`（记 `accepts` + `busy`）；
+/// - 窗口已满 → **回退旧语义**：`200 {"ok":false, code:"busy"}`，本条丢弃
+///   （只记 `busy`）。上限见 [`crate::web_api::external_coalesce::MAX_WINDOW_CHARS`]。
+fn coalesce_response(ctx: &ServerContext, text: String) -> Response<Cursor<Vec<u8>>> {
+    match ctx.external_coalescer.push(text) {
+        PushOutcome::Queued => {
+            live2d_ai_mod_external_input::record_accept();
+            live2d_ai_mod_external_input::record_busy();
+            let body = serde_json::json!({
+                "ok": true,
+                "endpoint": "external.chat",
+                "coalesced": true,
+            });
+            ok_response(StatusCode(200), &body.to_string())
+        }
+        PushOutcome::Full => {
+            live2d_ai_mod_external_input::record_busy();
+            let body = serde_json::json!({
+                "ok": false,
+                "endpoint": "external.chat",
+                "error": {
+                    "code": "busy",
+                    "message": format!(
+                        "合并窗口已满（{MAX_WINDOW_CHARS} 字符上限），本条文本已被丢弃；请退避重试"
+                    )
+                }
+            });
+            ok_response(StatusCode(200), &body.to_string())
+        }
+    }
 }
 
 /// 从 JSON body `{"text": "...", "token": "..."}` 抽取 text 与可选 token。
@@ -427,6 +467,9 @@ fn json_error(status: StatusCode, code: &str, message: &str) -> Response<Cursor<
 // 回归测试拆到同目录 `external_routes_tests_*.rs`（保持本文件 ≤500 行；与
 // `voice_routes_tests.rs` 同模式）。`#[path]` 让测试文件仍是本模块的子模块，
 // 可直接 `use super::*` 访问私有项。
+#[cfg(test)]
+#[path = "external_routes_tests_coalesce.rs"]
+mod tests_coalesce;
 #[cfg(test)]
 #[path = "external_routes_tests_gate.rs"]
 mod tests_gate;

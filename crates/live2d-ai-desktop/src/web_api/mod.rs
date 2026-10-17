@@ -66,6 +66,8 @@ pub mod env_routes;
 /// `env_routes` 的单元测试（自 `env_routes.rs` 拆出：>500 行棘轮，2026-10-16）。
 #[cfg(test)]
 mod env_routes_tests;
+/// 外部事件「忙时合并再注入」窗口 + 常驻合并线程（3.0 队首第一片，2026-10-17）。
+mod external_coalesce;
 /// 外部文本注入端点（节点 E5-T3）：`POST /api/v1/external/chat → say →
 /// 主链路`。静态前置路由（见 `run_request_loop` E5-T3 判定点）。
 pub mod external_routes;
@@ -319,6 +321,13 @@ pub struct ServerContext {
     /// `AVAILABLE_MOD_FACTORIES` + manifest）；其它路径（测试 / 缺省）
     /// 用空 registry 占位。handler 经 `lock()` 调用 enable/disable/restart/list。
     pub mod_registry: std::sync::Arc<std::sync::Mutex<crate::mod_registry::ModRegistry>>,
+    /// 外部事件「忙时合并」窗口（3.0 队首第一片，2026-10-17）。
+    ///
+    /// `POST /api/v1/external/chat` 直送 `say` 失败（主链忙）时把文本收进
+    /// 这里；`run_request_loop` 起的常驻 `external-coalesce` 线程在主链空出来
+    /// 后把整窗文本合并成一条注入一次。状态随 `ServerContext` 走，测试可
+    /// 直接调 `external_coalesce::flush_once` 确定性驱动。
+    pub external_coalescer: external_coalesce::ExternalCoalescer,
 }
 
 impl ServerContext {
@@ -342,6 +351,7 @@ impl ServerContext {
             mod_registry: Arc::new(std::sync::Mutex::new(
                 crate::mod_registry::ModRegistry::new(&[], &serde_json::json!({})),
             )),
+            external_coalescer: external_coalesce::ExternalCoalescer::default(),
         }
     }
 
@@ -528,6 +538,10 @@ fn respond_and_log(
 }
 
 pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
+    // 外部事件忙时合并（3.0 队首第一片，2026-10-17）：常驻线程随服务生命周期
+    // 起停。入口前的 handler 用 `ctx.external_coalescer` 收下忙时文本，这里
+    // 的线程在主链空出来后合并注入一次；窗口空时线程阻塞在 Condvar 上。
+    let coalesce_thread = crate::web_api::external_coalesce::spawn_flusher(ctx.clone());
     for mut request in server.incoming_requests() {
         let method = request.method().clone();
         // **带查询串的原始 URL**（日志用）与**剥掉查询串的路径**（路由用）。
@@ -654,6 +668,9 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
         );
         let _ = request.respond(response);
     }
+    // 服务停机：唤醒常驻合并线程并等它退出（不留后台线程跨服务实例存活）。
+    ctx.external_coalescer.shutdown();
+    let _ = coalesce_thread.join();
 }
 
 /// 派发（保持 mod.rs 简洁：实际实现见 [`dispatch`] 模块）。

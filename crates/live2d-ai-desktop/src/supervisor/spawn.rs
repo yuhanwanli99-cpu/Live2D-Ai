@@ -106,6 +106,10 @@ fn spawn_supervisor_impl(
     let reload_ack: Arc<std::sync::Mutex<Option<ReloadAck>>> =
         Arc::new(std::sync::Mutex::new(None));
     let reload_ack_for_thread = Arc::clone(&reload_ack);
+    // 3.0 队首第一片（2026-10-17）：一轮在飞标志。外部文本端点据此把忙时
+    // 文本收进合并窗口、先不注入；supervisor 线程在 `run_one_turn` 前后置位。
+    let turn_in_flight = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let turn_in_flight_for_thread = Arc::clone(&turn_in_flight);
 
     let emit: Emit = Arc::new(emit);
     // **Mod 事件桥（d2）**：包裹 AppEvent 发射——转发给 AppEvent 消费端的
@@ -152,6 +156,7 @@ fn spawn_supervisor_impl(
                 session_scopes_for_thread,
                 performance_stats_for_thread,
                 reload_ack_for_thread,
+                turn_in_flight_for_thread,
             ));
         })
         .expect("启动 supervisor 线程");
@@ -166,5 +171,6 @@ fn spawn_supervisor_impl(
         session_scopes,
         performance_stats,
         reload_ack,
+        turn_in_flight,
     }
 }

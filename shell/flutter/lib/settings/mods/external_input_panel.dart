@@ -78,7 +78,7 @@ String? templateExample(
 String counterSummary(Map<String, Object?> state) =>
     '已接受 ${_count(state, 'accepts')} 条弹幕/礼物'
     ' · 拒绝 ${_count(state, 'rejects')}'
-    ' · 忙碌丢弃 ${_count(state, 'busy')}'
+    ' · 忙碌合并 ${_count(state, 'busy')}'
     ' · 礼物 v2 兜底 ${_count(state, 'v2_ignored')}';
 
 /// 令牌状态的人话（两态；state == null = 运行态还没读到）。纯函数，可单测。
@@ -110,7 +110,7 @@ class ExternalInputPanel extends ModPanel {
   Map<String, String> get stateLabels => const <String, String>{
     'accepts': '已接受',
     'rejects': '已拒绝',
-    'busy': '忙碌拒绝',
+    'busy': '忙碌合并',
     'v2_ignored': '礼物 v2 兜底',
     'ready': '已就绪',
     'token_set': '令牌已设置',

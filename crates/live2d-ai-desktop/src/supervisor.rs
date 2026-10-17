@@ -221,6 +221,12 @@ pub struct SupervisorHandle {
     /// 回话口：谁真正执行了 reload（空闲态 select 或 turn 收口后的兜底），谁就
     /// 把结果 `try_send` 回来。**没有等待者时是 None**（巡检/手改 toml 那条路）。
     reload_ack: Arc<std::sync::Mutex<Option<ReloadAck>>>,
+    /// 「一轮是否在飞」（3.0 队首第一片，2026-10-17）。
+    ///
+    /// 外部文本端点用它判断「上一条还没处理完」：在飞时把文本收进忙时合并
+    /// 窗口、先不注入；本轮收口后再把整窗合并成一条注入一次。supervisor 线程
+    /// 在 `run_one_turn` 前后置位 / 清零，HTTP 线程只读（Release / Acquire）。
+    turn_in_flight: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl SupervisorHandle {
@@ -345,6 +351,15 @@ impl SupervisorHandle {
     /// 只读快照：锁毒化时回 `None`（status 端点必须始终可用）。
     pub fn performance_stats(&self) -> Option<Arc<PerformanceStats>> {
         self.performance_stats.lock().ok().and_then(|g| g.clone())
+    }
+
+    /// 主链是否正在处理一轮（`true` = 上一条还没结束）。
+    ///
+    /// 外部文本端点（`POST /api/v1/external/chat`）在忙时把文本收进合并窗口、
+    /// 先不注入；常驻合并线程在本方法返回 `false` 后才把整窗注入一次。
+    pub fn turn_in_flight(&self) -> bool {
+        self.turn_in_flight
+            .load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// 测试专用：访问 `reload_pending` 原子标志的只读视图。

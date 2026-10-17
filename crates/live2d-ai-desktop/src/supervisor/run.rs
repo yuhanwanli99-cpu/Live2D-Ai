@@ -5,6 +5,7 @@
 //! pub(super)——唯一调用方是同级的 spawn.rs。**行为一行未改**。
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use tokio::sync::mpsc;
 
@@ -39,6 +40,8 @@ pub(super) async fn run_forever(
     performance_stats: PerformanceStatsSlot,
     // S-001（2026-10-16）：reload 结果的回话槽（谁真执行了 reload，谁回话）。
     reload_ack: Arc<std::sync::Mutex<Option<ReloadAck>>>,
+    // 3.0 队首第一片（2026-10-17）：一轮在飞标志（外部文本忙时合并用）。
+    turn_in_flight: Arc<std::sync::atomic::AtomicBool>,
 ) {
     let SupervisorConfig {
         client,
@@ -136,6 +139,10 @@ pub(super) async fn run_forever(
             request = say_rx.recv() => match request {
                 Some(request) => {
                     let SayRequest { text, session } = request;
+                    // 3.0 队首第一片（2026-10-17）：从这一刻到本轮收口，外部文本
+                    // 端点会把新到的文本收进合并窗口、先不注入（等这一轮结束再
+                    // 把整窗合成一条推一次）。置位点在本轮任何事件之前。
+                    turn_in_flight.store(true, Ordering::Release);
                     next_turn_id += 1;
                     let cur_epoch = root.epoch;
                     let epoch = cur_epoch.get();
@@ -199,6 +206,10 @@ pub(super) async fn run_forever(
                         &mut quitting, &emit,
                     )
                     .await;
+                    // 本轮收口：忙时合并窗口现在可以推出（在 TurnEnded /
+                    // AssistantReplied 之前置位，因为那些是「轮末准备下一轮」，
+                    // 合并线程只需要知道「上一条处理完了」）。
+                    turn_in_flight.store(false, Ordering::Release);
                     // **Wave 3（2026-09-21）**：助手侧正文 → AssistantReplied。
                     //
                     // 这是「记忆摘要含助手侧」的唯一入口（见 topics.rs 该主题头注）：

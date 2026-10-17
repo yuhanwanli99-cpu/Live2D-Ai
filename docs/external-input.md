@@ -85,23 +85,23 @@ Mod config 的 `token`（前端 Mod 设置里的 secret 字段）；**两者都�
 
 ## 4. 响应
 
-### 4.1 成功（已注入）
+### 4.1 成功（已注入 / 忙时收下）
 
 ```json
 { "ok": true, "endpoint": "external.chat" }
+{ "ok": true, "endpoint": "external.chat", "coalesced": true }
 ```
 
-HTTP `200`。
+HTTP `200`。第一行 = 已直送主链路；第二行 = **上一条还没处理完、文本已收下**：进合并窗口，这一轮结束后按到达顺序拼成**一条**注入一次（2026-10-17 起；此前回 `busy` 并丢弃；都是收下，sidecar 不必重试）。
 
-### 4.2 忙碌（supervisor pending 缓冲已满）
+### 4.2 窗口满兜底（合并窗口 ≥2000 字符）
 
 ```json
 { "ok": false, "endpoint": "external.chat",
-  "error": { "code": "busy", "message": "supervisor 忙碌（pending 缓冲已满），本条文本已被丢弃" } }
+  "error": { "code": "busy", "message": "合并窗口已满（2000 字符上限），本条文本已被丢弃；请退避重试" } }
 ```
 
-HTTP `200`：请求格式没问题，但**本条文本已被丢弃**——发送方应自行退避重试。
-sidecar 收到 `ok:false` 时打印一行告警即可，不必退出。
+HTTP `200`：窗口满时回退旧语义——**本条文本已被丢弃**，发送方退避重试即可。
 
 ### 4.3 错误
 
@@ -135,7 +135,7 @@ sidecar 收到 `ok:false` 时打印一行告警即可，不必退出。
 
 ## 5.1 可观察计数（`GET /api/v1/mods/external-input/state`）
 
-「今天到底注入成功几条、被挡了几条、忙丢了几条」不该靠翻日志猜。Wave 3 起，
+「今天到底收下几条、被挡了几条、忙时合并了几条」不该靠翻日志猜。Wave 3 起，
 handler 在分支里记账，读者从 Mod 运行态读：
 
 ```bash
@@ -146,8 +146,8 @@ curl -s http://127.0.0.1:18080/api/v1/mods/external-input/state
 
 | `state` 键 | 含义 | 对应 handler 分支 |
 |---|---|---|
-| `accepts` | 文本已进主链路（`supervisor.say` 返回 `true`） | 200 `ok:true` |
-| `busy` | supervisor 忙（pending 缓冲满），文本被丢弃 | 200 `ok:false` / code `busy` |
+| `accepts` | 端口收下（直送 / 进合并窗口都算） | 200 `ok:true` |
+| `busy` | 忙时到达的条数（进合并窗口；窗口满兜底丢弃也算） | 200 `ok:true` coalesced / `ok:false` busy |
 | `rejects` | **策略拒绝**：token 鉴权失败（401）或 Mod 停用（403 `mod_disabled`） | 401 / 403 |
 | `v2_ignored` | sidecar 上报的 `SEND_GIFT_V2` 忽略累计值（覆盖写） | body 可选字段，见 §3 |
 | `ready` | 该 Mod 运行时是否已 `start`（启用即 `true`） | — |
@@ -381,4 +381,4 @@ print(send_to_live2d("收到新邮件提醒"))
 | 产品面板（测试注入 / 计数摘要 / 令牌两态 / 模板示例 / 重置） | `shell/flutter/lib/settings/mods/external_input_panel.dart` |
 | 可观察计数（AtomicU64 + 语义表） | `crates/live2d-ai-mod-external-input/src/counters.rs` |
 | sidecar（清洗 / 节流 / 自检 / v2 上报） | `docs/examples/bilibili-sidecar/bilibili_sidecar.py` |
-| 缺口断言 | `mod_count_is_five`（工厂表）、`external_routes::tests`（门禁 / token / Bearer / 模板膨胀 / **计数 3+1+1** / v2_ignored）、`counters::tests`（计数契约） |
+| 缺口断言 | `mod_count_is_five`（工厂表）、`external_routes::tests`（门禁 / token / Bearer / 模板膨胀 / **计数 4+1+1（含忙时合并）** / v2_ignored / 忙时三条只注入一次）、`counters::tests`（计数契约） |

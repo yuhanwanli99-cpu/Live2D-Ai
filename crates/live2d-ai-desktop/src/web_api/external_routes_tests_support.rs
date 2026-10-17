@@ -68,6 +68,7 @@ pub(super) fn dummy_ctx(sec: crate::web_api::security::SecurityContext) -> Serve
         mod_registry: std::sync::Arc::new(std::sync::Mutex::new(
             crate::mod_registry::ModRegistry::new(&[], &serde_json::json!({})),
         )),
+        external_coalescer: Default::default(),
     }
 }
 
