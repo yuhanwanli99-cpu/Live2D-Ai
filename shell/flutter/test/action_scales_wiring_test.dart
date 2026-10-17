@@ -33,12 +33,13 @@ import 'package:live2d_ai_shell/live2d/live2d_stage.dart';
 import 'package:live2d_ai_shell/live2d/preset_status.dart';
 import 'package:live2d_ai_shell/live2d/render_events.dart';
 import 'package:live2d_ai_shell/settings/mods/director_debug_panels.dart';
-import 'package:live2d_ai_shell/settings/mods/director_panel.dart';
+import 'package:live2d_ai_shell/settings/sections/director_section.dart';
 import 'package:live2d_ai_shell/settings/preset_labels.dart';
 import 'package:live2d_ai_shell/ui/field_row.dart' show SliderField;
 import 'package:live2d_ai_shell/ui/theme.dart';
 
 import 'support/dart_library.dart';
+import 'support/source_scan.dart';
 
 /// 与 `assets/actions/preset_labels.json` 同形的**假表**：故意与
 /// `kExpressionPresetIds` 不对齐，用来证明「表优先、常量只兜底」。
@@ -114,7 +115,7 @@ void main() {
       expect(syncer.active(null)!['head'], 2.0, reason: '设置未加载时也不能退回 null');
 
       // 「唯一出口」：调试面板不再直发 `stage.sync(actionScales: …)`。
-      final String settings = readLib('lib/app/shell_settings.dart');
+      final String settings = readLib('lib/app/shell_settings_panes.dart');
       expect(settings.contains('_actionScalesSyncer.pin('), isTrue);
       expect(
         settings.contains('_stageKey.currentState?.sync('),
@@ -354,9 +355,11 @@ void main() {
       expect(find.text('叠加基础表情'), findsOneWidget);
     });
 
-    test('C③：director 面板只剩一句人话（分段送 TTS / 接管 / 直送 全部下架）', () {
-      expect(kDirectorTakeoverNotice, '打开后，说话时会带上表情和轻微的头、颈动作。');
+    test('C③：一级导演卡只有常驻状态一句人话（分段送 TTS / 接管 / 直送 全部下架）', () {
+      expect(kDirectorAlwaysOnTitle, '导演常驻开启（无开关）');
+      expect(kDirectorAlwaysOnNotice, '每一句都按原文给表情与轻微的头、颈动作，不需要启用。');
       for (final String banned in <String>[
+        '打开后',
         '分段送 TTS',
         '不改原文',
         '留空',
@@ -364,28 +367,31 @@ void main() {
         '只填一项',
         '接管',
       ]) {
-        expect(
-          kDirectorTakeoverNotice.contains(banned),
-          isFalse,
-          reason: '产品面上不得再出现「$banned」（2026-10-08 口径）',
-        );
+        for (final String text in <String>[
+          kDirectorAlwaysOnTitle,
+          kDirectorAlwaysOnNotice,
+        ]) {
+          expect(
+            text.contains(banned),
+            isFalse,
+            reason: '产品面上不得再出现「$banned」（2026-10-08 口径）',
+          );
+        }
       }
-      // staging_* 仍是**可解析**的配置键，但已从产品面整体消失（hiddenKeys）。
-      expect(
-        readLib('lib/settings/mods/director_panel.dart').contains('staging_base_url'),
-        isTrue,
-        reason: 'staging_* 仍是配置键：必须显式声明为「产品面不渲染」',
+      // rc4：导演不再是 Mod——staging_* / 八隐藏键在**任何界面**都零出现。
+      // 只扫代码（头注里说明「这些键不再有界面」不算把它们画上屏）。
+      final String src = stripCommentsKeepStrings(
+        readLib('lib/settings/sections/director_section.dart'),
       );
-      expect(
-        readLib('lib/settings/mods/director_panel.dart').contains('遗留回退旁路'),
-        isFalse,
-        reason: '旧口径「遗留回退旁路 / 不是产品主路径」必须改掉',
-      );
-      expect(
-        readLib('lib/settings/mods/director_panel.dart').contains('【遗留】'),
-        isFalse,
-        reason: '界面里不得再有【遗留】',
-      );
+      for (final String gone in <String>[
+        'staging_base_url',
+        'hiddenKeys',
+        'motion_bias',
+        '遗留回退旁路',
+        '【遗留】',
+      ]) {
+        expect(src.contains(gone), isFalse, reason: '一级导演卡不得出现「$gone」');
+      }
     });
   });
 
@@ -498,7 +504,7 @@ void main() {
     });
 
     test('接线：宿主把 syncer 的显式 pin 只读传进面板（源码扫描）', () {
-      final String settings = readLib('lib/app/shell_settings.dart');
+      final String settings = readLib('lib/app/shell_settings_panes.dart');
       expect(
         settings.contains('pinnedScales: _actionScalesSyncer.pinned'),
         isTrue,
@@ -670,7 +676,8 @@ void main() {
       // UI 上「恢复跟随全局」按钮触发该回调（widget 级在
       // test/director_action_scales_test.dart；这里钉住宿主接线）。
       expect(
-        readLib('lib/app/shell_settings.dart').contains('_clearModelOverride'),
+        readLib('lib/app/shell_settings_panes.dart').contains('_clearModelOverride') ||
+            readLib('lib/app/shell_settings.dart').contains('_clearModelOverride'),
         isTrue,
         reason: '宿主必须把按钮接到「删除该模型覆盖」的 PATCH 上',
       );
@@ -748,7 +755,7 @@ void main() {
         reason: 'onChanged → coalescer.record；直接 PATCH 会把拖动打成几十次写盘',
       );
       expect(
-        settings.contains('displayActionScales('),
+        readLib('lib/app/shell_settings_panes.dart').contains('displayActionScales('),
         isTrue,
         reason: '滑条必须显示草稿和还没回读的覆盖，不能只绑磁盘值',
       );

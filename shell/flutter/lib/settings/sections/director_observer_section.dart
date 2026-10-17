@@ -1,22 +1,25 @@
 /// 「导演可观测」四栏（阶段5 W5a，裁决 D40–D43 / 范围 §2 A–D）。
 ///
-/// 挂载点：`DeveloperSection.build` 的 `if (devMode)` 块内（`DebugPanels` 之后）。
+/// 挂载点：一级「导演」卡的 `devMode` 块内（`settings/sections/director_section.dart`）。
 /// **dev_mode=false 时整块不在语义树**；本组件自己也短路一次，测试可单点。
 ///
-/// # 数据怎么进来（不改 shell_settings.dart 的硬约束）
+/// # rc4（2026-10-17）：A 栏降级为静态，不再读服务端端点
 ///
-/// `DeveloperSection` 由 `app/shell_settings.dart` 构造，观测数据不能经构造参数从
-/// `main.dart` 传进来。做法：本文件里定义单例 [DirectorObserverFeed]
-/// （`ChangeNotifier`）——`main.dart` 只往里 push，本组件用 `ListenableBuilder`
-/// 消费。构造函数仍保留可注入的假数据口（[loadState] / [loadLogLines]），
-/// widget 测试注入 fake，**不发真网络**。
+/// 导演已并回核心常驻——**没有**决策账本可读（`GET /api/v1/mods/director/state`
+/// 的读取路径从本文件删除，403/404 文案一并删除）。A 栏只陈述一个事实：
+/// 「核心常驻（无决策账本）」。B/C/D 三栏与 Feed 一字未改。
+///
+/// # 数据怎么进来
+///
+/// 本文件里定义单例 [DirectorObserverFeed]（`ChangeNotifier`）——`main.dart`
+/// 只往里 push，本组件用 `ListenableBuilder` 消费。D 栏的日志端点仍保留可注入的
+/// 假数据口（[loadLogLines]），widget 测试注入 fake，**不发真网络**。
 ///
 /// # 四栏
 ///
 /// | 栏 | 来源 |
 /// | --- | --- |
-/// | A 词表记录 | 服务端导演运行态端点（逐键对上 state_json）——**只是词表账本，
-/// 不代表现在的表情**（2026-10-08 改标题） |
+/// | A 决策参数 | **静态**：核心常驻（无决策账本）——不发网络请求 |
 /// | B 事件流 | 前端已收 WS 帧 + 渲染面 ack（环形缓冲上限 200，按 type 过滤） |
 /// | C 传参对照 | 左「请求」= 前端 preset；右「生效」= 渲染面 ack 最终值 |
 /// | D 送 TTS 文本 | 左 = 前端已收 text_delta；右 = 日志端点 sentence_ready |
@@ -30,39 +33,15 @@ import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
 import '../../api/diagnostics_api.dart';
-import '../../api/mods_api.dart';
 import '../../api/ws_frame.dart';
 import '../../design/tokens.dart';
 import '../../live2d/render_events.dart';
-import '../mods/director_panel.dart';
-import '../../ui/inline_notice.dart';
 import '../../ui/section_header.dart';
 import '../../ui/theme.dart';
 
-/// A 栏读取的 Mod id。
-///
-/// **不写成字面调用**：`test/action_cue_test.dart` 的通道 B 退役回归按源码子串
-/// 钉住 lib/ 不得出现「拉 director 状态面」的调用点（阶段3 D10–D13）。阶段5
-/// 的 A 栏是**只读展示**（D41/D43），这里把它集中成一个常量，调用点不带字面 id。
-const String kDirectorObserverModId = 'director';
-
-/// A 栏「取不到」时的如实说明（**不许空面板**）。纯函数，可单测。
-String directorStateErrorText(ApiException e) {
-  if (e.status == 403 || e.code == 'mod_disabled') {
-    return '读不到决策参数：导演 Mod 未启用（403 mod_disabled）——'
-        '先到「Mod」分区启用 director。';
-  }
-  if (e.code == 'not_found') {
-    return '读不到决策参数：director 不在服务端注册表（404 not_found）。';
-  }
-  if (e.code == 'state_unavailable') {
-    return '读不到决策参数：Mod 正忙或未上报运行态（503 state_unavailable），可重试。';
-  }
-  if (e.code == 'network_error') {
-    return '读不到决策参数：无法连接后端（network_error）。';
-  }
-  return '读不到决策参数：${e.code}（HTTP ${e.status ?? '?'}）。';
-}
+/// A 栏的**静态**结论（rc4：导演常驻核心，不再有决策账本可读）。纯文本常量，
+/// 单测直接断言它上屏。
+const String kDirectorCoreResidentText = '核心常驻（无决策账本）';
 
 /// 观测缓冲的单例 hub（`ChangeNotifier`）。
 ///
@@ -153,17 +132,12 @@ class DirectorObserverFeed extends ChangeNotifier {
 class DirectorObserverSection extends StatefulWidget {
   const DirectorObserverSection({
     this.devMode = true,
-    this.loadState,
     this.loadLogLines,
     super.key,
   });
 
-  /// false → 整块不渲染（与 DeveloperSection 的短路同一口径）。
+  /// false → 整块不渲染（与 DirectorSection 的短路同一口径）。
   final bool devMode;
-
-  /// A 栏数据口（缺省 = `ModsApi().state(kDirectorObserverModId)` 的 `.state`）。
-  /// widget 测试注入 fake，**不发真网络**。
-  final Future<Map<String, Object?>> Function()? loadState;
 
   /// D 栏右列数据口（缺省 = `DiagnosticsApi().logs()` 映射成字符串列表）。
   final Future<List<String>> Function()? loadLogLines;
@@ -174,12 +148,7 @@ class DirectorObserverSection extends StatefulWidget {
 }
 
 class _DirectorObserverSectionState extends State<DirectorObserverSection> {
-  ModsApi? _modsApi;
   DiagnosticsApi? _diagApi;
-
-  Map<String, Object?>? _state;
-  String? _stateError;
-  bool _stateLoading = false;
 
   List<String> _logLines = const <String>[];
   String? _logsError;
@@ -197,7 +166,6 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
   void initState() {
     super.initState();
     if (widget.devMode) {
-      unawaited(_loadState());
       unawaited(_loadLogs());
     }
   }
@@ -206,54 +174,19 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
   void didUpdateWidget(covariant DirectorObserverSection oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.devMode && !oldWidget.devMode) {
-      unawaited(_loadState());
       unawaited(_loadLogs());
     }
   }
 
   @override
   void dispose() {
-    _modsApi?.dispose();
     _diagApi?.dispose();
     super.dispose();
   }
 
-  Future<Map<String, Object?>> _defaultLoadState() async =>
-      (await (_modsApi ??= ModsApi()).state(kDirectorObserverModId)).state;
-
   Future<List<String>> _defaultLoadLogLines() async {
     final List<LogLine> lines = await (_diagApi ??= DiagnosticsApi()).logs();
     return lines.map((LogLine l) => l.asText).toList();
-  }
-
-  Future<void> _loadState() async {
-    setState(() {
-      _stateLoading = true;
-      _stateError = null;
-    });
-    try {
-      final Map<String, Object?> loaded =
-          await (widget.loadState ?? _defaultLoadState)();
-      if (!mounted) return;
-      setState(() {
-        _state = loaded;
-        _stateLoading = false;
-      });
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _state = null;
-        _stateError = directorStateErrorText(e);
-        _stateLoading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _state = null;
-        _stateError = '读不到决策参数：$e';
-        _stateLoading = false;
-      });
-    }
   }
 
   Future<void> _loadLogs() async {
@@ -328,130 +261,29 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
     DirectorObserverFeed.instance.clear();
   }
 
-  // ───────────────────────────────────────────────────────── A 决策参数
-
+  // ───────────────────────────────────────────────────── A 决策参数（静态）
+  //
+  // rc4：导演并回核心常驻，不再有「决策账本」可读。A 栏**不发任何网络请求**，
+  // 只把这一事实摆在开发者面上——保留栏位是为了让四栏结构与 B/C/D 的对照还在。
   Widget _decisionBlock(ThemeData theme) {
     final AppColors colors = appColorsOf(context);
     final TextStyle? muted = theme.textTheme.bodySmall?.copyWith(
       color: colors.contentMuted,
     );
-    final TextStyle? value = theme.textTheme.bodySmall;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         const SizedBox(height: Space.s4),
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: Text('词表记录', style: theme.textTheme.titleSmall),
-            ),
-            TextButton.icon(
-              onPressed: _stateLoading ? null : () => unawaited(_loadState()),
-              icon: const Icon(Icons.refresh, size: 16),
-              label: const Text('刷新决策参数'),
-            ),
-          ],
-        ),
+        Text('A 决策参数', style: theme.textTheme.titleSmall),
+        const SizedBox(height: Space.s1),
+        Text(kDirectorCoreResidentText, style: theme.textTheme.bodySmall),
         Text(
-          '来源 = 服务端导演运行态端点（GET /api/v1/mods/{id}/state，id=$kDirectorObserverModId；键名与 state_json 逐字一致）。'
-          '这张表不决定现在的表情——它只是词表账本（情绪/意图 → 预设 id 的映射与计数）。',
+          '导演已并回核心：按每一句原文给动作，不再有可读的决策计数或最近一次决策。',
           style: muted,
         ),
-        if (_stateLoading)
-          Padding(
-            padding: const EdgeInsets.only(top: Space.s1),
-            child: Text('读取中…', style: muted),
-          )
-        else if (_stateError != null)
-          Padding(
-            padding: const EdgeInsets.only(top: Space.s1),
-            child: InlineNotice(message: _stateError!, dense: true),
-          )
-        else if (_state == null)
-          Padding(
-            padding: const EdgeInsets.only(top: Space.s1),
-            child: Text('（还没取到决策参数，点上面的刷新）', style: muted),
-          )
-        else
-          ..._decisionRows(theme, muted, value),
       ],
     );
   }
-
-  List<Widget> _decisionRows(
-    ThemeData theme,
-    TextStyle? muted,
-    TextStyle? value,
-  ) {
-    final Map<String, Object?> state = _state ?? const <String, Object?>{};
-    final Map<String, Object?> latest = _stringMap(state['latest']);
-    final bool hasLatest = latest.isNotEmpty;
-    String of(Object? v) => directorNumberText(v);
-    return <Widget>[
-      _kv(
-        'latest.emotion',
-        hasLatest ? directorEmotionText(latest['emotion']) : '—',
-        muted,
-        value,
-      ),
-      _kv(
-        'latest.intent',
-        hasLatest ? directorIntentText(latest['intent']) : '—',
-        muted,
-        value,
-      ),
-      _kv(
-        'latest.suggested_tts.speed',
-        hasLatest ? of(_nested(latest, 'suggested_tts', 'speed')) : '—',
-        muted,
-        value,
-      ),
-      _kv(
-        'latest.suggested_tts.pitch',
-        hasLatest ? of(_nested(latest, 'suggested_tts', 'pitch')) : '—',
-        muted,
-        value,
-      ),
-      _kv(
-        'latest.preset_id',
-        hasLatest ? directorPresetText(latest['preset_id']) : '—',
-        muted,
-        value,
-      ),
-      _kv(
-        'latest.seq',
-        hasLatest ? of(latest['seq']) : '—',
-        muted,
-        value,
-      ),
-      _kv(
-        'latest.turn',
-        hasLatest ? of(latest['turn']) : '—',
-        muted,
-        value,
-      ),
-      _kv('turns_seen', of(state['turns_seen']), muted, value),
-      _kv('turns_ended', of(state['turns_ended']), muted, value),
-      _kv('decisions', of(state['decisions']), muted, value),
-      _kv('silent', of(state['silent']), muted, value),
-      _kv('errors', of(state['errors']), muted, value),
-    ];
-  }
-
-  Widget _kv(String label, String text, TextStyle? muted, TextStyle? value) =>
-      Padding(
-        padding: const EdgeInsets.only(top: OpticalNudge.thin),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            SizedBox(
-              width: 200,
-              child: Text('$label：', style: muted),
-            ),
-            Expanded(child: Text(text, style: value)),
-          ],
-        ),
-      );
 
   // ───────────────────────────────────────────────────────── B 事件流
 
@@ -735,16 +567,3 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
     );
   }
 }
-
-Map<String, Object?> _stringMap(Object? value) {
-  final Map<String, Object?> out = <String, Object?>{};
-  if (value is Map) {
-    value.forEach((Object? k, Object? v) {
-      if (k is String) out[k] = v;
-    });
-  }
-  return out;
-}
-
-Object? _nested(Map<String, Object?> m, String a, String b) =>
-    _stringMap(m[a])[b];

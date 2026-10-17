@@ -257,7 +257,8 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
                     }),
                     config_path: config_path.clone(),
                     session_prompts: session_prompts_for_mods,
-                    // P1-3：导演 Mod 的按句 cue → 与 WS 客户端订阅的同一个 broadcaster。
+                    // P1-3：Mod 产出的按句 cue → 与 WS 客户端订阅的同一个 broadcaster
+                    // （rc4 起核心第二路直接 emit AppEvent，不经过这条 Mod 通道）。
                     cues: {
                         let bc = ctx.broadcaster.clone();
                         Arc::new(move |cue: serde_json::Value| {
@@ -814,7 +815,7 @@ mod tests {
     /// 2. 本地 TTS 开箱出声 —— `local-tts-melo` 在缺省 manifest 里且 `with_app`；
     /// 3. CosyVoice3（id `local-tts`）**已封存移出注册表**，不得再进缺省；
     /// 4. `local-llm` 不再出现在缺省（废除启动，别再加回来）；
-    /// 5. 其余四个 Mod 仍缺省停用。
+    /// 5. 其余三个注册 Mod（persona / voice-input / memory）仍缺省停用。
     #[test]
     fn default_mods_manifest_enables_external_input_and_melo() {
         let m = default_mods_manifest();
@@ -853,11 +854,11 @@ mod tests {
             m["mods"].get("memory").is_none(),
             "memory 缺省停用（会写 persona.system_prompt），不得进缺省 manifest"
         );
-        // Wave 3：director 已注册（第 7 个）但仍**缺省停用**——它是零投递骨架，
-        // 打开与否纯属用户选择，不该进缺省 manifest。
+        // 2026-10-17（rc4）：director 已**退役并移出注册表**（按句 cue 收归核心
+        // 第二路，单一 cue 写者）——不得再进缺省 manifest，也不得挂回工厂表。
         assert!(
             m["mods"].get("director").is_none(),
-            "director 缺省停用（零投递骨架），不得进缺省 manifest"
+            "director 已退役（rc4），不得进缺省 manifest"
         );
     }
 }

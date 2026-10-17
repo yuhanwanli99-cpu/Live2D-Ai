@@ -126,7 +126,7 @@ void main() {
     // 而不是「控件画出来了」——后者正是本文件第 3 条历史教训的坑。
     test('角色卡导入通道由组合根接到扩展卡片（persona + 会话 + 文件选择器）', () {
       final String wiring = File(
-        'lib/app/shell_settings.dart',
+        'lib/app/shell_settings_panes.dart',
       ).readAsStringSync();
       expect(wiring, contains('ModsSection('));
       expect(

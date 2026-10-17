@@ -75,9 +75,9 @@ void _armStatus(
 }
 
 /// 2026-10-09：这两块（表情调试 / 动作调试 + 临时幅度）已从核心「开发模式」页
-/// 搬到「扩展 → 导演」卡片的下级块。本文件直接挂 [DebugPanels] 测它的行为；
-/// 「它只出现在导演卡片、且只在 devMode 里」由下面的结构断言与
-/// `action_scales_wiring_test` 的 director 面板用例守着。
+/// 搬到导演卡片的下级块；2026-10-17（rc4）随导演升为**一级「导演」卡**。
+/// 本文件直接挂 [DebugPanels] 测它的行为；「它只出现在导演一级卡、且只在 devMode
+/// 里」由 `director_panel_test` 与本文件的结构断言守着。
 Widget _section({
   PresetApply? onApplyPreset,
   PresetLabelTable labels = _labels,
@@ -140,10 +140,10 @@ void main() {
   testWidgets('2026-10-09：两块调试**不在**核心开发模式页上（只在导演卡片下级）', (
     WidgetTester tester,
   ) async {
-    // 能力没删：它们搬到「扩展 → 导演」卡片（settings/mods/director_debug_panels.dart），
+    // 能力没删：它们搬到一级「导演」卡（settings/mods/director_debug_panels.dart），
     // 仍只在开发者模式里显示。这里钉两件事：
     // ① 核心「开发模式」页（DeveloperSection）两种 devMode 下都不画它们；
-    // ② 组件本身还在、两块的标题都在。
+    // ② 组件本身还在、两块的标题都在（一级卡由 director_panel_test 守）。
     const List<String> titles = <String>['表情调试', '动作调试'];
 
     for (final bool dev in <bool>[true, false]) {
@@ -421,7 +421,7 @@ void main() {
     expect(
       find.text('导演可观测'),
       findsNothing,
-      reason: '导演可观测住在「扩展 → 导演」卡片下级，核心链的开发模式页不再出现它',
+      reason: '导演可观测住在一级「导演」卡，核心链的开发模式页不再出现它',
     );
   });
 }

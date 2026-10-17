@@ -17,8 +17,6 @@ class ModsSection extends StatelessWidget {
     this.onModChanged,
     this.onCommand,
     this.pickCardFile,
-    this.actionScales,
-    this.directorDebug,
     this.drafts,
     super.key,
   });
@@ -56,14 +54,6 @@ class ModsSection extends StatelessWidget {
 
   /// 角色卡文件读取器（组合根注入；透传给需要它的面板）。
   final PersonaCardFilePicker? pickCardFile;
-
-  /// 动作幅度旋钮的接线（2026-10-09）：只有 director 面板消费它；
-  /// null = 不渲染那块（宿主还没接线 / 纯 widget 测试）。
-  final ActionScalesWiring? actionScales;
-
-  /// 导演卡片里「表情调试 / 动作调试 / 临时幅度」的接线（2026-10-09 从核心
-  /// 「开发模式」页搬来）；同样只有 director 面板消费，null = 不渲染那块。
-  final DirectorDebugWiring? directorDebug;
 
   /// 各卡片表单**未提交草稿**的登记处（T2，2026-10-13 执行单）。
   ///
@@ -163,8 +153,6 @@ class ModsSection extends StatelessWidget {
                 onModChanged: onModChanged,
                 onCommand: onCommand,
                 pickCardFile: pickCardFile,
-                actionScales: actionScales,
-                directorDebug: directorDebug,
                 drafts: drafts,
               ),
         if (onReload != null) ...<Widget>[
@@ -188,8 +176,8 @@ class ModsSection extends StatelessWidget {
 /// # 它解决什么
 ///
 /// 设置底部的「保存并重载」除了写 toml / 显示偏好，还要把各卡片表单里**还没按
-/// 「保存并应用」**的改动一起提交——导演卡片上的「表演倾向（保存并重载后生效）」
-/// 就是这么进 mods.json 的（不然用户按了底部那颗按钮，档位却没写盘）。
+/// 「保存并应用」**的改动一起提交——任何带 settings_spec 的 Mod 卡片都是
+/// 这么进 mods.json 的（不然用户按了底部那颗按钮，档位却没写盘）。
 ///
 /// 表单状态仍住在 `_ModConfigTileState`（那张卡片的局部状态，刻意不搬到宿主）；
 /// 这里只做三件事：
@@ -315,8 +303,6 @@ class _ModConfigTile extends StatefulWidget {
     this.onModChanged,
     this.onCommand,
     this.pickCardFile,
-    this.actionScales,
-    this.directorDebug,
     this.drafts,
     super.key,
   });
@@ -334,12 +320,6 @@ class _ModConfigTile extends StatefulWidget {
   final ValueChanged<String>? onModChanged;
   final ModCommandSender? onCommand;
   final PersonaCardFilePicker? pickCardFile;
-
-  /// 见 [ModsSection.actionScales]：透传给 ModPanelContext。
-  final ActionScalesWiring? actionScales;
-
-  /// 见 [ModsSection.directorDebug]：透传给 ModPanelContext。
-  final DirectorDebugWiring? directorDebug;
 
   /// 见 [ModsSection.drafts]：表单草稿的登记处。
   final ModConfigDrafts? drafts;

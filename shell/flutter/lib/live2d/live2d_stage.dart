@@ -657,7 +657,7 @@ class Live2DStageState extends State<Live2DStage>
 /// 与渲染面 `presets.json` 对齐）；**取不到表 / 该 id 没有 channel 时才回落**
 /// [kExpressionPresetIds]——那份常量是兜底，不删。
 ///
-/// 与 `settings/mods/director_panel.dart` 的 `directorPresetText` 同口径：
+/// 与 `settings/sections/director_section.dart` 的 `directorPresetText` 同口径：
 /// 两处都优先查表，保证「表情 / 短动作」标签只有一份事实。
 bool isExpressionChannel(String id, {PresetLabelTable? labels}) {
   final String? channel = labels?[id]?.channel;

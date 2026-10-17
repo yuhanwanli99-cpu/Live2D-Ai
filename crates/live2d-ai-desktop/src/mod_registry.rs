@@ -76,7 +76,8 @@ pub struct HostChannels {
     /// persona / memory 用它做按会话分桶，而不再整段覆写全局
     /// `persona.system_prompt`。未注入 = 不可用空实现。
     pub session_prompts: live2d_ai_mod_system::ModSessionPrompts,
-    /// **Mod → host 动作 cue**（2026-09-16，P1-3）：导演产出的按句 cue → WS action_cue。
+    /// **Mod → host 动作 cue**（2026-09-16，P1-3）：Mod 产出的按句 cue → WS action_cue
+    /// （Mod API 保留；rc4 起核心第二路直接 emit `AppEvent`，不经过此通道）。
     /// 无 HostChannels（单测 / 无 supervisor）时由 ModCueSender::disabled() 顶替。
     pub cues: Arc<dyn Fn(serde_json::Value) -> bool + Send + Sync>,
 }

@@ -12,9 +12,12 @@
 ///
 /// 改法：不再声称校验已删的生产者，把这批断言放回它们真正的对象——
 /// **前端仍在产品路径上的通用运行态面**。夹具的 Mod id 换成**在册**的
-/// `director`，并由 [registeredModIds]（读 `main.rs` 的
+/// `persona`，并由 [registeredModIds]（读 `main.rs` 的
 /// `AVAILABLE_MOD_FACTORIES`，唯一真源）交叉核对：**crate 被删就红**，
 /// 而不是继续绿着骗人。
+///
+/// 2026-10-17（rc4）：原夹具 id 是 `director`；导演退役成核心常驻后移出注册表
+/// （工厂 6→5），夹具随之换成仍在册的 `persona`。
 ///
 /// state_json 的键仍是**通用协议键**（`kModStateLabels` 的兜底表：
 /// `window` / `opened` / `reason` 等）——前端对**任意** Mod 的 state 都按这套
@@ -53,7 +56,7 @@ http.Response jsonResponse(String body, int status) => http.Response.bytes(
 /// `ModsApi.state` 那条**真端点契约**用的 id：必须是**在册** Mod
 /// （`AVAILABLE_MOD_FACTORIES` 里真的有它）。crate 被删掉而这里还写着它 ⇒
 /// 「夹具的 Mod id 必须在册」那组会红（D6）。
-const String modStateBodyId = 'director';
+const String modStateBodyId = 'persona';
 
 /// `GET /api/v1/mods/{id}/state` 的响应夹具：`{id, enabled, state}` +
 /// **通用** `state_json` 键（前端对任意 Mod 的 state 都按 `kModStateLabels`
@@ -170,6 +173,12 @@ void main() {
     test('registeredModIds 从 Rust 静态注册表解出全部在册 Mod', () {
       final Set<String> ids = registeredModIds();
       expect(ids, isNotEmpty, reason: '真源一个 id 都没解出来 —— 门禁在空转（不是「后端没有 Mod」）');
+      // 2026-10-17（rc4）：导演退役成核心常驻 → 工厂表 6 → **5**。
+      expect(
+        ids,
+        hasLength(5),
+        reason: 'rc4 起工厂表恰为 5 个（director 已退役、移出注册表）',
+      );
       expect(
         ids,
         containsAll(<String>[
@@ -177,7 +186,6 @@ void main() {
           'persona',
           'voice-input',
           'memory',
-          'director',
           // 2026-10-09（0.2.3-rc.1）：工厂面回到 6 个——CosyVoice3 的 `local-tts`
           // **已封存移出**（不再断言它在册；挂回会在这里露出来）。
           // 出厂出声的是同一个 crate 的第二个引擎 `local-tts-melo`；
@@ -456,7 +464,8 @@ void main() {
 
   group('通用运行态兜底面：有专用面板就不渲染（2026-10-06 裁决，R4-T2 / T2-B2）', () {
     // 契约：那块「运行态（只读）」是**没有专用面板**的 Mod 的兜底面；
-    // 在册 5 个 Mod 各有面板，运行态（含 `stateError`）由面板自己承担。
+    // 在册 5 个 Mod 里 4 个有专用面板（local-tts-melo 没有面板），
+    // 有面板的运行态（含 `stateError`）由面板自己承担。
     // 上面三条 widget 用例打的是**无面板**的合成 Mod（`demo-mod`）——
     // 所以它们断言「块在」，与本组契约不矛盾。
     test('宿主判据改成「没有专用面板才渲染」', () {

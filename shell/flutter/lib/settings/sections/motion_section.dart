@@ -7,8 +7,8 @@
 /// 新值，点「保存并重载」才写本机存储并刷新。渲染档位（4K/8K/16K）也**不再
 /// 包在开发者模式里**。
 ///
-/// **不在这里**：动作幅度三条与「本模型覆盖」（搬到导演卡片
-/// settings/mods/director_panel.dart）；配色与背景（留在「主题」页）。
+/// **不在这里**：动作幅度三条与「本模型覆盖」（搬到一级「导演」卡
+/// settings/sections/director_section.dart）；配色与背景（留在「主题」页）。
 library;
 
 import 'package:flutter/material.dart';

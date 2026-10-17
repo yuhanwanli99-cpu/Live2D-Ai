@@ -2,6 +2,9 @@
 
 use super::*;
 
+// 兼容层只 re-export presets 的公开名字；决策枚举仍从旧的 `decision` 路径取。
+use crate::decision::{EmotionHint, IntentHint};
+
 /// 默认表：内置 6 条非 none 映射（≤8），刻意不做的两档是 none。
 #[test]
 fn default_table_maps_six_triggers() {

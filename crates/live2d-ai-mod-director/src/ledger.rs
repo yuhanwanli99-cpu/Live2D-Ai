@@ -36,9 +36,8 @@ pub struct LedgerEntry {
     pub pitch: f64,
     /// 本轮选出的**动作预设 id**；`None` = 本轮没选出预设。
     ///
-    /// 取值见 [`crate::presets::PRESET_IDS`]；驱动舞台的**唯一**通道是
-    /// `ModServices.cues` → WS `action_cue`（前端在该句音频开始时 `applyPreset`）。
-    /// **本字段仅供 director 面板只读展示**（阶段3 / D12）。
+    /// 取值见 [`crate::presets::PRESET_IDS`]。**rc4 退休后仅供账本 / 面板展示**：
+    /// 动作由核心主链按句产出（本 Mod 不再投递 `action_cue`）。
     pub preset_id: Option<String>,
     /// 对应的 `TurnEnded` 是否已到达。
     pub closed: bool,
@@ -113,8 +112,8 @@ pub struct DecisionLedger {
     errors: u64,
     /// 累计「真的选出了一条预设」的决策数（`preset_id` 非空）。
     ///
-    /// 它**不是**「投递成功数」——投递由 `ModServices.cues` → WS `action_cue`
-    /// 完成，这里只记「本轮选了哪条」。
+    /// 它**不是**「投递成功数」：rc4 退休后本 Mod 零投递，这里只记
+    /// 「本轮按规则表会选哪条」（核心主链的实时动作不读这个账本）。
     presets_chosen: u64,
     /// 是否有「已收到 TurnPrompt、尚未收到 TurnEnded」的在飞轮。
     open: bool,
@@ -203,14 +202,14 @@ impl DecisionLedger {
     /// `state_json` 契约（见 crate 头注「状态面」）。
     pub fn state_json(&self) -> serde_json::Value {
         json!({
-            // **投递语义（2026-09-24 阶段3 / D10–D12 起）**：本 Mod 仍不调用任何
-            // host 下行通道（`action_tx` / `apply_settings` 零调用）；驱动舞台的
-            // **唯一**通道是 `ModServices.cues` → host 广播 WS `action_cue`
-            // （前端在该句音频开始时 `applyPreset`）。所以：
-            // - `channel` = "preset"：这是**账本侧**的既有字段名，表示「本轮选出了
-            //   哪条预设」，**不表示**存在状态面拉取通道（前端拉取已退役，D12）；
-            // - `delivered` = 最近一轮**是否选出了一条预设**（空账本 → false）；
-            // - `latest` 仅供 director 面板只读展示。
+            // **投递语义（rc4 退休后）**：本 Mod 不调用任何 host 下行通道
+            // （`action_tx` / `apply_settings` / `cues` 全零调用）。账本侧字段名
+            // 保持向后兼容：
+            // - `channel` = "preset"：既有字段名，表示「本轮按规则表选出了哪条
+            //   预设」，**不表示**存在任何投递 / 拉取通道；
+            // - `delivered` = 最近一轮**是否选出了一条预设**（空账本 → false），
+            //   与「投递成功」无关；
+            // - `latest` 仅供面板只读展示。
             "delivered": self
                 .latest()
                 .is_some_and(|e| e.preset_id.is_some()),

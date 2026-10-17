@@ -18,8 +18,8 @@ use crate::session_scope::SessionScopeStore;
 
 use super::dialogue_history;
 use super::handlers;
-use super::performance_wiring::{build_performance_runtime, load_director_takeover, motion_on};
-use super::reload::{apply_reload, build_sentence_cleaner, sentence_rule_for};
+use super::performance_wiring::{build_performance_runtime, load_motion_bias};
+use super::reload::{apply_reload, build_sentence_cleaner};
 use super::turn;
 use super::{
     ActionFinishedFact, ControlCommand, Emit, ModEventSink, PerformanceStatsSlot, ReloadAck,
@@ -56,31 +56,29 @@ pub(super) async fn run_forever(
     // 能力集显式注入（附带发现 #5）：Bai 支持全部六动作；默认空集会导致
     // 一切 Play 被 capability gate 拒绝——那必须是装配错误而不是静默行为。
     root.action.capabilities = capabilities;
-    // 导演接管输入（mods.json）先读一次：二路清洗的端点（动作门 Own 改用 staging）
-    // 与动作门开关都从这里来。config_path 为 None（测试 / 无配置装配）→ 缺省未启用。
-    let director = config_path
+    // 表演倾向（2026-10-17 rc4）：只读 mods.json 的
+    // `mods.director.config.motion_bias`（既有键，缺省平常）；导演 Mod 的
+    // enabled / 导演二路端点已不再是开关。config_path 为 None（测试 / 无配置装配）
+    // → 平常。
+    let motion_bias = config_path
         .as_deref()
-        .map(load_director_takeover)
+        .map(load_motion_bias)
         .unwrap_or_default();
-    // 二路按句清洗（2026-10-08；2026-10-13 起动作门可改用 staging 端点）：要在把
-    // client 移进引擎**之前**装配。测试 / 手工装配用 `LlmConfig::new` →
-    // clean_tts=false → 这里 `None`，主链保持既有行为。
-    let cleaner = build_sentence_cleaner(&client, &director);
+    // 核心第二路按句清洗（**常驻**；单一 cue 写者）：要在把 client 移进引擎**之前**
+    // 装配。测试 / 手工装配用 `LlmConfig::new` → clean_tts=false → 这里 `None`，
+    // 引擎走确定性清洗 + 规则表。
+    let cleaner = build_sentence_cleaner(&client, &motion_bias);
     let mut engine = ConversationEngine::new(client, conversation);
     engine.set_cleaner(cleaner);
-    // 动作门（T14）：开着时按句清洗带 cues，失败回退按句规则表。
-    engine.set_motion(motion_on(&director));
-    engine.set_sentence_rule(sentence_rule_for(&director));
-    // ---- 表演层装配（T8，2026-10-07；2026-10-08 起显式 opt-in）----
-    // 开关 = `[performance].enabled`（缺省 false → 主链走二路按句清洗）；
-    // 显式打开后，端点按 `staging_*` 两项共用判定（导演启用时）或 `[performance]`
-    // 自己的 base_url/model（导演未启用）。
+    // ---- 整段表演层装配（T8，2026-10-07；2026-10-08 起显式 opt-in）----
+    // 开关 = `[performance].enabled`（缺省 false → 主链走常驻二路按句清洗）；
+    // 打开后只读 `[performance]` 自己的 base_url/model（导演二路端点已删除），
+    // 且本轮 0 条按句 action_cue（单 cue 写者）。
     // config_path 为 None（测试 / 无配置装配）时不装配——与「从来没有表演层」逐字一致。
     if let Some(path) = config_path.as_deref()
         && let Ok(settings) = AppSettings::load_from_path(path)
     {
-        let performance =
-            build_performance_runtime(&settings.llm, &settings.performance, &director);
+        let performance = build_performance_runtime(&settings.performance);
         engine.set_performance(performance.clone());
         if let Ok(mut slot) = performance_stats.lock() {
             *slot = performance.map(|rt| rt.stats());

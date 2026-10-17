@@ -42,7 +42,10 @@ mod platform;
 /// `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`（director）、
 /// `git show ef9f428^:crates/l2d-wasm-demo/src/web/surface.rs`（渲染面编舞）。
 /// **不要再挂回去**：
-/// 下方 `mod_count_is_six` 是防回归断言。
+/// 下方 `mod_count_is_five` 是防回归断言。
+///
+/// 2026-10-17（rc4）：**决策/按句 cue 版 director Mod 也已退役**——按句清洗与
+/// cue 收归核心第二路（单一 cue 写者），本表由 6 → **5**。
 ///
 /// 2026-09-14（0.2.0-rc.1）：**local-llm 已废除启动**（移出本表）——本地推理进程
 /// 管理/探活不再是产品路径；LLM 端点由 `live2d-ai.toml` 的 `[llm]` 人工配置。
@@ -64,6 +67,7 @@ mod platform;
 /// `docs/architecture/director-mod-v0.md` 与 `docs/architecture/director-rfc.md` §8。
 /// 现状（2026-10-12）：「零投递 / 不驱动动作」只描述 2026-09-14 骨架当时。现行舞台
 /// 驱动是 `ModServices.cues` → WS `action_cue`。`action_tx` 仍然休眠。
+/// （2026-10-17 rc4：该 Mod 已退役、移出本表；按句 cue 改由核心第二路产出。）
 /// 2026-09-14（产品级加强波次，未 bump 版本）：**封存 `wallpaper` + `pet-desktop`**
 /// ——两者移出本表，数字 7 → **5**，并标 ARCHIVED，**禁止挂回**；理由与恢复条件见
 /// `docs/architecture/ARCHIVED-mods.md`。用户手动的舞台/壳背景能力（`DisplayPrefs`）
@@ -79,10 +83,6 @@ pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &
     // Wave 2（0.2.0-rc.3）：会话记忆 v0（本地 JSONL + 词元重叠检索）。缺省停用是
     // 刻意的——它会写 `persona.system_prompt`，用户得先明确打开。
     &live2d_ai_mod_memory::FACTORY,
-    // Wave 3（2026-09-14）：导演最小骨架（Wave 3 从 RFC 推进一格）。缺省停用；
-    // **零投递**——只订阅 TurnPrompt/TurnEnded、只产决策日志与 state_json。
-    // 现状（2026-10-12）：「零投递 / 不驱动动作」只描述 2026-09-14 骨架当时。现行舞台驱动是 `ModServices.cues` → WS `action_cue`。`action_tx` 仍然休眠。
-    &live2d_ai_mod_director::FACTORY,
     // 2026-10-09（0.2.3-rc.1「开箱即用」）：本地拉起 Mod —— id `local-tts-melo`，
     // 界面名 `本地tts_MeloTTS`，缺省程序 = 仓库内 melo/start.sh，声明地址 8091。
     // **这是缺省启用的那一个**（`cli_entry::default_mods_manifest` 收录，
@@ -92,7 +92,8 @@ pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &
     &live2d_ai_mod_local_tts::MELO_FACTORY,
     // 同轮的封存：CosyVoice3（id `local-tts`，界面名 `本地tts_CosyVoice3-0.5B`）
     // **已移出本表**——crate 与 engine/ 留在树上（可编译可测），头注写明「封存，
-    // 还要适配，未适配前不要挂回」。数字 7 → **6**，`mod_count_is_six` 守住。
+    // 还要适配，未适配前不要挂回」。数字 7 → **6**，断言守住
+    // （rc4 起 director 退役 → **5**，见文件头注）。
 ];
 
 mod session_scope;
@@ -287,12 +288,14 @@ mod tests {
     /// 2026-10-09（0.2.3-rc.1「开箱即用」）：**CosyVoice3（`local-tts`）移出本表
     /// 并封存** → 7 → **6**。封存口径与 local-llm / wallpaper 相同：不在此表即不在
     /// 启动注册表，断言继续守住「别再挂回来」（crate 与 engine/ 仍在树上）。
+    /// 2026-10-17（rc4）：**director Mod 退役**——按句清洗与 cue 收归核心第二路
+    /// （单一 cue 写者）→ 6 → **5**。断言继续守住「别再挂回来」。
     #[test]
-    fn mod_count_is_six() {
+    fn mod_count_is_five() {
         assert_eq!(
             super::AVAILABLE_MOD_FACTORIES.len(),
-            6,
-            "AVAILABLE_MOD_FACTORIES must contain exactly 6 Mod factories (external-input, persona, voice-input, memory, director, local-tts-melo)"
+            5,
+            "AVAILABLE_MOD_FACTORIES must contain exactly 5 Mod factories (external-input, persona, voice-input, memory, local-tts-melo)"
         );
     }
 
@@ -309,8 +312,8 @@ mod tests {
         // 同样不在此表即不在启动注册表，见 docs/architecture/ARCHIVED-mods.md。
         // 2026-10-09（0.2.3-rc.1）：CosyVoice3 的 id `local-tts` 已封存移出；
         // 出厂出声的那一个是 `local-tts-melo`（MeloTTS 中文）。
+        // 2026-10-17（rc4）：director 已退役（按句 cue 收归核心第二路）。
         let mut expected = vec![
-            "director",
             "external-input",
             "local-tts-melo",
             "memory",

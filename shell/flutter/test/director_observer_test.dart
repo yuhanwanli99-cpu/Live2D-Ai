@@ -1,14 +1,12 @@
-/// 阶段5 W5a：设置 → 开发工具 →「导演可观测」四栏（A–D）的回归 + 负对照。
+/// 阶段5 W5a：一级「导演」卡里「导演可观测」四栏（A–D）的回归 + 负对照。
 ///
-/// 五条判据：
-/// ① A 栏逐键对上 GET /api/v1/mods/director/state 的 state_json（latest 七键 +
-///    五个计数）；
+/// rc4（2026-10-17）后的判据：
+/// ① A 栏**静态**：「核心常驻（无决策账本）」——退出状态端点读取，不再有 403/404 文案；
 /// ② C 栏同时可见「请求 intensity → 生效最终值 + clamped/degraded/reason」；
 /// ③ D 栏两列并排 + 字符数 + 来源标注，(epoch,seq,text) 重复行去重；
 /// ④ dev_mode=false 整块不在语义树；
-/// ⑤ 源码扫描：观测面两个文件与禁止持久化标识符集合的交集为空。
-///
-/// 另加纯逻辑回归（见 test/render_events_test.dart 的同名组）。
+/// ⑤ 源码扫描：观测面两个文件与禁止持久化标识符集合的交集为空；观测面不读
+///    Mod 状态端点（`ModsApi` / `mods/director/state` 零出现）。
 library;
 
 import 'dart:io';
@@ -16,7 +14,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:live2d_ai_shell/api/api_client.dart';
 import 'package:live2d_ai_shell/api/ws_frame.dart';
 import 'package:live2d_ai_shell/live2d/render_events.dart';
 import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
@@ -30,124 +27,32 @@ Widget _wrap(Widget child) => MaterialApp(
   home: Scaffold(body: SingleChildScrollView(child: child)),
 );
 
-/// GET /api/v1/mods/director/state 的**同形**响应体（harness 只取其中的 .state）。
-///
-/// 键名与 crates/live2d-ai-mod-director/src/ledger.rs 的 state_json 逐字一致：
-/// latest 七键（emotion / intent / suggested_tts.speed / suggested_tts.pitch /
-/// preset_id / seq / turn）+ 五个计数（turns_seen / turns_ended / decisions /
-/// silent / errors）。
-///
-/// 原文（测试①两边原文之一）：
-/// {
-///   "delivered": true, "channel": "preset", "presets_chosen": 3,
-///   "turns_seen": 9, "turns_ended": 8, "decisions": 7, "silent": 2,
-///   "errors": 1, "log_capacity": 20,
-///   "latest": {
-///     "seq": 7, "turn": "turn-42", "emotion": "happy", "intent": "greeting",
-///     "suggested_tts": {"speed": 1.15, "pitch": 0.95},
-///     "preset_id": "smile", "closed": true, "delivered": true
-///   },
-///   "recent_decisions": []
-/// }
-const Map<String, Object?> _stateJson = <String, Object?>{
-  'delivered': true,
-  'channel': 'preset',
-  'presets_chosen': 3,
-  'turns_seen': 9,
-  'turns_ended': 8,
-  'decisions': 7,
-  'silent': 2,
-  'errors': 1,
-  'log_capacity': 20,
-  'latest': <String, Object?>{
-    'seq': 7,
-    'turn': 'turn-42',
-    'emotion': 'happy',
-    'intent': 'greeting',
-    'suggested_tts': <String, Object?>{'speed': 1.15, 'pitch': 0.95},
-    'preset_id': 'smile',
-    'closed': true,
-    'delivered': true,
-  },
-  'recent_decisions': <Object?>[],
-};
-
-Future<Map<String, Object?>> _fakeState() async => _stateJson;
-
-/// A 栏一行「值」的文本：按「键：」定位到那一行 Row，取行内最后一个 Text。
-String _valueOf(WidgetTester tester, String label) {
-  final Finder labelFinder = find.text('$label：');
-  expect(labelFinder, findsOneWidget, reason: '键 $label 必须逐字可见（不许空面板）');
-  final Finder row = find
-      .ancestor(of: labelFinder, matching: find.byType(Row))
-      .first;
-  final List<Text> texts = tester
-      .widgetList<Text>(find.descendant(of: row, matching: find.byType(Text)))
-      .toList();
-  return texts.last.data ?? '';
-}
-
 Set<String> _identifiersOf(String source) =>
     RegExp(r'[A-Za-z_][A-Za-z0-9_]*')
         .allMatches(source)
         .map((Match m) => m.group(0)!)
         .toSet();
 
-
 void main() {
   setUp(() => DirectorObserverFeed.instance.clear());
 
-  testWidgets('① A 栏逐键对上 state_json（latest 七键 + 五个计数）', (
+  testWidgets('① A 栏静态：核心常驻（无决策账本），不发状态端点请求', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      _wrap(
-        DirectorObserverSection(loadState: _fakeState, loadLogLines: _noLogs),
-      ),
+      _wrap(const DirectorObserverSection(loadLogLines: _noLogs2)),
     );
     await tester.pumpAndSettle();
 
-    // 期望值就是上面 _stateJson 里的原文（键 → 该键在 UI 上的文本）。
-    final Map<String, String> expected = <String, String>{
-      'latest.emotion': '开心（happy）',
-      'latest.intent': '打招呼（greeting）',
-      'latest.suggested_tts.speed': '1.15',
-      'latest.suggested_tts.pitch': '0.95',
-      'latest.preset_id': '表情（smile）',
-      'latest.seq': '7',
-      'latest.turn': 'turn-42',
-      'turns_seen': '9',
-      'turns_ended': '8',
-      'decisions': '7',
-      'silent': '2',
-      'errors': '1',
-    };
-    // 两边原文（测试输出可见）：
-    // state_json: $_stateJson
-    for (final MapEntry<String, String> e in expected.entries) {
-      expect(
-        _valueOf(tester, e.key),
-        e.value,
-        reason: '键 ${e.key} 的值必须与服务端 state_json 一致',
-      );
-    }
-  });
-
-  testWidgets('① A 栏取不到时如实说明（403 mod_disabled），不许空面板', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      _wrap(
-        DirectorObserverSection(
-          loadState: () async =>
-              throw const ApiException('mod_disabled', 'disabled', status: 403),
-          loadLogLines: _noLogs,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.textContaining('403 mod_disabled'), findsOneWidget);
-    expect(find.textContaining('读不到决策参数'), findsOneWidget);
+    expect(find.text(kDirectorCoreResidentText), findsOneWidget);
+    expect(find.text('核心常驻（无决策账本）'), findsOneWidget);
+    // 旧 A 栏（服务端 state_json 的决策参数 / 刷新按钮 / 403 文案）整块下架。
+    expect(find.text('刷新决策参数'), findsNothing);
+    expect(find.textContaining('读不到决策参数'), findsNothing);
+    expect(find.textContaining('词表记录'), findsNothing);
+    expect(find.textContaining('state_json'), findsNothing);
+    expect(find.textContaining('403 mod_disabled'), findsNothing);
+    expect(find.textContaining('404 not_found'), findsNothing);
   });
 
   testWidgets('② C 栏：请求 intensity=1 → 生效 y=0.240 clamped=false degraded=true reason=…', (
@@ -196,9 +101,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _wrap(
-        DirectorObserverSection(loadState: _fakeState, loadLogLines: _noLogs),
-      ),
+      _wrap(const DirectorObserverSection(loadLogLines: _noLogs2)),
     );
     await tester.pump();
 
@@ -243,10 +146,7 @@ void main() {
 
     await tester.pumpWidget(
       _wrap(
-        DirectorObserverSection(
-          loadState: _fakeState,
-          loadLogLines: () async => logs,
-        ),
+        DirectorObserverSection(loadLogLines: () async => logs),
       ),
     );
     await tester.pumpAndSettle();
@@ -288,9 +188,7 @@ void main() {
       })!,
     );
     await tester.pumpWidget(
-      _wrap(
-        DirectorObserverSection(loadState: _fakeState, loadLogLines: _noLogs),
-      ),
+      _wrap(const DirectorObserverSection(loadLogLines: _noLogs2)),
     );
     await tester.pump();
     expect(find.textContaining('[ws] text_delta'), findsOneWidget);
@@ -327,9 +225,7 @@ void main() {
       UnknownWsEvent(type: 'brand_new', data: <String, Object?>{'x': 1}),
     );
     await tester.pumpWidget(
-      _wrap(
-        DirectorObserverSection(loadState: _fakeState, loadLogLines: _noLogs),
-      ),
+      _wrap(const DirectorObserverSection(loadLogLines: _noLogs2)),
     );
     await tester.pump();
 
@@ -360,9 +256,7 @@ void main() {
     feed.pushWsEvent(TextDeltaEvent(epoch: 0, text: '甲', seq: 1));
     feed.pushStageClock(seg: 1, posMs: 120, playing: true);
     await tester.pumpWidget(
-      _wrap(
-        DirectorObserverSection(loadState: _fakeState, loadLogLines: _noLogs),
-      ),
+      _wrap(const DirectorObserverSection(loadLogLines: _noLogs2)),
     );
     await tester.pump();
 
@@ -387,9 +281,7 @@ void main() {
       TextDeltaEvent(epoch: 0, text: '甲', seq: 1),
     );
     await tester.pumpWidget(
-      _wrap(
-        DirectorObserverSection(loadState: _fakeState, loadLogLines: _noLogs),
-      ),
+      _wrap(const DirectorObserverSection(loadLogLines: _noLogs2)),
     );
     await tester.pump();
 
@@ -437,11 +329,11 @@ void main() {
     expect(
       find.text('导演可观测'),
       findsNothing,
-      reason: 'dev_mode=false 时 DeveloperSection 里不得有「导演可观测」',
+      reason: 'dev_mode=false 时开发模式页里不得有「导演可观测」',
     );
   });
 
-  group('⑤ 源码扫描：观测面不得引用任何持久化标识符（标识符集合交集断言）', () {
+  group('⑤ 源码扫描：观测面不引用持久化标识符、也不读 Mod 状态端点', () {
     const Set<String> forbidden = <String>{
       'localStorage',
       'SharedPreferences',
@@ -478,7 +370,28 @@ void main() {
         );
       }
     });
+
+    test('A 栏降级后不再读 Mod 状态端点（rc4）', () {
+      // 只扫代码（注释里说明「读取路径已删」不算复活）。
+      final String src = stripCommentsKeepStrings(
+        File('lib/settings/sections/director_observer_section.dart')
+            .readAsStringSync(),
+      );
+      for (final String banned in <String>[
+        'ModsApi',
+        'mods_api',
+        'mods/director/state',
+        'directorStateErrorText',
+        'kDirectorObserverModId',
+      ]) {
+        expect(
+          src.contains(banned),
+          isFalse,
+          reason: '观测面不得再出现「$banned」——A 栏已是静态结论',
+        );
+      }
+    });
   });
 }
 
-Future<List<String>> _noLogs() async => const <String>[];
+Future<List<String>> _noLogs2() async => const <String>[];

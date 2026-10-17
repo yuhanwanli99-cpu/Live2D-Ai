@@ -10,6 +10,11 @@
 >
 > **本波红线**：零代码改动；不动 `topics.rs` / `mod_registry.rs` / `supervisor.rs` / `desktop/src/main.rs`；
 > 不碰其它 worktree；密钥 / `.env` / 请求体不进文档。
+>
+> **2026-10-17（0.3.1-rc.4）现状 banner**：`director` Mod 已**退出 `AVAILABLE_MOD_FACTORIES`**，
+> 其 `staging_*` / takeover / 启用开关已删除；导演改为**核心常驻**接管按句清洗与动作。
+> 下文凡写 director staging、`staging_enabled`、「导演关闭」的段落均为**历史描述**；
+> 现行事实见 [`CURRENT.md`](CURRENT.md) §4 / §8。
 
 ---
 
@@ -30,20 +35,21 @@ v1 相对 v0 的**唯一语义退役**：`speak`（可改写说辞）→ `segmen
 | --- | --- | --- |
 | **主模型**（`[llm]`，酒馆式） | 角色扮演；出剧情正文（含思考） | 不暴露工具；不写表演 JSON；不写 `ParamXxx` |
 | **表演层**（`[performance]`，独立端点） | 交回**一份** v1 JSON：`segments`（切分原文）+ `cues`（三字段表演） | 不改写原文；不产 TTS 参数；不直接写模型参数 |
-| **director Mod `staging_*`**（Mod） | **只产 cues**（`action_cue`），不产送 TTS 的文本 | 不产 segments / speak |
+| **导演**（rc4 起核心常驻） | 按句清洗 + 按句规则 cue；`[performance]` 开启时**按段原文**规则 cue | 不产 segments / speak；**无** Mod staging / 开关 / takeover |
 | **规则导演**（`presets::rule_cues_for_text`） | 仅失败回退：一条规则 cue | 同上 |
 | **确定性清洗**（`clean_for_tts`） | 任何送 TTS 的文本都过它（只拆标记、不改句界） | 不改写说辞、不改句边界 |
 | **渲染面**（`l2d-wasm-demo`） | 参数真源；字段 → 参数；发事件级 ack | 不接受每帧状态流；不被前端镜像 |
 
 **文档事实（V12，不得再论证）**：
 
-- **当前事实 = 表演层产 `segments` + `cues`；director staging 只产 `cues`。**
+- **现行事实（rc4，2026-10-17）：唯一 cue 写者 = 核心常驻导演**——流式路径按句（模型 cue，失败回退规则表）；`[performance]` 开启时按**段原文**规则表（段级一次）。**表演层只产 `segments` / `speak`，不产 `cues`**；director Mod 的 staging 路径已删除。
 - **「说话权」归属（主模型说、导演只演；还是导演是说 + 演的演员）是 Q1 遗留问题，
   不在本波裁决、本文件不裁决**（RESEARCH §3.7 Q1 / §3.8）。v0 的 `speak` 能力**保留可解析**
   （V11），但**新计划一律写 `segments`**。
-- **2026-10-13（0.2 收口）**：动作门（导演启用且 `staging_*` 两项都空 / 都有）开着时，
-  **按句清洗的同一次响应**带 `cues`，依据是**这一句一路原文**（不是 `speech`、不是用户输入）；
-  `[performance].enabled` 缺省仍是 `false`，**不与这条路径双写**。导演关闭时不出导演动作。
+- **rc4 现行（2026-10-17）**：导演**常驻、无开关**；`[performance].enabled` 缺省 `false`；
+  开启时只接管 `segments` / `speak`，动作仍按**每段原文**走核心规则表（段级一次），
+  表演层 `cues` **不投递**。按句清洗依据始终是**这一句一路原文**（不是用户输入）；
+  不再有 staging / 「导演关闭」/ takeover 路径。
 
 ---
 

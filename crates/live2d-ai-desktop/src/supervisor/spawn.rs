@@ -2,9 +2,12 @@
 //!
 //! 从 supervisor.rs 拆出（2026-10-16，D3「先只搬家」）：该文件顶在 1000 行的
 //! 豁免上，而 RATCHET_SRC_RS_500 不能涨。**行为一行未改**——只是宿主从父模块
-//! 换成 super::spawn；父模块把 ModEventSink / AudioCb / 两个线程局部与两个
+//! 换成 super::spawn；父模块把 ModEventSink / AudioCb / 音频线程局部与两个
 //! spawn_supervisor* 原样再导出，所以 crate::supervisor::X 与 handlers.rs 的
-//! super::MOD_EVENT_CB 路径全部不变。
+//! super::AUDIO_CB 路径不变。
+//!
+//! 2026-10-17（rc4）：`MOD_EVENT_CB`（`SentenceReady` → Mod 的线程局部桥）
+//! 随导演 Mod 退役一并删除——按句 cue 已归核心第二路，host 不再转发。
 
 use std::sync::Arc;
 
@@ -44,13 +47,6 @@ pub(crate) type AudioCb =
     dyn Fn(u64, &[f32], live2d_ai_runtime::AudioSpec, u64, bool, bool) + Send + Sync;
 thread_local! {
     pub(crate) static AUDIO_CB: std::cell::RefCell<Option<Arc<AudioCb>>> = const { std::cell::RefCell::new(None) };
-    /// P1-2（2026-09-16）：Mod 事件桥的线程局部载体。
-    ///
-    /// `handlers::handle_engine_event` 在 `EngineEvent::SentenceReady` 分支读它，
-    /// 把「该句即将送 TTS」投给 Mod（导演按句投 cue）。**非阻塞**（dispatch_event
-    /// 是 try_send）：主链绝不等待导演。与 AUDIO_CB 同款：签名由 turn.rs/test
-    /// 共享，不能改，所以走线程局部而不是加参数。
-    pub(crate) static MOD_EVENT_CB: std::cell::RefCell<Option<ModEventSink>> = const { std::cell::RefCell::new(None) };
 }
 
 /// 启动 supervisor：独立 OS 线程 + 独立 Tokio current-thread runtime（D1）。
@@ -129,7 +125,6 @@ fn spawn_supervisor_impl(
         }
     });
     let mod_events_for_thread = config.mod_events.clone();
-    let mod_events_for_tls = config.mod_events.clone();
     let reload_pending_for_thread = Arc::clone(&reload_pending);
     let current_epoch_for_thread = Arc::clone(&current_epoch);
     let join = std::thread::Builder::new()
@@ -138,8 +133,6 @@ fn spawn_supervisor_impl(
             // F6-T2：在子线程入口安装线程局部音频回调，供 handlers::handle_engine_event
             // 在 AudioChunk 分支读取。线程退出时该线程局部随线程灭亡，无需显式清理。
             AUDIO_CB.with(|cell| *cell.borrow_mut() = emit_audio);
-            // P1-2：安装 Mod 事件桥线程局部（SentenceReady 用）。
-            MOD_EVENT_CB.with(|cell| *cell.borrow_mut() = mod_events_for_tls);
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()

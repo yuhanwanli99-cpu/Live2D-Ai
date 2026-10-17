@@ -20,8 +20,6 @@ use crate::{DESCRIPTOR, DirectorConfig, DirectorFactory, DirectorRuntime, direct
 // ---- 测试替身 ----
 
 /// 记录 register_settings / subscribe 调用的测试注册器。
-///
-/// `pub(crate)`：`tests_staging.rs` 也用（不复制第二份）。
 #[derive(Default)]
 pub(crate) struct RecordingRegistrar {
     specs: Vec<ModSettingsSpec>,
@@ -45,8 +43,6 @@ impl ModRegistrar for RecordingRegistrar {
 }
 
 /// 间谍：记录下行通道（动作 / 配置写回）被调用的次数——骨架必须恒为 0。
-///
-/// `pub(crate)`：`tests_staging.rs` 也读这两个计数（不复制第二份）。
 pub(crate) struct Spies {
     pub(crate) action_calls: Arc<AtomicUsize>,
     pub(crate) apply_calls: Arc<AtomicUsize>,
@@ -274,16 +270,13 @@ fn descriptor_declares_current_api_version_and_id() {
 }
 
 #[test]
-fn start_subscribes_prompt_ended_and_sentence_ready() {
+fn start_subscribes_prompt_and_ended_only() {
     let (_runtime, registrar, _spies) = started(serde_json::json!({}));
-    // P1-3：TurnPrompt（规则决策）+ TurnEnded（结项）+ SentenceReady（按句 cue）。
+    // rc4 退休：只留 TurnPrompt（决策日志）+ TurnEnded（结项）；
+    // 不再订阅 SentenceReady（按句 cue 已归核心主链）。
     assert_eq!(
         registrar.topics,
-        vec![
-            ModEventTopic::TurnPrompt,
-            ModEventTopic::TurnEnded,
-            ModEventTopic::SentenceReady,
-        ]
+        vec![ModEventTopic::TurnPrompt, ModEventTopic::TurnEnded]
     );
     assert_eq!(registrar.specs.len(), 1);
     assert_eq!(registrar.specs[0].mod_id, "director");
@@ -342,65 +335,21 @@ fn preset_select_labels_come_from_the_shared_table() {
 fn settings_spec_has_no_enabled_and_matches_static_spec() {
     let spec = director_settings_spec();
     let keys: Vec<&str> = spec.fields.iter().map(|field| field.key()).collect();
-    // 2026-09-15 用户裁决：8 个预设 Select 收成 3 个常用档，
-    // log_capacity / emotion_lexicon 退出表单（缺省仍然生效）。
-    // 2026-09-19（P1-4）：追加 5 个二路键——**要哪些键才能真开二路**必须能从
-    // 表单本身读出来（staging_enabled + base_url + model；密钥变量名/超时可省）。
+    // rc4 退休：`staging_*` 五项删除（不再发第二路 HTTP）；只剩 3 个预设
+    // Select + 表演倾向（mods.json 既有键，host 读它投影给核心清洗器）。
     assert_eq!(
         keys,
         vec![
             "preset_happy",
             "preset_sad",
             "preset_greeting",
-            "staging_enabled",
-            "staging_base_url",
-            "staging_model",
-            "staging_api_key_env",
-            "staging_timeout_ms",
-            // 2026-10-13（执行单 T2/T3）：表演倾向是**产品面唯一渲染**的键。
             "motion_bias",
         ],
-        "3 个常用档 + 5 个二路键 + 表演倾向"
+        "3 个常用档 + 表演倾向（staging_* 已随退休删除）"
     );
     assert!(
         !keys.contains(&"enabled"),
         "启停唯一真源是 manifest，schema 里不得有第二个 enabled"
-    );
-    // 2026-10-07（T8）：`staging_*` **不再是遗留回退旁路**——导演启用后主链就用它
-    // （两项都填）或对话模型（两项都空）把原文分段送 TTS。旧口径不得回潮。
-    let label_of = |key: &str| -> String {
-        spec.fields
-            .iter()
-            .find(|field| field.key() == key)
-            .map(|field| match field {
-                ModSettingField::Bool { label, .. }
-                | ModSettingField::String { label, .. }
-                | ModSettingField::Number { label, .. }
-                | ModSettingField::Select { label, .. } => label.clone(),
-            })
-            .unwrap_or_else(|| panic!("schema 里没有 {key}"))
-    };
-    for field in &spec.fields {
-        if !field.key().starts_with("staging_") {
-            continue;
-        }
-        let label = label_of(field.key());
-        assert!(
-            !label.contains("【遗留】") && !label.contains("日常用表演层"),
-            "staging 字段 {field:?} 的 label 仍是旧口径：{label}"
-        );
-    }
-    // 口径表：「两项都空 = 复用对话模型」——地址与模型名必须把这件事写出来。
-    for key in ["staging_base_url", "staging_model"] {
-        let label = label_of(key);
-        assert!(
-            label.contains("留空") && label.contains("对话模型"),
-            "{key} 的 label 必须写明「留空则用对话模型」：{label}"
-        );
-    }
-    assert!(
-        label_of("staging_api_key_env").contains("对话模型"),
-        "密钥变量名也要说明留空时用对话模型的密钥"
     );
     // 每个预设字段都要带**真缺省**（不是第一个选项 none），否则表单会用
     // none 覆盖掉内置映射表（「点一次保存就没动作了」）。
@@ -408,8 +357,7 @@ fn settings_spec_has_no_enabled_and_matches_static_spec() {
     let defaults: Vec<&str> = spec
         .fields
         .iter()
-        // `motion_bias` 是**表演倾向**（三档、缺省 normal），不是预设映射表的键
-        // （2026-10-13 执行单 T2/T3）：它的缺省由 motion_bias 自己的测试钉住。
+        // `motion_bias` 是**表演倾向**（三档、缺省 normal），不是预设映射表的键。
         .filter(|f| f.key() != "motion_bias")
         .filter_map(|f| match f {
             ModSettingField::Select {
@@ -430,18 +378,6 @@ fn settings_spec_has_no_enabled_and_matches_static_spec() {
         ],
         "表单缺省必须等于内置映射表的缺省"
     );
-    // 二路总闸的 Bool 字段缺省必须是 false（出厂即「仅规则」）。
-    let staging_bool = spec
-        .fields
-        .iter()
-        .find_map(|f| match f {
-            ModSettingField::Bool { key, default, .. } if key == "staging_enabled" => {
-                Some(*default)
-            }
-            _ => None,
-        })
-        .expect("必须有 staging_enabled");
-    assert!(!staging_bool, "二路必须缺省关");
     // 静态 schema 与 start 注册的必须是同一份（否则前端表单与运行时分叉）。
     let factory_spec = DirectorFactory
         .settings_spec()
@@ -494,11 +430,9 @@ fn state_json_shape_and_preset_delivery() {
     runtime.on_event(ModEventTopic::TurnEnded, "1").unwrap();
 
     let state = runtime.state_json().expect("骨架必须有状态面");
-    // **2026-09-15 起**：「零投递」的定义变了——本 Mod 仍然不调用 action_tx /
-    // apply_settings（零调用），但它**产出**一条动作预设：驱动舞台走按句
-    // action_cue（ModServices.cues → WS）；只读状态面的 latest.preset_id
-    // **仅供面板展示**（前端拉取驱动已退役，D12）。
-    // 「你好！今天太开心了！」= Greeting + Happy → greeting 优先 = nod。
+    // rc4 退休：决策日志 / state_json 形状保留（delivered / channel / latest 是
+    // 账本侧既有字段名），但本 Mod **不再有任何 cue 下行通道**；动作由核心主链
+    // 按句产出。「你好！今天太开心了！」= Greeting + Happy → greeting 优先 = nod。
     assert_eq!(state["channel"], serde_json::json!("preset"));
     assert_eq!(state["delivered"], serde_json::json!(true));
     assert_eq!(state["presets_chosen"].as_u64(), Some(1));
@@ -524,6 +458,7 @@ fn state_json_shape_and_preset_delivery() {
     // 映射表随状态面下发，面板据此显示「现在会映射到哪条」。
     assert_eq!(state["presets"]["greeting"], serde_json::json!("nod"));
     assert_eq!(state["presets"]["anxious"], serde_json::json!("none"));
+    assert_eq!(state["retired"], serde_json::json!(true));
 }
 
 #[test]
@@ -736,23 +671,17 @@ fn log_capacity_is_clamped_and_bad_values_fall_back() {
         config(serde_json::json!({"emotion_lexicon": "bogus"})).emotion_lexicon,
         Lexicon::Builtin
     );
-    // P1-4：二路端点的四个字符串 / 数值键——trim、坏类型回落空串（绝不失败）。
-    let staging = config(serde_json::json!({
+    // rc4 退休：mods.json 里残留的 staging_* 键**被忽略**（不失败、不生效）。
+    let retired = config(serde_json::json!({
         "staging_enabled": true,
-        "staging_base_url": "  http://127.0.0.1:11434/v1  ",
-        "staging_model": " qwen ",
-        "staging_api_key_env": " DEEPSEEK_API_KEY ",
-        "staging_timeout_ms": 999_999,
+        "staging_base_url": "http://127.0.0.1:11434/v1",
+        "staging_model": "qwen",
     }));
-    assert!(staging.staging_enabled);
-    assert_eq!(staging.staging_base_url, "http://127.0.0.1:11434/v1");
-    assert_eq!(staging.staging_model, "qwen");
-    assert_eq!(staging.staging_api_key_env, "DEEPSEEK_API_KEY");
-    assert_eq!(staging.staging_timeout_ms, 5_000, "超时必须钳到上限");
-    let bad = config(serde_json::json!({"staging_base_url": 5, "staging_model": []}));
-    assert_eq!(bad.staging_base_url, "");
-    assert_eq!(bad.staging_model, "");
-    assert!(!bad.staging_enabled, "缺 staging_enabled 必须回落 false");
+    assert_eq!(
+        retired,
+        DirectorConfig::default(),
+        "staging_* 已删除且被忽略"
+    );
 }
 
 // ---- ④ 轮末结项 + 不投递 ----
@@ -792,6 +721,37 @@ fn blank_prompt_is_silent_not_a_decision() {
     // 静默轮**不是**错误：TurnEnded 仍正常结项。
     assert_eq!(runtime.ledger().turns_ended(), 1);
     assert_eq!(runtime.ledger().errors(), 0);
+}
+
+#[test]
+fn retired_runtime_never_delivers_cues() {
+    let cue_calls = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&cue_calls);
+    let (services, _spies) = spy_services();
+    let services = services.with_cues(ModCueSender::new(move |_| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        true
+    }));
+    let mut runtime =
+        DirectorRuntime::new(services, DirectorConfig::from_value(&serde_json::json!({})));
+    let mut registrar = RecordingRegistrar::default();
+    runtime.start(&mut registrar).expect("start 应成功");
+    // 即使 host 仍投递 SentenceReady，本 Mod 也不得产任何 cue（退休语义）。
+    runtime
+        .on_event(ModEventTopic::TurnPrompt, "你好！今天太开心了！")
+        .unwrap();
+    runtime
+        .on_event(
+            ModEventTopic::SentenceReady,
+            r#"{"epoch":0,"ts_ms":0,"sentence_seq":1,"text":"你好"}"#,
+        )
+        .unwrap();
+    runtime.on_event(ModEventTopic::TurnEnded, "1").unwrap();
+    assert_eq!(
+        cue_calls.load(Ordering::SeqCst),
+        0,
+        "退休后 ModServices.cues 必须零投递（动作归核心主链）"
+    );
 }
 
 #[test]

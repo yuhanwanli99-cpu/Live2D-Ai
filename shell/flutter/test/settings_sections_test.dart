@@ -5,8 +5,8 @@ import 'package:live2d_ai_shell/settings/settings_sections.dart';
 
 void main() {
   group('分区声明：单点真相（规格 §4.0 / 钉子 12）', () {
-    test('恰好 7 个分区（2026-10-09：一级从 8 项收成 7 项）', () {
-      expect(SettingsSection.values, hasLength(7));
+    test('恰好 8 个分区（2026-10-17 rc4：导演回到一级）', () {
+      expect(SettingsSection.values, hasLength(8));
     });
 
     test('**每项都有非空的 label 与 description**（用户不该先学会黑话）', () {
@@ -45,14 +45,14 @@ void main() {
       }
     });
 
-    test('图标两两不同（导航里靠形状区分 7 项）', () {
+    test('图标两两不同（导航里靠形状区分 8 项）', () {
       final Set<IconData> icons = SettingsSection.values
           .map((SettingsSection s) => s.icon)
           .toSet();
-      expect(icons, hasLength(7));
+      expect(icons, hasLength(8));
     });
 
-    test('顺序 = 声明顺序（2026-10-09 起固定为这 7 项）', () {
+    test('顺序 = 声明顺序（2026-10-17 起固定为这 8 项）', () {
       expect(
         SettingsSection.values.map((SettingsSection s) => s.name),
         <String>[
@@ -61,6 +61,7 @@ void main() {
           'service',
           'theme',
           'motion',
+          'director',
           'mods',
           'developer',
         ],
@@ -77,12 +78,13 @@ void main() {
   group('byIndex：越界回落第一个，**不抛**', () {
     test('合法索引（0 仍是 persona，最后一项是 developer）', () {
       expect(SettingsSection.byIndex(0), SettingsSection.persona);
-      expect(SettingsSection.byIndex(6), SettingsSection.developer);
+      expect(SettingsSection.byIndex(5), SettingsSection.director);
+      expect(SettingsSection.byIndex(7), SettingsSection.developer);
     });
 
     test('越界（导航状态不该能让页面崩）', () {
       expect(SettingsSection.byIndex(-1), SettingsSection.persona);
-      expect(SettingsSection.byIndex(7), SettingsSection.persona);
+      expect(SettingsSection.byIndex(8), SettingsSection.persona);
       expect(SettingsSection.byIndex(9999), SettingsSection.persona);
     });
   });
@@ -127,14 +129,25 @@ void main() {
       expect(SettingsSection.mods.label, '扩展');
       expect(SettingsSection.mods.description.contains('Mod'), isFalse);
     });
+
+    test('2026-10-17（rc4）：导演是一级分区，夹在 Live2D 设置与扩展之间', () {
+      expect(SettingsSection.director.label, '导演');
+      expect(SettingsSection.director.description.trim(), isNotEmpty);
+      expect(SettingsSection.director.description.contains('导演'), isFalse);
+      final int motion = SettingsSection.motion.index;
+      final int director = SettingsSection.director.index;
+      final int mods = SettingsSection.mods.index;
+      expect(director, motion + 1, reason: '导演必须紧跟在 Live2D 设置后面');
+      expect(mods, director + 1, reason: '扩展必须排在导演后面');
+    });
   });
 
   group('可见分区：**没有任何一级会随 devMode 消失**', () {
-    test('两个 devMode 下都是同一份 7 项', () {
+    test('两个 devMode 下都是同一份 8 项', () {
       final List<SettingsSection> off = visibleSections();
       final List<SettingsSection> on = visibleSections(devMode: true);
-      expect(off, hasLength(7));
-      expect(on, hasLength(7));
+      expect(off, hasLength(8));
+      expect(on, hasLength(8));
       expect(off, SettingsSection.values);
       expect(on, SettingsSection.values);
       expect(visibleSections(devMode: false), visibleSections());

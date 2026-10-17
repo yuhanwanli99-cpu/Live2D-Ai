@@ -7,12 +7,12 @@ part of 'dev_tools_section.dart';
 /// 1. **开发者模式开关**（含 `--dev-mode` 强制开启时的不谎报可关）；
 /// 2. **诊断**（一级「诊断」取消后收进这里，只在 devMode 为真时渲染）。
 ///
-/// 表情调试 / 动作调试 / **临时幅度** 三块已搬到「扩展 → 导演」卡片的下级
+/// 表情调试 / 动作调试 / **临时幅度** 三块已搬到一级「导演」卡的下级
 /// （`settings/mods/director_debug_panels.dart`）：它们产出的是动作与表情，
 /// 与导演是同一件事的两端。**能力没删**，仍只在开发者模式里显示，
 /// 也**没有**接回 `action_tx`。
 ///
-/// 「导演可观测」四栏同样住在导演卡片上（`director_observer_section.dart`）。
+/// 「导演可观测」四栏同样住在一级「导演」卡上（`director_observer_section.dart`）。
 class DeveloperSection extends StatelessWidget {
   const DeveloperSection({
     required this.devMode,
@@ -57,7 +57,7 @@ class DeveloperSection extends StatelessWidget {
           onChanged: onDevModeChanged,
         ),
         // 诊断只在开发模式里渲染（本 if 块一起消失）。
-        // 调试面板与导演可观测**已搬到**「扩展 → 导演」卡片下级
+        // 调试面板与导演可观测**已搬到**一级「导演」卡下级
         // （settings/mods/director_debug_panels.dart / director_observer_section.dart）。
         if (devMode && diagnostics != null) ...<Widget>[
           const Divider(),

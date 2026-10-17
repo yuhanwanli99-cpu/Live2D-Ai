@@ -1,10 +1,14 @@
 //! **表演层端到端冒烟（mock 表演层，2026-09-22；2026-10-08 起显式 opt-in）**：
-//! 真实 \`[performance]\` 配置段（\`enabled = true\`）→ \`build_performance_runtime\`
-//! 装配 → 引擎接线 → \`AppEvent::Conversation(ActionCue)\` + 送 TTS 的文本 == 表演层的
-//! speak。
+//! 真实 `[performance]` 配置段（`enabled = true`）→ `build_performance_runtime`
+//! 装配 → 引擎接线 → 送 TTS 的文本 == 表演层的 speak。
 //!
-//! 缺省（\`enabled = false\`）时主链走**二路按句清洗**，表演层整段 JSON 不参与
-//! ——那条路的回归在 \`live2d-ai-runtime/tests/conversation_engine_cleaning.rs\`。
+//! **动作恒开（2026-10-17 rc4 返工裁决）**：表演层打开时也不再是 0 cue——
+//! 阶段 1.5 对**每一段原文**用核心本地规则表（`performance::rules`，纯函数、
+//! **不新增 LLM 调用**）产 cue，非空才在该段音频前发 ActionCue；表演层自己的
+//! `resolution.cues` 仍**不投递**，也不为 cue 造无声锚句（单 cue 写者）。
+//!
+//! 缺省（`enabled = false`）时主链走**常驻二路按句清洗**，表演层整段 JSON 不参与
+//! ——那条路的回归在 `live2d-ai-runtime/tests/conversation_engine_cleaning.rs`。
 //!
 //! 为什么单列：runtime 的内联测试证明了引擎语义，desktop 的装配单测证明了配置解析，
 //! 但「写一份带 [performance] 的 live2d-ai.toml → supervisor 起来 → 真的发一次
@@ -15,6 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use live2d_ai_core::ModelCapabilities;
+use live2d_ai_mod_director::motion_bias::MotionBias;
 use live2d_ai_runtime::{AppSettings, ConversationConfig, LlmConfig, OpenAiClient, TtsConfig};
 
 use crate::app_event::{AppEvent, ConversationUiEvent, RootFact};
@@ -36,18 +41,19 @@ fn sentence_cleaner_is_wired_only_when_clean_tts_is_on() {
         tts(),
     )
     .expect("client");
-    // 动作门关（缺省 director）= 端点仍是主 LLM，测的就是 clean_tts 这一个开关。
-    let director = super::performance_wiring::DirectorTakeover::default();
+    // rc4：二路常驻、端点恒为主 LLM（导演 Mod 自己的二路端点已删除），
+    // 这里测的就是 clean_tts 这一个开关；motion_bias 只影响提示词子句。
+    let bias = MotionBias::default();
     assert!(
-        super::reload::build_sentence_cleaner(&off, &director).is_none(),
-        "clean_tts=false（便捷构造）必须不跑二路，保持既有行为"
+        super::reload::build_sentence_cleaner(&off, &bias).is_none(),
+        "clean_tts=false（便捷构造）必须不跑二路，引擎走规则表"
     );
 
     let mut llm = LlmConfig::new("http://127.0.0.1:9/v1", "deepseek-flash");
     llm.clean_tts = true;
     let on = OpenAiClient::new(llm, tts()).expect("client");
-    let cleaner = super::reload::build_sentence_cleaner(&on, &director)
-        .expect("clean_tts=true 必须装配二路清洗");
+    let cleaner =
+        super::reload::build_sentence_cleaner(&on, &bias).expect("clean_tts=true 必须装配二路清洗");
     assert!(cleaner.enabled());
     assert_eq!(
         cleaner.model(),
@@ -63,11 +69,28 @@ fn canned_sse() -> String {
         .to_string()
 }
 
-fn write_performance_config(
+/// 两句正文（产品路径「每句一条 action_cue」用）。
+///
+/// 两句都带问号：规则表对**这一句原文**的判据是「？/ ?」，问号会补齐空槽
+/// （手势 tilt_left + 表情 thinking），因此两句都必然产非空 cue。不用
+/// 「再见。」—— farewell 缺省映射 `none`，规则表刻意不出动作（不做 > 做错），
+/// 会让「每句一条」这条断言依赖映射表内容而不是单 cue 写者这条红线。
+fn two_sentence_sse() -> String {
+    "data: {\"choices\":[{\"delta\":{\"content\":\"（挥手）你好呀？今天开心吗？\"}}]}\n\n\
+     data: {\"choices\":[{\"finish_reason\":\"stop\"}],\"usage\":{\"total_tokens\":1}}\n\n\
+     data: [DONE]\n\n"
+        .to_string()
+}
+
+/// 写一份测试 `live2d-ai.toml`（`[performance]` 由调用方决定）。
+///
+/// 2026-10-17（rc4）：整段表演层只读 `[performance]` 自己的端点，不再读
+/// `mods.json` 的导演 staging 端点（已删除），所以本测试**不再写 mods.json**。
+fn write_config(
     path: &std::path::Path,
     llm_base: &str,
     tts_base: &str,
-    performance_base: &str,
+    performance: live2d_ai_runtime::settings::PerformanceSettings,
 ) {
     let settings = AppSettings {
         llm: live2d_ai_runtime::settings::LlmSettings {
@@ -85,46 +108,56 @@ fn write_performance_config(
             system_prompt: "你是桌宠，只写剧情。".to_string(),
             max_history_pairs: 0,
         },
-        performance: live2d_ai_runtime::settings::PerformanceSettings {
-            // 2026-10-08：整段表演层是**显式 opt-in**（`[performance].enabled`）。
-            // 这里必须写 true，否则主链走「二路按句清洗」而不是表演层的 speak。
-            enabled: true,
-            ..Default::default()
-        },
+        performance,
         ..AppSettings::default()
     };
     std::fs::write(path, settings.to_toml_string()).expect("写测试配置");
-    // T8（2026-10-08 起需 `[performance].enabled = true`）：表演层装配读**同目录**
-    // `mods.json` 的 `mods.director`。这里两项都填 → 主链改用这个自有端点
-    // （`staging_model` 必须与下面断言一致）。
-    let mods = serde_json::json!({
-        "mods": {
-            "director": {
-                "enabled": true,
-                "config": {
-                    "staging_base_url": performance_base,
-                    "staging_model": "perf-model"
-                }
-            }
-        }
-    });
-    let mods_path = path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .join("mods.json");
-    std::fs::write(mods_path, mods.to_string()).expect("写测试 mods.json");
 }
 
-/// 表演层成功路径：speak 进 TTS；cues 进 ActionCue；json_schema 真发出去。
+/// `[performance]` 显式打开 + 自有端点（**不再**借导演 staging）。
+fn write_performance_config(
+    path: &std::path::Path,
+    llm_base: &str,
+    tts_base: &str,
+    performance_base: &str,
+) {
+    write_config(
+        path,
+        llm_base,
+        tts_base,
+        live2d_ai_runtime::settings::PerformanceSettings {
+            // 2026-10-08：整段表演层是**显式 opt-in**（`[performance].enabled`）。
+            enabled: true,
+            base_url: performance_base.to_string(),
+            model: "perf-model".to_string(),
+            ..Default::default()
+        },
+    );
+}
+
+/// 产品路径配置：`[performance]` **缺省关**。
+fn write_plain_config(path: &std::path::Path, llm_base: &str, tts_base: &str) {
+    write_config(
+        path,
+        llm_base,
+        tts_base,
+        live2d_ai_runtime::settings::PerformanceSettings::default(),
+    );
+}
+
+/// 整段表演层成功路径：speak 进 TTS；json_schema 真发出去；**动作恒开**——
+/// 每段原文过核心本地规则表：命中段（你好 → greeting/nod）恰 1 条 ActionCue，
+/// 中性段（再见 → farewell 缺省 none）不发；表演层 `resolution.cues` 不投递
+/// （无双发）；表演层与 LLM 调用次数都不增。
 #[test]
-fn performance_layer_end_to_end_drives_speak_and_cues() {
-    // 每个用例独占一个目录：`live2d-ai.toml` 与同目录 `mods.json` 必须成对，
-    // 且两个用例并发跑，不能共用 temp_dir 根下的同一个 mods.json。
+fn performance_layer_end_to_end_drives_speak_with_local_rule_cues() {
+    // 每个用例独占一个目录（并发跑，不能共用 temp_dir 根下的同名配置）。
     let dir = std::env::temp_dir().join(format!("live2d_ai_perf_e2e_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("temp dir");
     let tmp = dir.join("live2d-ai.toml");
     let llm_bodies: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let llm_bodies_for_assert = Arc::clone(&llm_bodies);
     let llm_base = spawn_llm_mock(llm_bodies, canned_sse());
     let tts_inputs: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let tts_base = spawn_tts_mock_recording(tts_inputs.clone());
@@ -156,33 +189,13 @@ fn performance_layer_end_to_end_drives_speak_and_cues() {
     );
     assert!(handle.say("你好"));
 
-    // ① 先等表演层的 ActionCue（证明「配置段 → 装配 → 引擎 → cue」这条链真的走了）。
-    let cued = wait_for(Duration::from_secs(15), || {
-        collector.lock().expect("poison").iter().any(|e| {
-            matches!(
-                e,
-                AppEvent::Conversation(ConversationUiEvent::ActionCue { .. })
-            )
-        })
-    });
-    assert!(cued, "必须收到表演层的 ActionCue 事件");
-
-    // ② 再同步到**本轮真正收尾**的确定性信号，然后才 quit/join 与断言。
-    //
-    // 为什么必须是 TurnCompleted：ActionCue 在引擎里先于 TTS 发出
-    //（conversation/engine.rs 阶段 1.5：先 send_event(ActionCue)，
-    // 再逐句 push_job(TtsJob)），所以 ActionCue 到达时第二条（甚至第一条）
-    // 句子的 TTS 请求可能还没到 mock——旧写法在这里立刻 quit/join 会把
-    // 还没送出的句子连同 worker 一起取消，产出空 / 半份 tts_inputs。
+    // 同步到**本轮真正收尾**的确定性信号，然后才 quit/join 与断言。
     //
     // RootFact::TurnCompleted{outcome_completed:true} 由 supervisor Stage C
     // 发出，而 Stage C 只在 gen_fut 返回之后执行；engine.run_turn 返回前
     // **无条件 await TTS worker 排空**（engine.rs 阶段 2 worker.await，阶段 3
     // 才产出 TurnReport）。即：TurnCompleted 可见 ⇒ 两句 speak 的合成请求
-    // 都已完成并被 mock 记账。
-    //
-    // 不把 wait 条件写成 tts_inputs.len() == 2——那会让下面的严格断言退化成
-    // 同义反复；这里等的是**收尾事实**，不是断言本身。
+    // 都已完成并被 mock 记账，整段表演层也已调用过。
     let turn_closed = wait_for(Duration::from_secs(15), || {
         collector.lock().expect("poison").iter().any(|e| {
             matches!(
@@ -212,8 +225,13 @@ fn performance_layer_end_to_end_drives_speak_and_cues() {
     let inputs = tts_inputs.lock().expect("poison").clone();
     assert_eq!(inputs, ["你好呀。", "再见。"]);
 
-    // ③ cue 经 AppEvent 出去（preset / 句号 / 优先级）。
-    let cues: Vec<(u64, String)> = collector
+    // ③ rc4 返工裁决（2026-10-17）：表演层打开时动作**恒开**，但 cue 只由
+    //    **每段原文 + 核心本地规则表**产出，表演层 JSON 里的 cues 不投递。
+    //    speak 切出「你好呀。」「再见。」两段：
+    //    - 段 1「你好呀。」→ greeting → nod（规则命中，恰 1 条 ActionCue）；
+    //    - 段 2「再见。」→ farewell 缺省 none → **不发**（中性段不动）。
+    //    `resolution.cues` 里也有一条 nod；若被双发，这里会看到 2 条。
+    let cue_events: Vec<Vec<(u64, String)>> = collector
         .lock()
         .expect("poison")
         .iter()
@@ -225,14 +243,110 @@ fn performance_layer_end_to_end_drives_speak_and_cues() {
             ),
             _ => None,
         })
-        .flatten()
         .collect();
-    assert_eq!(cues, [(1, "nod".to_string())]);
+    assert_eq!(
+        cue_events,
+        vec![vec![(1, "nod".to_string())]],
+        "命中段恰 1 条、中性段不发、表演层 cues 不得双发；实际 {cue_events:?}"
+    );
+
+    // ④ 规则表是纯本地函数：不得新增 LLM 调用（主模型仍恰 1 次）。
+    assert_eq!(
+        llm_bodies_for_assert.lock().expect("poison").len(),
+        1,
+        "本地规则表出 cue 不得新增 LLM 调用"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **P0-1b（2026-09-23）**：表演层（T8 起由导演 `staging_*` 接管装配）开着、但
+/// **rc4 产品路径（`[performance]` 缺省关）**：二路按句清洗常驻，**每句一条**
+/// ActionCue（规则表）；cue 的句号与该句一致。这条与
+/// `performance_layer_end_to_end_drives_speak_with_local_rule_cues` 一起守住
+/// 「动作恒开 + 每段/每句只有一条 ActionCue（规则表）」这条单 cue 写者红线。
+#[test]
+fn default_off_emits_one_action_cue_per_sentence() {
+    let dir =
+        std::env::temp_dir().join(format!("live2d_ai_perf_default_off_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let tmp = dir.join("live2d-ai.toml");
+    let llm_bodies: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let llm_base = spawn_llm_mock(llm_bodies, two_sentence_sse());
+    let tts_inputs: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let tts_base = spawn_tts_mock_recording(tts_inputs.clone());
+    write_plain_config(&tmp, &llm_base, &tts_base);
+
+    // `LlmConfig::new` ⇒ clean_tts=false ⇒ 二路 None ⇒ 引擎走
+    // clean_for_tts + 规则表（每句非空 cues 发一条 ActionCue）。
+    let client = OpenAiClient::new(
+        LlmConfig::new(&llm_base, "test-model"),
+        TtsConfig::new(&tts_base, "alloy"),
+    )
+    .expect("client");
+    let collector: Collector = Arc::new(Mutex::new(Vec::new()));
+    let ec = collector.clone();
+    let handle = spawn_supervisor(
+        SupervisorConfig {
+            client,
+            conversation: ConversationConfig::new("你是桌宠，只写剧情。"),
+            capabilities: ModelCapabilities::all(),
+            audio: None,
+            config_path: Some(tmp.to_string_lossy().into_owned()),
+            mod_events: None,
+        },
+        move |ev| ec.lock().expect("poison").push(ev),
+    );
+    assert!(handle.say("你好"));
+
+    let turn_closed = wait_for(Duration::from_secs(15), || {
+        collector.lock().expect("poison").iter().any(|e| {
+            matches!(
+                e,
+                AppEvent::RootAudit(RootFact::TurnCompleted {
+                    outcome_completed: true,
+                    ..
+                })
+            )
+        })
+    });
+    assert!(turn_closed, "本轮必须以 Completed 收口");
+    handle.quit();
+    handle.join();
+
+    let cue_events: Vec<Vec<(u64, String)>> = collector
+        .lock()
+        .expect("poison")
+        .iter()
+        .filter_map(|e| match e {
+            AppEvent::Conversation(ConversationUiEvent::ActionCue { cues, .. }) => Some(
+                cues.iter()
+                    .map(|c| (c.sentence_seq, c.preset_id.clone()))
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        cue_events.len(),
+        2,
+        "缺省关 → 每句恰一条 action_cue（单 cue 写者），实际 {cue_events:?}"
+    );
+    for cues in &cue_events {
+        assert!(!cues.is_empty(), "规则表给每句非空 cues: {cues:?}");
+    }
+    let seqs: Vec<u64> = cue_events.iter().map(|cues| cues[0].0).collect();
+    assert_eq!(seqs, vec![1, 2], "cue 句号必须与该句一致");
+    assert_eq!(
+        tts_inputs.lock().expect("poison").len(),
+        2,
+        "产品路径一句一单元送 TTS"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// **P0-1b（2026-09-23）**：整段表演层（T8；rc4 起只读 `[performance]`）开着、但
 /// **主模型失败**时，本轮必须直接以 failed 收口——既不调表演层（llm_failed 短路），
 /// 也不干等一份永远来不了的 JSON。
 ///

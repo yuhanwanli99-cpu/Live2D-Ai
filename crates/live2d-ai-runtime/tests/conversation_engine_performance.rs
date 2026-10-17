@@ -1,9 +1,16 @@
 //! 表演层接线集成测试（2026-09-22）：
-//! **speak = TTS / 上屏真源**、cues → ActionCue、noop / 只说 / 只动 三态、失败回退。
+//! **speak = TTS / 上屏真源**、noop / 只说 / 只动 三态、失败回退。
+//!
+//! rc4（2026-10-17 返工）：[performance].enabled=true 时文本路径由表演层接管
+//!（segments / speak），但**导演常驻**——每一段原文仍走核心规则表产 ActionCue
+//!（纯本地纯函数、**不新增 LLM 调用**）；表演层自己的 resolution.cues 继续抑制。
+//! 缺省关（performance == None）的流式按句路径行为不变（回归见
+//! conversation_engine_motion.rs）。
 
 mod common;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use live2d_ai_runtime::performance::{
     PerformanceClient, PerformanceCue, PerformanceFuture, PerformanceReply, PerformanceRuntime,
@@ -17,10 +24,11 @@ use common::{
     drain_events, engine, respond_pieces, spawn_multi_server, spawn_tts_mock, sse_content, sse_done,
 };
 
-/// 表演层测试替身：固定回一份原始正文（或失败）。
+/// 表演层测试替身：固定回一份原始正文（或失败）；calls 计二路 LLM 调用次数。
 #[derive(Debug)]
 struct StubPerformance {
     reply: Option<String>,
+    calls: Arc<AtomicUsize>,
 }
 
 impl PerformanceClient for StubPerformance {
@@ -39,6 +47,7 @@ impl PerformanceClient for StubPerformance {
         _user: &'a str,
         _timeout_ms: u64,
     ) -> PerformanceFuture<'a, Option<PerformanceReply>> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
         let reply = self.reply.clone().map(|raw| PerformanceReply {
             raw,
             structured: true,
@@ -71,10 +80,21 @@ fn performance_engine(
     tts_base: &str,
     reply: Option<&str>,
 ) -> live2d_ai_runtime::ConversationEngine {
+    performance_engine_counted(llm_base, tts_base, reply).0
+}
+
+/// 同 performance_engine，另交回二路 LLM 调用计数（证明规则表不新增 LLM 调用）。
+fn performance_engine_counted(
+    llm_base: &str,
+    tts_base: &str,
+    reply: Option<&str>,
+) -> (live2d_ai_runtime::ConversationEngine, Arc<AtomicUsize>) {
+    let calls = Arc::new(AtomicUsize::new(0));
     let mut eng = engine(llm_base, tts_base, ConversationConfig::default());
     let runtime = PerformanceRuntime::new(
         Box::new(StubPerformance {
             reply: reply.map(str::to_string),
+            calls: Arc::clone(&calls),
         }),
         allow(),
         1_500,
@@ -82,7 +102,7 @@ fn performance_engine(
         Some(rule_cue()),
     );
     eng.set_performance(Some(Arc::new(runtime)));
-    eng
+    (eng, calls)
 }
 
 fn cues_of(events: &[EngineEvent]) -> Vec<Vec<(u64, String)>> {
@@ -99,9 +119,30 @@ fn cues_of(events: &[EngineEvent]) -> Vec<Vec<(u64, String)>> {
         .collect()
 }
 
-/// **只说**：speak 切句后逐句送 TTS；cues 进 ActionCue；上屏与送 TTS 同源。
+/// ActionCue 帧级视图：covers_upto_seq + 帧内 cues（证明「非空才发 / 无双发」）。
+fn cue_frames(events: &[EngineEvent]) -> Vec<(u64, Vec<(u64, String)>)> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::ActionCue {
+                covers_upto_seq,
+                cues,
+                ..
+            } => Some((
+                *covers_upto_seq,
+                cues.iter()
+                    .map(|c| (c.sentence_seq, c.preset_id.clone()))
+                    .collect(),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+/// **只说**：speak 切句后逐句送 TTS；导演常驻 → 规则命中段仍发 ActionCue，
+/// 表演层自己的 cues 被抑制；二路 LLM 只调用 1 次（规则表是纯本地函数）。
 #[tokio::test]
-async fn speak_is_the_tts_source_and_cues_reach_action_cue() {
+async fn speak_is_the_tts_source_and_rule_cues_still_fire() {
     let llm_base = spawn_multi_server(respond_pieces(
         200,
         "OK",
@@ -110,11 +151,11 @@ async fn speak_is_the_tts_source_and_cues_reach_action_cue() {
     ))
     .await;
     let (tts_base, tts_inputs) = spawn_tts_mock().await;
-    let mut eng = performance_engine(
+    let (mut eng, calls) = performance_engine_counted(
         &llm_base,
         &tts_base,
         Some(
-            r#"{"speak":"你好呀。再见。","cues":[{"sentence_seq":1,"preset_id":"nod","intensity":2,"ttl_ms":1500}]}"#,
+            r#"{"speak":"你好呀。再见。","cues":[{"sentence_seq":1,"preset_id":"smile","intensity":2,"ttl_ms":1500}]}"#,
         ),
     );
     let (tx, rx) = mpsc::channel(64);
@@ -140,21 +181,14 @@ async fn speak_is_the_tts_source_and_cues_reach_action_cue() {
         })
         .collect();
     assert_eq!(voiced, ["你好呀。", "再见。"], "上屏必须等于 speak 的句子");
+    // 「你好呀。」= 问候 → 规则表 nod；「再见。」= 告别（缺省 none）→ 无 cue。
+    // 若错误地把表演层 cues（smile）发出来，这里会看到 smile。
     assert_eq!(
-        cues_of(&events),
-        vec![vec![(1, "nod".to_string())]],
-        "cues 必须经 ActionCue 出去：{events:?}"
+        cue_frames(&events),
+        vec![(1, vec![(1, "nod".to_string())])],
+        "规则命中段恰一条 ActionCue，表演层 cues 被抑制：{events:?}"
     );
-    let covers = events
-        .iter()
-        .find_map(|e| match e {
-            EngineEvent::ActionCue {
-                covers_upto_seq, ..
-            } => Some(*covers_upto_seq),
-            _ => None,
-        })
-        .unwrap();
-    assert_eq!(covers, 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "规则表不得新增 LLM 调用");
 }
 
 /// **noop**：不说也不动——零 TTS、零上屏，仍然 Completed。
@@ -183,12 +217,16 @@ async fn noop_plan_sends_no_tts_and_no_text() {
             .any(|e| matches!(e, EngineEvent::SentenceVoiced { .. })),
         "noop 不得上屏任何文字：{events:?}"
     );
-    assert_eq!(cues_of(&events), vec![Vec::new()], "空计划照发（清残留）");
+    assert!(
+        cues_of(&events).is_empty(),
+        "没有文本段就没有规则 cue，也不发空 ActionCue：{events:?}"
+    );
 }
 
-/// **只动**：speak 空 + 有 cue → 一条**无声锚句**（不发 TTS），cue 仍有 first_chunk 锚。
+/// **只动**：speak/segments 皆空 + 表演层 cues → 引擎什么都不发（无无声锚句，
+/// 表演层 cue 不投递；规则表没有文本段可看 → 0 cue）。
 #[tokio::test]
-async fn cue_only_plan_emits_a_silent_anchor_sentence() {
+async fn cue_only_plan_sends_nothing() {
     let llm_base = spawn_multi_server(respond_pieces(
         200,
         "OK",
@@ -207,36 +245,30 @@ async fn cue_only_plan_emits_a_silent_anchor_sentence() {
     let (tx, rx) = mpsc::channel(64);
     let report = eng.run_turn(103, "嗯", tx, CancellationToken::new()).await;
     assert_eq!(report.status, TurnStatus::Completed);
-    assert!(
-        tts_inputs.lock().unwrap().is_empty(),
-        "无声锚句不得发 TTS 请求"
-    );
+    assert!(tts_inputs.lock().unwrap().is_empty(), "没有可说的文本");
 
     let events = drain_events(rx).await;
-    let voiced: Vec<&str> = events
-        .iter()
-        .filter_map(|e| match e {
-            EngineEvent::SentenceVoiced { text, .. } => Some(text.as_str()),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(voiced, [""], "只动时给一条空文本锚句：{events:?}");
     assert!(
-        events.iter().any(|e| matches!(
-            e,
-            EngineEvent::AudioChunk {
-                first_chunk: true,
-                ..
-            }
-        )),
-        "锚句必须产出 first_chunk 边界帧（cue 的锚点）"
+        !events
+            .iter()
+            .any(|e| matches!(e, EngineEvent::SentenceVoiced { .. })),
+        "不计造无声锚句：{events:?}"
     );
-    assert_eq!(cues_of(&events), vec![vec![(1, "nod".to_string())]]);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, EngineEvent::AudioChunk { .. })),
+        "没有句子就没有音频边界帧：{events:?}"
+    );
+    assert!(
+        cues_of(&events).is_empty(),
+        "表演层 cues 不投递，且无文本段 → 0 ActionCue：{events:?}"
+    );
 }
 
-/// **失败回退**：坏 JSON → speak=clean_for_tts(原文)、cues=规则，整轮照常完成出声。
+/// **失败回退**：坏 JSON → speak=clean_for_tts(原文)；导演常驻 → 规则表按段出 cue。
 #[tokio::test]
-async fn invalid_plan_falls_back_to_cleaned_raw_and_rule_cue() {
+async fn invalid_plan_falls_back_to_cleaned_raw_and_rule_cues() {
     let llm_base = spawn_multi_server(respond_pieces(
         200,
         "OK",
@@ -245,7 +277,7 @@ async fn invalid_plan_falls_back_to_cleaned_raw_and_rule_cue() {
     ))
     .await;
     let (tts_base, tts_inputs) = spawn_tts_mock().await;
-    let mut eng = performance_engine(&llm_base, &tts_base, Some("这不是 JSON"));
+    let (mut eng, calls) = performance_engine_counted(&llm_base, &tts_base, Some("这不是 JSON"));
     let (tx, rx) = mpsc::channel(64);
     let report = eng
         .run_turn(104, "你好", tx, CancellationToken::new())
@@ -257,13 +289,17 @@ async fn invalid_plan_falls_back_to_cleaned_raw_and_rule_cue() {
         "回退也必须出声，且文本是确定性清洗产物"
     );
     let events = drain_events(rx).await;
+    // 回退路径的表演层 cue 是注入闭包的 smile（不允许投递）；真 cue 来自核心
+    // 规则表：「你好呀。」→ nod。
     assert_eq!(
-        cues_of(&events),
-        vec![vec![(1, "smile".to_string())]],
-        "回退的 cue 来自规则层"
+        cue_frames(&events),
+        vec![(1, vec![(1, "nod".to_string())])],
+        "回退后规则命中段仍恰一条 ActionCue：{events:?}"
     );
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "不得新增 LLM 调用");
     assert!(eng.performance_stats().is_some());
 }
+
 /// **主模型路径审计**（2026-09-22）：表演层开着也不会把它的提示词 / schema /
 /// cues 注入主模型请求体——主模型只拿 system（人设）+ 历史 + 本轮输入。
 #[tokio::test]
@@ -294,6 +330,7 @@ async fn performance_never_leaks_into_the_main_model_request() {
     let runtime = PerformanceRuntime::new(
         Box::new(StubPerformance {
             reply: Some(r#"{"speak":"你好呀。","cues":[]}"#.to_string()),
+            calls: Arc::new(AtomicUsize::new(0)),
         }),
         allow(),
         1_500,
@@ -361,7 +398,7 @@ fn ready_by_seq(events: &[EngineEvent]) -> Vec<(u64, String)> {
 }
 
 /// **D22**：表演层给的 segments **一对一**成为 TTS 单元 / 音频元素
-///（seg:N ≡ sentence_seq==N），**不再过分句器二次切分**。
+///（seg:N ≡ sentence_seq==N），**不再过分句器二次切分**；中性段不发 cue。
 #[tokio::test]
 async fn segments_are_one_to_one_with_sentences_and_never_resplit() {
     // 原文有三个句读，但表演层只切两段：若引擎二次切句，就会变成 3 段。
@@ -373,7 +410,7 @@ async fn segments_are_one_to_one_with_sentences_and_never_resplit() {
     ))
     .await;
     let (tts_base, tts_inputs) = spawn_tts_mock().await;
-    let mut eng = performance_engine(
+    let (mut eng, calls) = performance_engine_counted(
         &llm_base,
         &tts_base,
         Some(
@@ -404,26 +441,74 @@ async fn segments_are_one_to_one_with_sentences_and_never_resplit() {
             (2, "第三句。".to_string())
         ]
     );
-    let covers = events
+    // 两段都是中性原文 → 规则表空 → 0 ActionCue（中性段不发，表演层 cue 被抑制）。
+    assert!(
+        cues_of(&events).is_empty(),
+        "中性段不发 ActionCue：{events:?}"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "不得新增 LLM 调用");
+}
+
+/// **导演常驻 + 表演层接管**：每段原文独立过规则表——命中段恰一条 ActionCue
+///（先于该段 SentenceReady / 音频），中性段不发，表演层自己的 cues 不投递。
+#[tokio::test]
+async fn performance_segments_get_rule_cues_once_per_hit_segment() {
+    let raw = "你好呀。今天天气不错。这样吗？";
+    let llm_base = spawn_multi_server(respond_pieces(
+        200,
+        "OK",
+        "text/event-stream",
+        vec![sse_content(raw), sse_done()],
+    ))
+    .await;
+    let (tts_base, tts_inputs) = spawn_tts_mock().await;
+    let (mut eng, calls) = performance_engine_counted(
+        &llm_base,
+        &tts_base,
+        Some(
+            r#"{"segments":["你好呀。","今天天气不错。","这样吗？"],"cues":[{"sentence_seq":1,"preset_id":"smile","intensity":1,"ttl_ms":900}]}"#,
+        ),
+    );
+    let (tx, rx) = mpsc::channel(64);
+    let report = eng.run_turn(204, "说", tx, CancellationToken::new()).await;
+    assert_eq!(report.status, TurnStatus::Completed);
+    assert_eq!(
+        *tts_inputs.lock().unwrap(),
+        ["你好呀。", "今天天气不错。", "这样吗？"],
+        "segments 一对一送 TTS"
+    );
+
+    let events = drain_events(rx).await;
+    // 规则表：问候 → nod；中性陈述 → 空；问句 → 手势 tilt_left + 表情 thinking。
+    assert_eq!(
+        cue_frames(&events),
+        vec![
+            (1, vec![(1, "nod".to_string())]),
+            (
+                3,
+                vec![(3, "tilt_left".to_string()), (3, "thinking".to_string())]
+            ),
+        ],
+        "命中段恰一条 ActionCue，中性段不发，表演层 smile 被抑制：{events:?}"
+    );
+    // 无「双发」：摊平后恰好这三条，且每帧 covers_upto_seq == 该段 seq（上面已断言）。
+    let flat = cues_of(&events);
+    assert_eq!(flat.len(), 2, "两个命中段各一帧：{events:?}");
+    assert!(
+        flat.iter().flatten().all(|(_, id)| id != "smile"),
+        "表演层自己的 cues 不得投递"
+    );
+    // cue 必须在该段 SentenceReady 之前（前端才能按 seq 锚到音频）。
+    let first_cue = events
         .iter()
-        .find_map(|e| match e {
-            EngineEvent::ActionCue {
-                covers_upto_seq, ..
-            } => Some(*covers_upto_seq),
-            _ => None,
-        })
-        .expect("必须有 ActionCue");
-    assert_eq!(covers, 2, "covers_upto_seq == 段数");
-    let cue = events
+        .position(|e| matches!(e, EngineEvent::ActionCue { .. }))
+        .expect("必须有 cue 帧");
+    let first_ready = events
         .iter()
-        .find_map(|e| match e {
-            EngineEvent::ActionCue { cues, .. } => cues.first().cloned(),
-            _ => None,
-        })
-        .expect("必须有 cue");
-    let json = cue.to_json();
-    assert_eq!(json["field"], "head");
-    assert_eq!(json["sentence_seq"], 2, "cue 锚段边界（seg:2）");
+        .position(|e| matches!(e, EngineEvent::SentenceReady { .. }))
+        .expect("必须有 SentenceReady");
+    assert!(first_cue < first_ready, "cue 必须先于该段音频/上屏");
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "规则表不得新增 LLM 调用");
 }
 
 /// **D23**：每段上屏文本 == 送 TTS 文本 == clean_for_tts(段)——不得把原文

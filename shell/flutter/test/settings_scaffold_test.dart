@@ -112,11 +112,11 @@ void main() {
   });
 
   group('分区导航', () {
-    testWidgets('每个分区一个 chip（7 个，含「开发模式」——它不再被藏起来）', (
+    testWidgets('每个分区一个 chip（8 个，含「开发模式」——它不再被藏起来）', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(wrap(build()));
-      expect(find.byType(ChoiceChip), findsNWidgets(7));
+      expect(find.byType(ChoiceChip), findsNWidgets(8));
       expect(find.text('开发模式'), findsOneWidget);
     });
 
@@ -160,7 +160,7 @@ void main() {
           ),
         ),
       );
-      expect(find.byType(ChoiceChip), findsNWidgets(7));
+      expect(find.byType(ChoiceChip), findsNWidgets(8));
       expect(find.widgetWithText(ChoiceChip, '诊断'), findsNothing);
       expect(find.widgetWithText(ChoiceChip, '开发模式'), findsOneWidget);
       expect(find.widgetWithText(ChoiceChip, '模型服务'), findsOneWidget);

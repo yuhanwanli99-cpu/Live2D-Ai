@@ -27,7 +27,8 @@ import '../../live2d/live2d_stage.dart' show PresetStatus;
 import '../preset_labels.dart';
 import 'director_debug_panels.dart' show DebugClock, PresetApply, PresetScaleApply;
 
-/// director 卡片里「动作幅度」旋钮的接线（2026-10-09 从「外观与互动」搬来）。
+/// 导演一级卡里「动作幅度」旋钮的接线（2026-10-09 从「外观与互动」搬来；
+/// 2026-10-17 rc4 随导演升为一级卡，宿主改为 shell_settings.dart 的导演分支）。
 ///
 /// 键名形如 action.models.id（doc 里不写尖括号，免得被当成 HTML）。
 ///
@@ -83,7 +84,8 @@ class ActionScalesWiring {
   final bool modelOverrideFailed;
 }
 
-/// 导演卡片里「表情调试 / 动作调试 / 临时幅度」的接线（2026-10-09）。
+/// 导演一级卡里「表情调试 / 动作调试 / 临时幅度」的接线（2026-10-09；
+/// 2026-10-17 rc4 随导演升为一级卡）。
 ///
 /// 三块从核心「开发模式」页整块搬来（`settings/mods/director_debug_panels.dart`），
 /// **数据与口径一字未改**：预设帧仍由前端直发渲染面（不经后端 / LLM），临时幅度
@@ -153,8 +155,6 @@ class ModPanelContext {
     this.onModChanged,
     this.devMode = false,
     this.pickCardFile,
-    this.actionScales,
-    this.directorDebug,
   });
 
   /// 当前 Mod 的列表项（含 `enabled` / `config` / `settings_spec`）。
@@ -212,16 +212,6 @@ class ModPanelContext {
   /// [PersonaCardFilePicker] 与 `persona_panel.dart` 的头注。
   final PersonaCardFilePicker? pickCardFile;
 
-  /// 动作幅度旋钮的接线（只有 director 面板消费；null = 不渲染那块）。
-  ///
-  /// 为什么住这里而不是面板自己取：面板不碰网络、不碰组合根，只画；
-  /// 数据与回调由宿主（shell_settings.dart → ModsSection → 卡片）透传。
-  final ActionScalesWiring? actionScales;
-
-  /// 导演卡片里「表情调试 / 动作调试 / 临时幅度」的接线（只有 director 面板消费；
-  /// null = 不渲染那块）。2026-10-09 从核心「开发模式」页整块搬来，仍只在
-  /// [devMode] 为真时渲染。
-  final DirectorDebugWiring? directorDebug;
 }
 
 /// 一个 Mod 的产品面板。

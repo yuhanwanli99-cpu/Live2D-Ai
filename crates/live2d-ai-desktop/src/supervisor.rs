@@ -109,9 +109,10 @@ mod run;
 mod spawn;
 mod turn;
 
-// 2026-10-16（D3）：以下四项搬家后**原样再导出**——`crate::supervisor::X` 与
-// `handlers.rs` 的 `super::AUDIO_CB` / `super::MOD_EVENT_CB` 路径不变。
-pub(crate) use spawn::{AUDIO_CB, AudioCb, MOD_EVENT_CB};
+// 2026-10-16（D3）：以下三项搬家后**原样再导出**——`crate::supervisor::X` 与
+// `handlers.rs` 的 `super::AUDIO_CB` 路径不变。
+// 2026-10-17（rc4）：`MOD_EVENT_CB` 随导演 Mod 退役删除（见 spawn.rs 头注）。
+pub(crate) use spawn::{AUDIO_CB, AudioCb};
 pub use spawn::{ModEventSink, spawn_supervisor, spawn_supervisor_with_audio};
 // 拆出后原样再导出：`spawn.rs` 的 `super::project_conversation_to_mod` 路径不变。
 pub(crate) use mod_projection::project_conversation_to_mod;

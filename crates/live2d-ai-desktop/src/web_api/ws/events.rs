@@ -156,7 +156,8 @@ pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
             cues,
         }) => {
             // **复用既有 `action_cue` 帧类型**（2026-09-22；v1 沿用，V11）：
-            // 表演层的 cues 与 director Mod 的 cues 是同一个 wire 契约。
+            // 核心第二路（按句清洗）与整段表演层的 cues 是同一个 wire 契约
+            // （rc4 起导演 Mod 已退役，产出口唯一）。
             // 单条 cue 的 JSON 形态由 runtime 的 `PerformanceCue::to_json` 给出：
             // **既有键** sentence_seq/preset_id/intensity/ttl_ms/priority 逐字保留，
             // v1 的**新键**（field/seq/x/y/z/id/at/hold）以可选键摊平（只增不改）。
@@ -345,8 +346,8 @@ mod tests {
         );
     }
 
-    /// **表演层 ActionCue → 既有 action_cue 帧**（2026-09-22）：帧型与字段与
-    /// director Mod 那条**逐字同形**——前端 `ActionCueEvent` 一行不用改。
+    /// **ActionCue → 既有 action_cue 帧**（2026-09-22）：帧型与字段沿用旧
+    /// director Mod 那条（**逐字同形**）——前端 `ActionCueEvent` 一行不用改。
     #[test]
     fn performance_action_cue_projects_to_the_same_action_cue_frame() {
         let ev = AppEvent::Conversation(ConversationUiEvent::ActionCue {

@@ -11,12 +11,12 @@ use super::plan::{CueField, PerformanceCue, PerformancePlan};
 
 /// 问句只认这两个标记（T9 口径，2026-10-07）：全角 ？ 与半角 ?。
 ///
-/// **不**把「吗 / 呢 / 什么」当问句——那些词会误伤陈述句。director 的
-/// derive_intent 另有一套询问式词表（意图推导），两者刻意不是同一件事：
+/// **不**把「吗 / 呢 / 什么」当问句——那些词会误伤陈述句。规则表的
+/// `derive_intent` 另有一套询问式词表（意图推导），两者刻意不是同一件事：
 /// 这里判的是「原文里有没有问号」。
 pub const QUESTION_MARKS: [char; 2] = ['？', '?'];
 
-/// 正文里有没有问句标记（问句补丁与 director 规则层**共用这一条判据**）。
+/// 正文里有没有问句标记（问句补丁与 runtime 规则表**共用这一条判据**）。
 pub fn has_question_mark(text: &str) -> bool {
     text.chars().any(|c| QUESTION_MARKS.contains(&c))
 }

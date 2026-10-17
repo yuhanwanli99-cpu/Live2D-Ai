@@ -569,8 +569,9 @@ pub const MAX_PERFORMANCE_TIMEOUT_MS: u64 = 30_000;
 ///
 /// **主模型不负责表演**：主模型只做酒馆式角色扮演（人设 + 剧情/记忆注入，
 /// 无工具、无表演类预设）；表演层每轮收「用户输入 + 主模型原文」，交回**一份
-/// 合法化 JSON**（`{"speak":…,"cues":[…]}`），其中 `speak` 是本轮 TTS / 上屏的
-/// 唯一真源，`cues` 进既有 WS `action_cue` 帧。契约终稿与配置键见
+/// 合法化 JSON**（`{"segments":[…],"speak":…,"cues":[…]}`），其中 `segments` /
+/// `speak` 是本轮 TTS / 上屏的真源；`cues` 仍可解析但 **rc4 起引擎不再发**
+/// （单 cue 写者 = 常驻按句第二路）。契约见
 /// `docs/architecture/performance-layer-v0.md`。
 ///
 /// 与主模型 / TTS **完全独立**：自己的 `base_url` / `model` / `timeout_ms` /
@@ -578,8 +579,9 @@ pub const MAX_PERFORMANCE_TIMEOUT_MS: u64 = 30_000;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PerformanceSettings {
-    /// 总闸。**缺省 `false`**——关掉时主链走既有的「边流边切句边送 TTS」，
-    /// 规则导演（director Mod）照旧；打开后 `speak` 成为本轮 TTS / 上屏真源。
+    /// 总闸。**缺省 `false`**——关掉时主链走「边流边切句 + 常驻按句第二路
+    /// （失败回退规则表）」；打开后表演层只接管 `segments` / `speak`（TTS / 上屏
+    /// 真源），**不再发任何 cue**（rc4 单 cue 写者）。
     #[serde(default)]
     pub enabled: bool,
     /// 表演层端点的 base_url（OpenAI 兼容；独立于 `[llm]`）。空 = 未配。
@@ -772,10 +774,10 @@ impl AppSettings {
     /// # 边界（不要为了「列全」越界）
     ///
     /// 这里**只有** `AppSettings` 持有的核心链路密钥。**Mod 级密钥不住在
-    /// `AppSettings` 里**：memory Mod 的 `summary_api_key_env`、director Mod 的
-    /// `staging_api_key_env` 都写在 `mods.json` 的 Mod config 中，由 Mod 自己的
-    /// `settings_spec` 暴露。把 Mod 级密钥塞进 `AppSettings` 会让核心配置依赖
-    /// Mod 的存在性——那是错的，本函数**不包含**它们。
+    /// `AppSettings` 里**：memory Mod 的 `summary_api_key_env` 写在 `mods.json`
+    /// 的 Mod config 中，由 Mod 自己的 `settings_spec` 暴露。把 Mod 级密钥塞进
+    /// `AppSettings` 会让核心配置依赖 Mod 的存在性——那是错的，本函数**不包含**它们。
+    /// （director 的 `staging_*` 已随 rc4 退休删除。）
     #[must_use]
     pub fn declared_key_envs(&self) -> Vec<DeclaredKeyEnv> {
         [

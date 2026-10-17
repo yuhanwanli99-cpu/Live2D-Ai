@@ -120,7 +120,7 @@ void main() {
       expect(inits, 1);
     });
 
-    testWidgets('**切换 7 个分区** → 仍是同一个舞台实例', (WidgetTester tester) async {
+    testWidgets('**切换 8 个分区** → 仍是同一个舞台实例', (WidgetTester tester) async {
       final int inits = await runScenario(
         tester,
         actions: (WidgetTester t) async {

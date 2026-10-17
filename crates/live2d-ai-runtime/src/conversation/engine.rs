@@ -48,33 +48,28 @@ pub struct ConversationEngine {
     ///
     /// 热重载会整体重建引擎 → 覆盖槽随之回到 `None`（下一轮再 set）。
     pub(super) system_prompt_override: Option<String>,
-    /// **表演层运行时**（2026-09-22）。
+    /// **表演层运行时**（2026-09-22；rc4 起只保留 segments / speak）。
     ///
-    /// - `None`（缺省）= 关闸：主链走既有的「边流边切句边送 TTS」路径，行为与
-    ///   本字段加入前**逐字一致**；
+    /// - `None`（缺省）= 关闸：主链走「边流边切句 + 按句二路清洗 + 按句规则表
+    ///   出 cue」的常驻路径；
     /// - `Some`：本轮先收齐助手原文，调表演层拿一份 JSON；v1 的 `segments` 是
-    ///   本轮 TTS / 上屏的**切分方案**（一对一，D22），`cues` 经
-    ///   `EngineEvent::ActionCue` 出去。端点缺失时运行时仍存在但
-    ///   `enabled()==false`——每轮走确定性回退（`clean_for_tts(原文)` + 规则 cue），
-    ///   degraded 在状态面可见。
-    pub(super) performance: Option<Arc<PerformanceRuntime>>,
-    /// **二路按句清洗**（2026-10-08）。
+    ///   本轮 TTS / 上屏的**切分方案**（一对一，D22）。端点缺失时运行时仍存在但
+    ///   `enabled()==false`——每轮走确定性回退，degraded 在状态面可见。
     ///
-    /// - `None`（缺省）= 不跑二路：上屏与送 TTS 都是 `clean_for_tts(句)`
-    ///   （既有行为，逐字一致——所有既有测试与「手工装配」都走这条）；
-    /// - `Some` 且 `enabled()`：每句原文先交给二路拿 `{display, speech}`，
+    /// **rc4 单 cue 写者**：表演层的 `Resolution.cues` **不再**从这里发成
+    /// `EngineEvent::ActionCue`——写 cue 的只留主链按句第二路（含规则表回退）。
+    pub(super) performance: Option<Arc<PerformanceRuntime>>,
+    /// **二路按句清洗**（2026-10-08；rc4 起常驻）。
+    ///
+    /// - `None` / `enabled()==false` = 不跑二路：上屏与送 TTS 都是
+    ///   `clean_for_tts(句)`，动作走**这一句原文**的规则表；
+    /// - `Some` 且 `enabled()`：每句原文先交给二路拿 `{display, speech, cues?}`，
     ///   `display` 上屏、`speech` 送 TTS（**两个不同的字符串，同一个
     ///   sentence_seq**）。二路失败 / 超时 / 坏 JSON / `display` 不是原文切片
-    ///   → 这一句两份都用原文。
+    ///   → 这一句两份都用原文、动作回退这一句原文的规则表。
     ///
-    /// 生产路径由 host 用 [SentenceCleaner::from_llm] 注入（`[llm]` 同一份
-    /// base_url / model / key）；这里只消费它，不再自己造客户端。
+    /// 生产路径由 host 用 `[llm]` 同一份端点构造后注入；这里只消费它，不再自己造客户端。
     pub(super) cleaner: Option<Arc<SentenceCleaner>>,
-    /// **动作门**（T14，2026-10-13）：导演启用且 `staging_*` 两项都空 / 都有时开。
-    /// 开着时按句清洗的那一次响应带 `cues`，失败回退按句规则表。
-    pub(super) motion: bool,
-    /// 按句规则回退（`motion` 开着且模型失败时用；单一真源 = director）。
-    pub(super) sentence_rule: Option<crate::cleaning::SentenceRuleFallback>,
 }
 
 mod run;
@@ -90,24 +85,7 @@ impl ConversationEngine {
             system_prompt_override: None,
             performance: None,
             cleaner: None,
-            motion: false,
-            sentence_rule: None,
         }
-    }
-
-    /// 注入**动作门**（T14）：开着时按句清洗带 `cues`，并可按句规则回退。
-    pub fn set_motion(&mut self, on: bool) {
-        self.motion = on;
-    }
-
-    /// 注入**按句规则回退**（单一真源 = director 的 `rule_cues_for_sentence`）。
-    pub fn set_sentence_rule(&mut self, rule: Option<crate::cleaning::SentenceRuleFallback>) {
-        self.sentence_rule = rule;
-    }
-
-    /// 动作门是否开着（supervisor 用它决定要不要把 `SentenceReady` 转给 Mod）。
-    pub fn motion_enabled(&self) -> bool {
-        self.motion
     }
 
     /// 注入表演层运行时（host 装配点；`None` = 关闸）。
@@ -125,8 +103,8 @@ impl ConversationEngine {
 
     /// 表演层是否**可能**接管本轮（`Some` 即接管：含 enabled=false 的降级运行时）。
     ///
-    /// supervisor 用它决定「要不要把 `SentenceReady` 转给 director Mod」——
-    /// 表演层开着时规则导演不再并行投递按句 cue（避免两套 cue 打擂台）。
+    /// rc4 起 host 不再用它判 `SentenceReady` 转发（director Mod 已退休、不再
+    /// 订阅该主题）；保留给状态面 / 既有装配测试。
     pub fn performance_enabled(&self) -> bool {
         self.performance.is_some()
     }

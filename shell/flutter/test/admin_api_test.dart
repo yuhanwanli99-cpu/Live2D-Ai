@@ -26,9 +26,12 @@ import 'support/registered_mods.dart';
 /// 2026-10-05 修订（D6）：夹具里那个 `local-llm` **已废除启动且 crate 已被
 /// 物理删除**（`ARCHIVED-mods.md` §3.1，W2-A）——留着它，这个文件在删 crate
 /// 之后**照样绿**（前端只解析 JSON），是 D6 点名的「已删 crate 硬编码夹具
-/// 假绿灯」。现在换成在册的 `director`，并由 `registeredModIds()`（读
+/// 假绿灯」。现在换成在册的 `persona`，并由 `registeredModIds()`（读
 /// `main.rs` 的 `AVAILABLE_MOD_FACTORIES`，唯一真源）交叉核对：
 /// **crate 被删 / 改名就红**。
+///
+/// 2026-10-17（rc4）：导演退役成核心常驻（工厂 6→5），夹具随之换成仍在册的
+/// `persona`——夹具 id 必须始终是**当前**注册表里的一个。
 ///
 /// 2026-10-09「两类 TTS」：本轮重新注册进 `AVAILABLE_MOD_FACTORIES` 的是 `local-tts`
 /// ——一个**只拉起外部进程**的 Mod（缺省停用），它**不写** `[tts]`：出声端点仍
@@ -40,7 +43,7 @@ const String kRealModelsJson = '{"models":[]}';
 const String kRealModsJson = '''
 {"mods":[{"api_version":1,"enabled":false,"id":"external-input","name":"外部输入",
 "status":"disabled","version":"0.1.0"},
-{"api_version":1,"enabled":true,"id":"director","name":"导演",
+{"api_version":1,"enabled":true,"id":"persona","name":"人设",
 "status":"running","version":"0.1.0"}]}
 ''';
 
@@ -181,7 +184,7 @@ void main() {
       expect(mods[0].id, 'external-input');
       expect(mods[0].enabled, isFalse);
       expect(mods[0].statusLabel, '已停用');
-      expect(mods[1].id, 'director');
+      expect(mods[1].id, 'persona');
       expect(mods[1].isRunning, isTrue);
       expect(mods[1].statusLabel, '运行中');
     });
@@ -194,7 +197,7 @@ void main() {
       expect(ids, isNotEmpty, reason: '真源一个 id 都没解出来 —— 这条门禁在空转（不是「后端没有 Mod」）');
       expect(
         ids,
-        containsAll(<String>['external-input', 'director']),
+        containsAll(<String>['external-input', 'persona']),
         reason: '夹具指向了不在 `AVAILABLE_MOD_FACTORIES` 里的 Mod（已删 / 改名）',
       );
     });
@@ -233,11 +236,11 @@ void main() {
           return jsonResponse('{}', 200);
         }),
       );
-      await api.setEnabled('director', true);
-      await api.setEnabled('director', false);
+      await api.setEnabled('persona', true);
+      await api.setEnabled('persona', false);
       expect(paths, <String>[
-        '/api/v1/mods/director/enable',
-        '/api/v1/mods/director/disable',
+        '/api/v1/mods/persona/enable',
+        '/api/v1/mods/persona/disable',
       ]);
     });
   });

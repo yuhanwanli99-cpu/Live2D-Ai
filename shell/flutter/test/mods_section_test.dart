@@ -14,8 +14,12 @@ import 'package:http/testing.dart';
 
 import 'package:live2d_ai_shell/api/api_client.dart';
 import 'package:live2d_ai_shell/api/mods_api.dart';
+import 'package:live2d_ai_shell/settings/mods/mod_panel.dart';
+import 'package:live2d_ai_shell/settings/mods/mod_panels.dart';
 import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
+
+import 'support/registered_mods.dart';
 
 /// **合成**夹具：一个带 spec 的 Mod + 若干容错项（未知 kind / 空 select）。
 ///
@@ -402,60 +406,55 @@ void main() {
     });
   });
 
-  group('隐藏键（2026-10-08）：产品面不渲染，但磁盘上的值一个不丢', () {
-    /// 导演形状的 Mod（id = `director` → `modPanelFor` 命中 `DirectorPanel`，
-    /// 它声明了 8 个 `hiddenKeys`）。
-    ModInfo directorMod() => ModInfo(
-      id: 'director',
-      name: '导演',
-      version: '0.1.0',
-      apiVersion: 1,
-      enabled: true,
-      status: 'running',
-      config: const <String, Object?>{
-        'preset_happy': 'nod',
-        'staging_base_url': 'http://kept/v1',
-        'staging_timeout_ms': 2500,
-      },
-      settingsSpec: ModSettingsSpec(
-        modId: 'director',
-        title: '导演',
-        version: 2,
-        fields: <ModSettingField>[
-          _field(
-            ModFieldKind.select,
-            'preset_happy',
-            '开心 → 动作',
-            defaultValue: 'smile',
-            options: const <ModSelectOption>[
-              ModSelectOption(value: 'none', label: '不投递'),
-            ],
-          ),
-          _field(
-            ModFieldKind.string,
-            'staging_base_url',
-            '二路端点 base_url（留空则用对话模型；如 http://127.0.0.1:11434/v1）',
-          ),
-          _field(
-            ModFieldKind.number,
-            'staging_timeout_ms',
-            '二路超时（毫秒，100~5000）',
-            min: 100,
-            max: 5000,
-          ),
-        ],
-      ),
-    );
+  group('2026-10-17（rc4）：扩展区不再有导演卡', () {
+    test('产品面板注册表里没有导演（导演已升为一级分区）', () {
+      expect(
+        kModPanels.map((ModPanel p) => p.modId),
+        isNot(contains('director')),
+        reason: '扩展区只保留仍是 Mod 的产品面板',
+      );
+      expect(modPanelFor('director'), isNull);
+    });
 
-    testWidgets('隐藏键一个都不上屏（也不进「高级」）；保存不带它们，既有值原样保留', (
+    testWidgets('真泵 ModsSection：在册 Mod 列表里没有「导演」卡', (
+      WidgetTester tester,
+    ) async {
+      final Set<String> ids = registeredModIds();
+      expect(ids, isNotEmpty, reason: '在册注册表没解出来 = 这条门禁在空转');
+      final List<ModInfo> mods = <ModInfo>[
+        for (final String id in ids)
+          ModInfo(
+            id: id,
+            name: '',
+            version: '0.1.0',
+            apiVersion: 1,
+            enabled: false,
+            status: 'disabled',
+          ),
+      ];
+      await tester.pumpWidget(
+        _wrap(ModsSection(mods: mods, loading: false, onLoadState: _stubState)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('导演'), findsNothing, reason: '扩展区不得再有导演卡');
+      // 不因「旧后端多回了一个 director」就长出第二套设置面：
+      // 面板注册表已经明确不认它。
+      expect(modPanelFor('director'), isNull);
+    });
+  });
+
+  group('T2（2026-10-13）：底部「保存并重载」能一起提交未提交的表单配置（通用）', () {
+    testWidgets('改了端口但没按卡片保存 → submitPending 写进配置', (
       WidgetTester tester,
     ) async {
       Map<String, Object?>? saved;
+      final ModConfigDrafts drafts = ModConfigDrafts();
       await tester.pumpWidget(
         _wrap(
           ModsSection(
-            mods: <ModInfo>[directorMod()],
+            mods: <ModInfo>[_modWithSpec()],
             loading: false,
+            drafts: drafts,
             onLoadState: _stubState,
             onSaveConfig: (String id, Map<String, Object?> config) async {
               saved = config;
@@ -464,22 +463,34 @@ void main() {
           ),
         ),
       );
-      await tester.tap(find.text('导演'));
+      await _expandFirstMod(tester);
+
+      // 还没改：没有未提交草稿（底部「保存并重载」不因它出现）。
+      expect(drafts.hasPending, isFalse);
+
+      // 改端口，但**不按**卡片上的「保存并应用」——模拟用户直接去按底部那颗。
+      final Finder portField = find.byWidgetPredicate(
+        (Widget w) => w is TextField && w.controller?.text == '11434',
+      );
+      await tester.ensureVisible(portField);
+      await tester.pumpAndSettle();
+      await tester.enterText(portField, '12000');
+      await tester.pumpAndSettle();
+      expect(drafts.hasPending, isTrue, reason: '改过表单 = 有未提交的 Mod 草稿');
+      expect(saved, isNull, reason: '还没提交，磁盘上不该有改动');
+
+      // 底部「保存并重载」的第 0 步（见 shell_settings._saveAll）。
+      final List<String> failed = await drafts.submitPending();
       await tester.pumpAndSettle();
 
-      expect(find.text('开心 → 动作'), findsNothing);
+      expect(failed, isEmpty, reason: '提交必须成功');
+      expect(saved, isNotNull, reason: '必须真的走了一次配置保存');
       expect(
-        find.text('二路端点 base_url（留空则用对话模型；如 http://127.0.0.1:11434/v1）'),
-        findsNothing,
+        saved!['port'],
+        12000,
+        reason: '卡片里未提交的配置必须一起写进 mods.json',
       );
-      expect(find.text('二路超时（毫秒，100~5000）'), findsNothing);
-      expect(find.text('高级'), findsNothing, reason: '隐藏键不得被收进「高级」折叠');
-
-      await _tapSave(tester);
-      expect(saved, isNotNull);
-      expect(saved!['preset_happy'], 'nod', reason: '隐藏键的值不得被 spec 默认值覆盖');
-      expect(saved!['staging_base_url'], 'http://kept/v1');
-      expect(saved!['staging_timeout_ms'], 2500);
+      expect(drafts.hasPending, isFalse, reason: '提交成功后草稿清空');
     });
   });
 }

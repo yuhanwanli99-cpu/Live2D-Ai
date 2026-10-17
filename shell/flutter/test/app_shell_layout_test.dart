@@ -582,14 +582,14 @@ void main() {
   group('「开发模式」分区**恒在**（否则 dev_mode 在界面上打不开）', () {
     // 2026-09-11 修：过去 dev_mode 关时这个分区被藏起来，而唯一能打开
     // dev_mode 的开关就在它里面 —— 死循环，只有 curl 能开。
-    testWidgets('设置面板里 7 个分区都在，含「开发模式」', (WidgetTester tester) async {
+    testWidgets('设置面板里 8 个分区都在，含「开发模式」', (WidgetTester tester) async {
       await pumpShell(tester, width: 1400);
       // 分区导航现在只有面板里那一行 chip（rail 已删）。
       //
       // 2026-09-11（P1-1）：侧板改成「折叠而不是卸载」之后，chip **一直在树里**
       // ——所以「面板没打开」的判据是**折到 0 宽 + 不进焦点序**，
       // 而不是「找不到」。后者已经不可能成立了（那正是保活的代价）。
-      expect(find.byType(ChoiceChip), findsNWidgets(7));
+      expect(find.byType(ChoiceChip), findsNWidgets(8));
       expect(tester.getSize(dockPanel()).width, lessThan(1));
       expect(
         Focus.of(tester.element(find.byType(ChoiceChip).first)).canRequestFocus,
@@ -598,7 +598,7 @@ void main() {
       );
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
-      expect(find.byType(ChoiceChip), findsNWidgets(7));
+      expect(find.byType(ChoiceChip), findsNWidgets(8));
       expect(find.widgetWithText(ChoiceChip, '开发模式'), findsOneWidget);
       // 一级「诊断」已取消（2026-10-09）——它不再是一个 chip。
       expect(find.widgetWithText(ChoiceChip, '诊断'), findsNothing);

@@ -28,9 +28,9 @@ pub const DEFAULT_TTL_MS_EXPRESSION: u64 = 2_600;
 
 /// 表演层 cue 的固定优先级（**应用层写死，模型不得自报**）。
 ///
-/// 与 live2d-ai-mod-director::plan::PRIORITY_ASYNC 同值（40）——它是
-/// 「表演层覆盖规则层」的既有抬升口径；数字写在这里而不是从 Mod 引，避免
-/// runtime 反向依赖 Mod crate。
+/// 与已退休 director 的异步 priority 同值（40）——它是「表演层覆盖规则层」的
+/// 既有抬升口径；数字写在这里而不是从 Mod 引，避免 runtime 反向依赖 Mod crate。
+/// （director 的 `plan` 模块已于 rc4 删除，这个 40 保留为 wire 契约。）
 pub const PRIORITY_PERFORMANCE: u8 = 40;
 
 /// **expression 字段的 id 能力集**（表情表只有脸，V3 / T9）。
@@ -39,9 +39,10 @@ pub const PRIORITY_PERFORMANCE: u8 = 40;
 /// 交上来一律丢该条 + warn（整份仍成功），因为渲染面的表情表只有五官。
 /// none 是撤销哨兵，由校验器与 schema 单独补，不在本表里。
 ///
-/// 数字写在这里而不是从 Mod crate 引（理由同 [PRIORITY_PERFORMANCE]）：director
-/// 的 preset_slot(id) == Face（去掉 none）必须与这一份**逐项相等**，回归
-/// presets::tests::expression_slot_matches_the_performance_field_map 钉住。
+/// 数字写在这里而不是从 Mod crate 引（理由同 [PRIORITY_PERFORMANCE]）：规则表的
+/// `preset_slot(id) == Face`（去掉 none）必须与这一份**逐项相等**，回归
+/// `performance::rules::tests::expression_slot_matches_the_performance_field_map` 钉住。
+/// （规则表已于 rc4 迁入 runtime `performance::rules`。）
 pub const EXPRESSION_PRESET_IDS: &[&str] = &["smile", "unhappy", "surprised", "thinking"];
 
 /// 该 id 是否是 expression 字段可用的表情 id（none 另算）。

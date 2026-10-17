@@ -29,6 +29,44 @@ fn mods_list_includes_spec_and_redacts_secret() {
     assert!(body.contains("\"/x\""), "非 secret 字段应回值: {body}");
 }
 
+/// **rc4（2026-10-17）**：本机 `mods.json` 可能仍有已退役的 `director` 条目
+///（该文件是本机配置，运维不动它）。未注册的 id 必须被**忽略并告警**，而不是让
+/// 启动失败；`GET /api/v1/mods` 里也**不得**出现 director（它已移出
+/// `AVAILABLE_MOD_FACTORIES`，见 main.rs `mod_count_is_five`）。
+#[test]
+fn retired_director_entry_in_manifest_is_ignored_by_the_registry() {
+    let manifest = serde_json::json!({
+        "mods": {
+            "specmod": {"enabled": true, "config": {"path": "/x"}},
+            "director": {"enabled": true, "config": {"motion_bias": "eager"}}
+        }
+    });
+    // 不 panic / 不报错：未注册 id 只走「warn + 忽略」，不动其它 Mod 的注册。
+    let mut registry = crate::mod_registry::ModRegistry::new(SPEC_FACTORIES, &manifest);
+    registry.start_all();
+    assert!(registry.contains("specmod"), "已注册 Mod 照常进表");
+    assert!(
+        !registry.contains("director"),
+        "未注册的 director 条目必须被忽略"
+    );
+    assert!(
+        registry.config("director").is_none(),
+        "未注册 id 不得出现在配置面"
+    );
+    assert_eq!(registry.ids(), vec!["specmod"], "注册表只含编译期工厂");
+
+    let ctx = dummy_ctx(SecurityContext::new(18099, true));
+    *ctx.mod_registry.lock().unwrap() = registry;
+    let resp = handle_mods_route(&ctx, &Method::Get, "/api/v1/mods", "", None, None).unwrap();
+    assert_eq!(resp.status_code(), StatusCode(200));
+    let body = body_string(resp);
+    assert!(body.contains("\"id\":\"specmod\""), "body = {body}");
+    assert!(
+        !body.contains("director"),
+        "GET /api/v1/mods 不得出现已退役的 director: {body}"
+    );
+}
+
 /// M2：`GET /api/v1/mods/{id}/config` 只读返回；未知 id → 404；secret 不回值。
 #[test]
 fn mod_config_get_returns_redacted_config() {
@@ -431,10 +469,12 @@ fn mods_list_carries_last_error() {
 }
 
 /// **T2（2026-10-13 执行单）**：POST /api/v1/mods/{id}/config（这里用测试 Mod 的
-/// 同一个 config 分支）落盘成功后必须触发 supervisor.reload()——
-/// 按句清洗器**只在重载时**重读 mods.json，不重载的话「表演倾向」改了也不生效。
+/// 同一个 config 分支）落盘成功后必须触发 supervisor.reload()——核心第二路
+/// 按句清洗器**只在重载时**重读 mods.json 的 `motion_bias`，不重载的话
+/// 「表演倾向」改了也不生效（rc4 起导演 Mod 已退役，本测试只测 config→reload
+/// 这条通用路径）。
 #[test]
-fn director_config_post_reloads_supervisor_for_motion_bias() {
+fn config_post_reloads_supervisor_for_motion_bias() {
     let (supervisor, tmp) = crate::web_api::tests_reload::spawn_test_supervisor("mods_bias");
     let ctx = ctx_with_mod(serde_json::json!({
         "mods": {"specmod": {"enabled": true, "config": {"path": "/x"}}}

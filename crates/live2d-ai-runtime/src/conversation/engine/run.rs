@@ -63,11 +63,9 @@ impl ConversationEngine {
         let messages = self.build_messages(user_text);
         // 表演层运行时快照：`Some` = 本轮由表演层决定 speak/cues（收齐原文后再切句）。
         let performance = self.performance.clone();
-        // 二路清洗快照（`None` / disabled = 不跑二路，上屏与送 TTS 同源）。
+        // 二路清洗快照（rc4 常驻；`None` / disabled = 不跑二路，上屏与送 TTS
+        // 同源，动作走这一句原文的规则表）。
         let cleaner = self.cleaner.clone();
-        // 动作门快照（T14）：按句清洗那一次响应带 cues；失败回退按句规则表。
-        let motion = self.motion;
-        let sentence_rule = self.sentence_rule.clone();
         let mut assembler = DialogueAssembler::new(self.config.sentence_max_chars);
         let mut assistant_text = String::new();
         let mut sentence_seq: u64 = 0;
@@ -198,23 +196,18 @@ impl ConversationEngine {
                             // 两者共用**同一个 `sentence_seq`**——气泡与音频仍按一个号
                             // 对齐。回灌 LLM 的历史（commit_completed_turn）始终用**原文**。
                             sentence_seq += 1;
-                            let Some((display, speech, cues)) = sentence_texts(
-                                cleaner.as_ref(),
-                                &text,
-                                sentence_seq,
-                                motion,
-                                sentence_rule.as_ref(),
-                                &cancel,
-                            )
-                            .await
+                            let Some((display, speech, cues)) =
+                                sentence_texts(cleaner.as_ref(), &text, sentence_seq, &cancel)
+                                    .await
                             else {
                                 // 二路清洗期间被取消：安静收场（Cancelled）。
                                 cancelled = true;
                                 break 'llm;
                             };
-                            // 动作门开着：cue **先于**该句音频（SentenceReady）发出，
-                            // `covers_upto_seq` 盖住这一句。空表不发（中性句不动）。
-                            if motion && !cues.is_empty() {
+                            // 动作恒开（rc4）：cue **先于**该句音频（SentenceReady）
+                            // 发出，`covers_upto_seq` 盖住这一句。空表不发（中性句不动）。
+                            // 写 cue 的**只**有这一处 + 规则表回退（单 cue 写者）。
+                            if !cues.is_empty() {
                                 let delivered = send_event(
                                     &event_tx,
                                     &cancel,
@@ -301,10 +294,14 @@ impl ConversationEngine {
             }
         }
 
-        // ---- 阶段 1.5：表演层（v1，2026-09-26）----
+        // ---- 阶段 1.5：表演层（v1，2026-09-26；rc4 保留 segments / speak）----
         // 主链在这里**收齐本轮助手原文**，交给表演层拿一份合法化 JSON：
-        //   segments → 逐段送 TTS + 上屏（D22：一对一，不再二次切句；D23：上屏==送 TTS）；
-        //   cues     → EngineEvent::ActionCue（supervisor 投影为 WS action_cue）。
+        //   segments → 逐段送 TTS + 上屏（D22：一对一，不再二次切句；D23：上屏==送 TTS）。
+        // **导演常驻（2026-10-17 返工裁决）**：即使表演层接管了文本，动作仍按
+        // **每一段的原文**走核心规则表（`performance::rules::rule_cues_for_sentence`，
+        // 纯本地纯函数、**不新增 LLM 调用**）：非空则在该段 SentenceReady **之前**
+        // 发一条 ActionCue（covers_upto_seq = 该段 seq）。表演层自己的
+        // `resolution.cues` **仍不投递**（单 cue 写者），也不为 cue 造无声锚句。
         // v0 的 speak 路径（segments 缺席 / 回退）仍走 SentenceAssembler。
         // 只有「表演层开着 + 正常流完 + 未取消 + 无致命」才走这里；失败轮的正文
         // 兜底仍由阶段 4 的 TextFallback 负责（那一轮不发 TTS）。
@@ -327,7 +324,7 @@ impl ConversationEngine {
                 // 与音频元素（`seg:N` ≡ `sentence_seq == N`）——**不再过分句器二次切分**。
                 // 回退 / v0 旧路径（`segments == None`）仍走既有 SentenceAssembler，
                 // 对 `clean_for_tts(原文)` 切多段（v0 行为不变）。
-                let mut sentences: Vec<String> = match &resolution.segments {
+                let sentences: Vec<String> = match &resolution.segments {
                     Some(segments) => segments.clone(),
                     None => {
                         let mut out = Vec::new();
@@ -340,30 +337,6 @@ impl ConversationEngine {
                         out
                     }
                 };
-                // **只动**（segments=[] + 有 cue）：给一条**无声锚句**。前端的 cue 锚点
-                // 是「该句音频开始」（first_chunk），没有句子就没有锚点，动作永不发生。
-                // 空文本句走 worker 既有的**静音句**路径（不发 TTS HTTP），只产出
-                // 一个 start/end 边界帧——正是 cue 需要的锚。
-                if sentences.is_empty() && !resolution.cues.is_empty() {
-                    sentences.push(String::new());
-                }
-                let covers_upto_seq = sentences.len() as u64;
-                // cue **先于**音频发出：前端按 sentence_seq 存好整份计划，
-                // 等该句 first_chunk 时应用（与既有 action_cue 契约一致）。
-                let delivered = send_event(
-                    &event_tx,
-                    &cancel,
-                    EngineEvent::ActionCue {
-                        epoch,
-                        ts_ms: now_ms(),
-                        covers_upto_seq,
-                        cues: resolution.cues.clone(),
-                    },
-                )
-                .await;
-                if !delivered {
-                    tx_closed = true;
-                }
                 'perform: for sentence in sentences {
                     // **D23（上屏 == 送 TTS）**：每段文本都是 `clean_for_tts(段)`，
                     // 与流式路径同一条确定性清洗（幂等；只拆标记、不改句界）。
@@ -371,6 +344,27 @@ impl ConversationEngine {
                     // 并走 worker 的静音句路径（仍产出 start/end 边界帧）。
                     let cleaned = crate::dialogue::clean_for_tts(&sentence);
                     sentence_seq += 1;
+                    // 导演常驻：每段原文都过核心规则表产 cue（非空才发），
+                    // 在该段 SentenceReady / 音频之前。表演层自己的 cues 不投递。
+                    let cues =
+                        crate::performance::rules::rule_cues_for_sentence(&sentence, sentence_seq);
+                    if !cues.is_empty() {
+                        let delivered = send_event(
+                            &event_tx,
+                            &cancel,
+                            EngineEvent::ActionCue {
+                                epoch,
+                                ts_ms: now_ms(),
+                                covers_upto_seq: sentence_seq,
+                                cues,
+                            },
+                        )
+                        .await;
+                        if !delivered {
+                            tx_closed = true;
+                            break 'perform;
+                        }
+                    }
                     let delivered = send_event(
                         &event_tx,
                         &cancel,

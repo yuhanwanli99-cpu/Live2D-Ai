@@ -44,12 +44,6 @@ pub(crate) fn handle_engine_event(
     voice_started_emitted: &mut bool,
     saw_fatal_kind: &mut bool,
     saw_llm_error: &mut bool,
-    // 是否把 `SentenceReady` 转给 Mod（规则导演的按句 cue 锚点）：
-    // **表演层开着时为 false**——那一轮的 cue 归表演层 JSON，规则导演不再并行
-    // 投递（否则两份 action_cue 会在前端打擂台，且后到的规则 cue 会整份覆盖
-    // 表演层的计划）。表演层的失败回退 cue 由 runtime 注入的规则函数给出，
-    // 不依赖这条通路。
-    forward_sentence_ready_to_mods: bool,
     emit: &Emit,
 ) {
     match ev {
@@ -76,36 +70,12 @@ pub(crate) fn handle_engine_event(
                 },
             ));
         }
-        EngineEvent::SentenceReady {
-            epoch,
-            ts_ms,
-            sentence_seq,
-            text,
-        } => {
-            // P1-2（2026-09-16）：**送 TTS 之前**的锚点交给 Mod（导演按句投 cue）。
-            // 只读文本、不改它——送 TTS 的仍是引擎里那份确定性清洗产物。
-            // 投递走线程局部桥（非阻塞）；无 Mod 环境 / 无桥时静默。
-            //
-            // 2026-09-22：表演层开着时不投（见 `forward_sentence_ready_to_mods` 注）。
-            if !forward_sentence_ready_to_mods {
-                return;
-            }
-            super::MOD_EVENT_CB.with(|cell| {
-                if let Some(f) = cell.borrow().as_ref() {
-                    let payload = serde_json::json!({
-                        "epoch": epoch,
-                        "ts_ms": ts_ms,
-                        "sentence_seq": sentence_seq,
-                        "text": text,
-                    })
-                    .to_string();
-                    f(
-                        live2d_ai_mod_system::ModEventTopic::SentenceReady,
-                        &payload,
-                        None,
-                    );
-                }
-            });
+        EngineEvent::SentenceReady { .. } => {
+            // P1-2（2026-09-16）曾把「该句即将送 TTS」的锚点经线程局部桥投给
+            // director Mod（规则导演按句投 cue）。2026-10-17（rc4）起导演 Mod
+            // 退役、按句清洗与 cue 收归核心第二路（**单一 cue 写者**），这条
+            // 转发已删除：host 不再向 Mod 投 `SentenceReady`，避免第二份 cue。
+            // 本变体仍留在引擎事件流里（ev_epoch / ev_ts_ms 与阶段埋点用）。
         }
         EngineEvent::SentenceVoiced {
             epoch,
@@ -247,9 +217,10 @@ pub(crate) fn handle_engine_event(
             covers_upto_seq,
             cues,
         } => {
-            // 表演层的按句 cue（2026-09-22）：投影为**既有** WS `action_cue` 帧；
-            // 前端在该句音频 first_chunk 时应用预设。空 cues 也照发——消费端
-            // 按「整份计划覆盖」处理，空表 = 本轮不动并清掉上一轮残留。
+            // 按句 cue（2026-09-22；rc4 起由核心第二路 / 整段表演层每段原文的
+            // 本地规则表产出）：投影为**既有** WS `action_cue` 帧；前端在该句
+            // 音频 first_chunk 时应用预设。空 cues 也照发——消费端按「整份计划
+            // 覆盖」处理，空表 = 本轮不动并清掉上一轮残留。
             emit(AppEvent::Conversation(ConversationUiEvent::ActionCue {
                 epoch: *epoch,
                 ts_ms: *ts_ms,

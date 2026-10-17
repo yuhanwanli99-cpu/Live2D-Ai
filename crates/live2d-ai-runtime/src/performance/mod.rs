@@ -10,21 +10,24 @@
 //!          └─► 表演层：POST {performance.base_url}/chat/completions（非流式）
 //!                 └─ 一份 JSON：{"segments": [...], "cues": [...]}
 //!                       ├─ segments → **一对一**送 TTS + 上屏（D22/D23，不再二次切句）
-//!                       └─ cues     → WS action_cue（锚段边界，v1 新键摊平）
+//!                       └─ cues     → 仍可解析（协议 v1 冻结），但 **rc4 起引擎
+//!                          不再把它发成 ActionCue**（单 cue 写者 = 按句第二路）
 //! ```
 //!
 //! v0 的 `speak` 字段**保留可解析（V11：缺省即旧语义）**：只有 `segments` 缺席时
 //! 走旧路径；两者同现 → segments 优先、speak 忽略 + warn（O1）。
 //!
-//! **主模型不负责表演**：它只写剧情正文；选段 / 切分 / cue 归表演层。表演层默认关
-//! （`[performance] enabled=false`）——关掉时主链保持既有的「边流边切句边送 TTS」
-//! 行为，规则导演（director Mod）照旧。
+//! **主模型不负责表演**：它只写剧情正文；选段 / 切分归表演层。表演层默认关
+//! （`[performance] enabled=false`）——关掉时主链走「边流边切句 + 按句二路清洗 +
+//! 按句规则表出 cue」的常驻路径（2026-10-17 rc4：第二路已并入核心，见
+//! [`rules`] 与 `crate::conversation::engine`）。
 //!
 //! # 失败回退（**只有失败才回退**）
 //!
 //! 关 / 超时 / 非 2xx / 坏 JSON / 校验失败 → `segments=[clean_for_tts(原文)]`（v1 口径；
 //! 引擎回退路径仍用 SentenceAssembler 对 clean_for_tts(原文) 切多段，D22）+ 规则 cue
-//!（由 host 注入的 [RuleFallback]，单一真源是 director 的规则层）。
+//!（由 host 注入的 [RuleFallback]，单一真源是 [`rules::rule_cues_for_text`]；
+//! **rc4 起引擎不再把这份 cue 发出去**，规则 cue 的唯一出口是按句第二路）。
 //! 回退原因码见 [FallbackReason::code]，计数与最近原因见 [PerformanceStats]。
 //!
 //! # 为什么在 runtime 而不是 Mod
@@ -32,13 +35,14 @@
 //! 因为 `speak` 必须成为**主链 TTS / 上屏的真源**——Mod API 没有改写 TTS 文本的
 //! 通道（那条纪律写死在 core-chain-baseline）。选择与并存关系见
 //! docs/architecture/performance-layer-v0.md：**本模块是表演层主路由**；
-//! director Mod 的 `staging_*`（二路 LLM）是同能力的**遗留并行实现**，
-//! 缺省停用，保留为规则回退来源之一。
+//! director Mod 的 `staging_*` 与异步二路已在 rc4 退休（crate 退出注册表），
+//! 规则表迁入 [`rules`] 常驻生效。
 
 pub mod client;
 pub mod plan;
 pub mod prompt;
 pub mod question;
+pub mod rules;
 
 #[cfg(test)]
 mod tests;
@@ -75,7 +79,10 @@ pub use question::{
     first_question_segment, has_question_mark,
 };
 
-/// host 注入的**规则回退**：正文 → 规则 cue（单一真源 = director 的纯函数）。
+/// host 注入的**规则回退**：正文 → 规则 cue（单一真源 = [`rules::rule_cues_for_text`]）。
+///
+/// rc4 起引擎不再把 `resolve()` 产出的 cue 发成 ActionCue（单 cue 写者）；
+/// 这个闭包只影响表演层自己的 `Resolution.cues` 与测试。
 pub type RuleFallback = Arc<dyn Fn(&str) -> Vec<PerformanceCue> + Send + Sync>;
 
 /// 本轮回退原因（`None` = 表演层成功）。
@@ -205,6 +212,9 @@ pub struct Resolution {
     /// v1：表演层给的**原文切分方案**（`Some` = D22 一对一送 TTS，不再二次切句）。
     pub segments: Option<Vec<String>>,
     /// 按句 cue（legacy 或 v1 信封投影；空 = 不动）。
+    ///
+    /// **rc4 起引擎不消费它**（写 cue 的只留主链按句第二路一处）；保留字段是
+    /// 协议 v1 / 既有测试与状态语义的一部分。
     pub cues: Vec<PerformanceCue>,
     /// 回退原因（`None` = 表演层成功）。
     pub reason: FallbackReason,

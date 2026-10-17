@@ -202,7 +202,12 @@ run_turn:
   + 运行计数（plans / fallbacks / noops / speak_turns / cue_turns / last_fallback / last_structured）。
 - **引擎事件**：`EngineEvent::ActionCue`（`ev_epoch` / `ev_ts_ms` 已覆盖）。
 
-## 7. 与 director Mod staging 的并存关系（**当前实现事实**）
+## 7. 与 director Mod staging 的并存关系（**历史：rc4 前**）
+
+> **2026-10-17（0.3.1-rc.4）现状 banner**：director Mod 的 `staging_*` 已删除，本节
+> 「两个可选提供者并存 / `staging_enabled`」为**历史描述**。现行 = **核心常驻导演**
+> （规则表已迁入核心）+ `[performance]` 只接管 `segments` / `speak`，表演层 `cues` **不投递**；
+> 见 [`CURRENT.md`](CURRENT.md) §4。
 
 > **V12（2026-09-26）**：本节记的「两个可选提供者」事实**继续有效**；
 > 其中「**当前事实 = 表演层产 `segments` + `cues`，director staging 只产 `cues`**」

@@ -25,10 +25,8 @@
 //! [crate::performance::client::OpenAiPerformanceClient::build_body]）。
 //! 这里不做任何延迟优化 / 探针 / 重试：关思考是开关，不是延迟课题。
 
-use std::fmt;
-use std::sync::Arc;
-
 use serde_json::Value;
+use std::fmt;
 
 use crate::config::LlmConfig;
 use crate::performance::PerformanceCue;
@@ -37,36 +35,6 @@ use crate::performance::client::{
 };
 use crate::performance::prompt::strip_code_fence;
 use crate::secret::ApiSecret;
-
-/// host 注入的**按句规则回退**：这一句原文 + 句号 → 规则 cue。
-///
-/// 单一真源 = director 的 `rule_cues_for_sentence`（crate 依赖方向决定只能注入）。
-/// **调用实参只能是这一句一路原文**，不得是用户输入。
-///
-/// 用 newtype 而不是裸 `Arc<dyn Fn>`：`ConversationEngine` 派生 `Debug`，而
-/// `dyn Fn` 不实现 `Debug`——这里手写一份只打占位符的 `Debug`。
-type SentenceRuleFn = Arc<dyn Fn(&str, u64) -> Vec<PerformanceCue> + Send + Sync>;
-
-#[derive(Clone)]
-pub struct SentenceRuleFallback(SentenceRuleFn);
-
-impl SentenceRuleFallback {
-    /// 包装一个纯函数闭包。
-    pub fn new(f: impl Fn(&str, u64) -> Vec<PerformanceCue> + Send + Sync + 'static) -> Self {
-        Self(Arc::new(f))
-    }
-
-    /// 用**这一句一路原文** + 句号求规则 cue。
-    pub fn call(&self, text: &str, sentence_seq: u64) -> Vec<PerformanceCue> {
-        (self.0)(text, sentence_seq)
-    }
-}
-
-impl fmt::Debug for SentenceRuleFallback {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("SentenceRuleFallback")
-    }
-}
 
 /// 送 TTS 稿里**连续数字段**的最小长度（T1，2026-10-13 执行单）。
 ///
@@ -138,7 +106,8 @@ speech：拿去语音合成的文本——删掉 emoji、颜文字与括号里�
 /// 动作门开着时的二路 system 提示：两字段契约照旧，另加**这一句**的可选 `cues`。
 ///
 /// `cues` 只根据用户消息里的**这一句原文**选预设 id（不跨句、不看上下文）；
-/// 能力集由调用方注入（= director 的主 allowlist）。提示词不写死 id 列表。
+/// 能力集由调用方注入（= runtime `performance::rules` 的主 allowlist）。
+/// 提示词不写死 id 列表。
 ///
 /// `bias` = 表演倾向（2026-10-13 执行单 T3）：`None` = 既有「克制」文案
 /// （2026-10-13 前的行为逐字不变）；`Some` = 只把 `cues：` 那一句换成 bias 的
@@ -168,8 +137,9 @@ cues：{clause}。\
 /// 表演倾向在 runtime 侧的**最小投影**（2026-10-13 执行单 T3）。
 ///
 /// 单一真源 = `live2d_ai_mod_director::motion_bias::MotionBias`（三档枚举 +
-/// 锁死的 `cue_clause` 文案）；依赖方向（director → runtime）决定 runtime 不能
-/// 反向依赖，所以这里只收两条派生值，由 host 装配时投影进来。
+/// 锁死的 `cue_clause` 文案；rc4 沿用 mods.json 既有键 `motion_bias`，不新增
+/// 键 / UI）。依赖方向（director → runtime）决定 runtime 不能反向依赖，所以
+/// 这里只收两条派生值，由 host 装配时投影进来。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MotionBias {
     /// 已含能力集 id 列表的完整 cue 子句（文案真源在 director 侧）。
@@ -205,8 +175,9 @@ pub struct CleanedSentence {
     pub display: String,
     /// 送 TTS 的文本（可为空 = 静音句）。
     pub speech: String,
-    /// 动作门开着时 = 模型给的有效 preset_id（可空 = 这一句不动）；
-    /// 关着 / 未跑 / 失败 = `None`（动作门下由调用方回退规则表）。
+    /// 二路请求了 cues 且**成功解析**时 = 模型给的有效 preset_id
+    /// （可空 = 这一句不动）；未请求 / 未跑 / 失败 = `None`
+    /// （引擎据此回退**这一句原文**的规则表）。
     pub cue_ids: Option<Vec<String>>,
 }
 
@@ -240,12 +211,13 @@ pub fn cues_from_ids(ids: &[String], sentence_seq: u64) -> Vec<PerformanceCue> {
 pub struct SentenceCleaner {
     client: Box<dyn PerformanceClient>,
     timeout_ms: u64,
-    /// **动作门**（T11，缺省关）：开着时这一次请求的 JSON 多要一份可选 `cues`。
+    /// 这次请求的 JSON 是否多要一份可选 `cues`（rc4 常驻路径恒 true；
+    /// false 只用于「只清洗、不要动作」的显式装配 / 既有测试）。
     motion: bool,
-    /// cue 的 preset id 能力集（动作门下用于校验模型给回的 id）。
+    /// cue 的 preset id 能力集（用于校验模型给回的 id）。
     allowed: Vec<String>,
-    /// 表演倾向（2026-10-13 执行单 T3；动作门下生效）：`None` = 既有克制文案，
-    /// `Some` = 只换 `cues：` 那一句 + 决定空数组是否回退规则表。
+    /// 表演倾向（2026-10-13 执行单 T3；请求 cues 时生效）：`None` = 既有克制
+    /// 文案，`Some` = 只换 `cues：` 那一句 + 决定空数组是否回退规则表。
     bias: Option<MotionBias>,
 }
 
@@ -296,10 +268,10 @@ impl SentenceCleaner {
         )
     }
 
-    /// 从**显式端点**构造（动作门 `Own`：这一次按句清洗改用 staging 端点）。
+    /// 从**显式端点**构造（host 常驻装配点；端点 = `[llm]` 同一份）。
     ///
-    /// `motion` = 动作门是否开着（开着则请求体多要一份可选 `cues`）；
-    /// `allowed` = cue 的 preset id 能力集（= director 主 allowlist）。
+    /// `motion` = 是否请求可选 `cues`（常驻路径传 true）；
+    /// `allowed` = cue 的 preset id 能力集（= runtime rules 主 allowlist）。
     pub fn from_parts(
         base_url: &str,
         model: &str,
@@ -343,8 +315,9 @@ impl SentenceCleaner {
 
     /// 打开**动作开关**（解析可选 `cues`），能力集 = 主 allowlist。
     ///
-    /// `bias` = 表演倾向（2026-10-13 执行单 T3）：克制 / 平常只换提示词子句，
-    /// 主动档还决定「模型交回空数组时改用规则表」（[`Self::empty_cues_fall_back`]）。
+    /// `bias` = 表演倾向（2026-10-13 执行单 T3；rc4 沿用 mods.json 既有键）：
+    /// 克制 / 平常只换提示词子句，主动档还决定「模型交回空数组时改用规则表」
+    /// （[`Self::empty_cues_fall_back`]）。
     pub fn with_motion(mut self, allowed: Vec<String>, bias: MotionBias) -> Self {
         self.motion = true;
         self.allowed = allowed;
@@ -353,7 +326,7 @@ impl SentenceCleaner {
     }
 
     /// 给**已按 `from_parts(.., motion=true, ..)` 构造**的清洗器补上表演倾向
-    /// （staging 端点路径；`with_motion` 的同义补充，不重复设置 motion / allowed）。
+    /// （host 常驻装配路径；`with_motion` 的同义补充，不重复设置 motion / allowed）。
     pub fn with_bias(mut self, bias: MotionBias) -> Self {
         self.bias = Some(bias);
         self
@@ -364,7 +337,7 @@ impl SentenceCleaner {
         self.client.enabled()
     }
 
-    /// 动作门是否开着（解析 `cues`）。
+    /// 这次请求是否要/解析 `cues`。
     pub fn motion(&self) -> bool {
         self.motion
     }
@@ -390,8 +363,8 @@ impl SentenceCleaner {
             return CleanedSentence::raw(sentence);
         }
         let user = build_user_prompt(sentence);
-        // 动作门关着 → 旧提示词 / 旧两字段解析（既有测试逐字不变）；
-        // 开着 → 同一次请求多要一份可选 `cues`（T11），提示词按表演倾向
+        // 不请求 cues → 旧两字段契约（`cue_ids = None` = 引擎回退规则表）；
+        // 请求 cues → 同一次请求多要一份可选 `cues`，提示词按表演倾向
         // （2026-10-13 执行单 T3）换 `cues：` 那一句。
         let system = if self.motion {
             motion_system_prompt(&self.allowed, self.bias.as_ref())
@@ -448,8 +421,8 @@ pub fn parse_cleaned(
     if display.is_empty() || !sentence.contains(display) {
         return None;
     }
-    // 动作门关着 → 旧两字段契约（忽略 `cues`，`cue_ids = None`）；
-    // 开着 → 解析可选 `cues`（缺字段 / 空数组 = 这一句不动，是**成功**）。
+    // 不请求 cues → 旧两字段契约（忽略 `cues`，`cue_ids = None`）；
+    // 请求 cues → 解析可选 `cues`（缺字段 / 空数组 = 这一句不动，是**成功**）。
     let cue_ids = motion.then(|| parse_cue_ids(value.get("cues"), allowed));
     Some(CleanedSentence {
         display: display.to_string(),

@@ -10,7 +10,8 @@
 /// | 边界 | 去处 |
 /// |---|---|
 /// | 管理面（模型库 / Mod / 诊断 / 密钥） | `app/shell_admin.dart` |
-/// | 设置草稿与 8 个分区 pane | `app/shell_settings.dart` |
+/// | 设置草稿 / 保存 / 放弃 | `app/shell_settings.dart` |
+/// | 8 个分区的 pane 构建器 | `app/shell_settings_panes.dart` |
 /// | 显示偏好 / 背景图 / 舞台缩放 | `app/shell_prefs.dart` |
 /// | 对话回合与读屏播报 | `app/shell_chat.dart` |
 ///
@@ -88,6 +89,7 @@ import 'settings/preset_labels.dart';
 import 'settings/sections/appearance_section.dart';
 import 'settings/sections/dev_tools_section.dart';
 import 'settings/sections/director_observer_section.dart';
+import 'settings/sections/director_section.dart';
 import 'settings/sections/motion_section.dart';
 import 'settings/sections/persona_section.dart';
 import 'settings/sections/service_section.dart';
@@ -109,6 +111,7 @@ part 'app/shell_admin.dart';
 part 'app/shell_chat.dart';
 part 'app/shell_prefs.dart';
 part 'app/shell_settings.dart';
+part 'app/shell_settings_panes.dart';
 part 'app/shell_cue_voice_wiring.dart';
 part 'app/shell_background_scale_wiring.dart';
 part 'app/shell_section_wiring.dart';
@@ -186,8 +189,9 @@ class _ShellRootState extends State<ShellRoot> {
   ///
   /// 新 plan 到达即**整体替换**（一份 plan 覆盖上一份）；音频开始播放时按
   /// 当前句的 sentence_seq 取用一次并移除。产品设置里的幅度倍率由渲染面乘，
-  /// 这里只透传 cue 的 intensity。`state_json.latest` 仅供 director 面板
-  /// **只读展示**，不再驱动舞台（通道 B 已于阶段3 退役）。
+  /// 这里只透传 cue 的 intensity。`state_json.latest` 在 rc4 已**没有任何前端
+  /// 读取路径**（导演并回核心，可观测 A 栏不再读状态端点），更不驱动舞台
+  /// （通道 B 已于阶段3 退役）。
   final DirectorCuePlan _directorCues = DirectorCuePlan();
 
   /// 当前设置分区（受控；外壳只上报意图）。

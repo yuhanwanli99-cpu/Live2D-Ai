@@ -1,5 +1,7 @@
 //! `cleaning` 的内联单测（经 `#[path = "cleaning_tests.rs"]` 挂回，保持父文件 ≤500 行）。
 
+use std::sync::Arc;
+
 use super::*;
 use crate::performance::client::{PerformanceFuture, PerformanceReply};
 

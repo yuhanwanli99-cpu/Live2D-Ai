@@ -13,10 +13,7 @@ use live2d_ai_runtime::{AppSettings, ConversationConfig, ConversationEngine, Ope
 use crate::app_event::AppEvent;
 
 use super::dialogue_history;
-use super::performance_wiring::{
-    CleanEndpoint, DirectorTakeover, build_performance_runtime, clean_endpoint,
-    load_director_takeover, motion_on,
-};
+use super::performance_wiring::{build_performance_runtime, load_motion_bias};
 use super::{Emit, PerformanceStatsSlot};
 
 /// 从磁盘最新配置构造新的 [`OpenAiClient`] + [`ConversationConfig`]（热重载核心）。
@@ -37,7 +34,6 @@ fn rebuild_engine_from_config(
         ConversationConfig,
         Option<Arc<PerformanceRuntime>>,
         Option<Arc<SentenceCleaner>>,
-        DirectorTakeover,
     ),
     String,
 > {
@@ -51,88 +47,42 @@ fn rebuild_engine_from_config(
     // 3) 构造新 client。
     let client = OpenAiClient::new(resolved.llm.clone(), resolved.tts.clone())
         .map_err(|e| format!("构建 LLM/TTS 客户端失败: {e}"))?;
-    // 表演层（T8；2026-10-08 起显式 opt-in）：开关 = `[performance].enabled`；
-    // 导演启用时端点按 `staging_*` 两项共用 `takeover_of` 判定（两项都空 = 复用
-    // 对话模型），导演未启用时用 `[performance]` 自己的 base_url/model。
-    let director = load_director_takeover(config_path);
-    let performance = build_performance_runtime(&settings.llm, &resolved.performance, &director);
-    // 二路按句清洗（2026-10-08；2026-10-13 起动作门可改用 staging 端点）：
+    // 整段表演层（T8；2026-10-08 起显式 opt-in）：开关 = `[performance].enabled`，
+    // 端点只读 `[performance]` 自己（导演 Mod 的二路端点已于 rc4 删除）。
+    let performance = build_performance_runtime(&resolved.performance);
+    // 核心第二路按句清洗（**常驻**；单一 cue 写者）：端点/模型/密钥恒来自一路，
+    // 表演倾向只读 mods.json 的 `mods.director.config.motion_bias`（缺省平常）。
     // `resolved.llm.clean_tts` 由 `AppSettings::resolve` 置 true（产品默认）。
-    let cleaner = build_sentence_cleaner(&client, &director);
-    Ok((
-        client,
-        resolved.conversation,
-        performance,
-        cleaner,
-        director,
-    ))
-}
-
-/// 按句规则回退闭包（单一真源 = director 的 `rule_cues_for_sentence`）。
-///
-/// **只在动作门开着时**注入：实参是这一句一路原文 + 句号，绝不接用户句。
-pub(super) fn sentence_rule_for(
-    director: &DirectorTakeover,
-) -> Option<live2d_ai_runtime::cleaning::SentenceRuleFallback> {
-    motion_on(director).then(|| {
-        live2d_ai_runtime::cleaning::SentenceRuleFallback::new(|text: &str, seq: u64| {
-            live2d_ai_mod_director::presets::rule_cues_for_sentence(text, seq)
-        })
-    })
+    let motion_bias = load_motion_bias(config_path);
+    let cleaner = build_sentence_cleaner(&client, &motion_bias);
+    Ok((client, resolved.conversation, performance, cleaner))
 }
 
 /// 二路清洗装配（唯一装配点；启动与热重载共用）。
 ///
 /// 端点 / 模型 / 密钥**全部来自一路**（`client.llm()`）——模型定死同一份，
 /// 不再给用户第二个下拉框。`clean_tts == false`（`LlmConfig::new` 的便捷构造）
-/// → `None`：主链保持既有行为（上屏 == 送 TTS == `clean_for_tts(句)`）。
+/// → `None`：引擎走确定性清洗 + 规则表（上屏 == 送 TTS == `clean_for_tts(句)`）。
+/// 打开时 `.with_motion(allowed, bias)`：同一请求体多要一份可选 `cues`。
 pub(crate) fn build_sentence_cleaner(
     client: &OpenAiClient,
-    director: &DirectorTakeover,
+    motion_bias: &live2d_ai_mod_director::motion_bias::MotionBias,
 ) -> Option<Arc<SentenceCleaner>> {
     let llm = client.llm();
-    let motion = motion_on(director);
-    let allowed = || live2d_ai_mod_director::presets::accepted_preset_ids();
-    // 表演倾向（2026-10-13 执行单 T3）：真源 = director 的 `motion_bias`，两条派生值。
-    let motion_bias = director.motion_bias.to_runtime_bias(&allowed().join(", "));
-    let cleaner = match clean_endpoint(director) {
-        // 动作门 Own：这一次按句清洗改用 staging 端点。密钥变量名空则复用主 LLM
-        // 的**已解析**密钥；否则经 `secrets::lookup`（永不落日志）。
-        CleanEndpoint::Staging => {
-            let key = if director.staging_api_key_env.is_empty() {
-                llm.api_key.clone()
-            } else {
-                live2d_ai_runtime::secrets::lookup(director.staging_api_key_env.trim())
-                    .map(live2d_ai_runtime::ApiSecret::from)
-            };
-            SentenceCleaner::from_parts(
-                &director.staging_base_url,
-                &director.staging_model,
-                key,
-                live2d_ai_runtime::cleaning::CLEAN_TIMEOUT_MS,
-                motion,
-                allowed(),
-            )
-            .with_bias(motion_bias)
-        }
-        // 复用对话模型（或动作门没开）：端点仍是主 LLM。
-        CleanEndpoint::Conversation => {
-            let base = SentenceCleaner::from_llm(llm);
-            if motion {
-                base.with_motion(allowed(), motion_bias)
-            } else {
-                base
-            }
-        }
-    };
+    // 能力集与规则表的单一真源 = runtime 规则表（导演 Mod 已退役，不再读它）。
+    let allowed = live2d_ai_runtime::performance::rules::accepted_preset_ids();
+    // 表演倾向（2026-10-13 T3）：三档文案真源仍在 director 的 motion_bias，
+    // host 只把它投影成 runtime 侧的两条派生值。
+    let bias = motion_bias.to_runtime_bias(&allowed.join(", "));
+    let cleaner = SentenceCleaner::from_llm(llm).with_motion(allowed, bias);
     if !cleaner.enabled() {
         return None;
     }
     tracing::info!(
         model = cleaner.model(),
         motion = cleaner.motion(),
-        bias = director.motion_bias.as_str(),
-        "二路按句清洗已装配（动作门；请求体显式关思考）"
+        bias = motion_bias.as_str(),
+        "核心第二路按句清洗已装配（常驻；单一 cue 写者，请求体显式关思考）"
     );
     Some(Arc::new(cleaner))
 }
@@ -167,14 +117,12 @@ pub(super) fn apply_reload(
         return Ok(());
     };
     match rebuild_engine_from_config(path, emit) {
-        Ok((new_client, new_conversation, performance, cleaner, director)) => {
+        Ok((new_client, new_conversation, performance, cleaner)) => {
             // 表演层 / 二路清洗与引擎同一份配置解析：热重载后说话人、cue 源、
             // 清洗模型一起换。
             let mut new_engine = ConversationEngine::new(new_client, new_conversation);
             new_engine.set_performance(performance.clone());
             new_engine.set_cleaner(cleaner);
-            new_engine.set_motion(motion_on(&director));
-            new_engine.set_sentence_rule(sentence_rule_for(&director));
             *engine = new_engine;
             // 新引擎是空历史。分桶必须一起丢掉，否则下一轮会把旧桶装回去。
             histories.clear();

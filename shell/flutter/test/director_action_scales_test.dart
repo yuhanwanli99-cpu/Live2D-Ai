@@ -1,8 +1,8 @@
 /// 动作幅度三条 + 「本模型覆盖」的 widget 回归（2026-10-09 搬到导演卡片）。
 ///
-/// 原文件名 appearance_section_test.dart；搬迁后被测对象是
-/// DirectorActionScalesBlock（挂 settings/mods/director_panel.dart），
-/// 布局容器从「外观与互动」页换成了导演卡片，**滑条路由判据一字未改**：
+/// 原文件名 appearance_section_test.dart；2026-10-09 搬到导演卡片、2026-10-17（rc4）
+/// 随导演升为一级卡搬到 settings/sections/director_section.dart，
+/// **滑条路由判据一字未改**：
 /// 1. active_model_id 为空时**如实说「未识别当前模型」并禁用开关**；
 /// 2. 覆盖**关闭**时三条滑条仍是全局值、仍走草稿回调；
 /// 3. 覆盖**开启**时三条滑条是逐键 override[key] ?? global[key] 的有效值，
@@ -16,8 +16,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:live2d_ai_shell/api/settings_models.dart';
 import 'package:live2d_ai_shell/settings/display_prefs.dart';
-import 'package:live2d_ai_shell/settings/mods/director_panel.dart';
 import 'package:live2d_ai_shell/settings/mods/mod_panel.dart';
+import 'package:live2d_ai_shell/settings/sections/director_section.dart';
 import 'package:live2d_ai_shell/settings/sections/appearance_section.dart';
 import 'package:live2d_ai_shell/settings/sections/motion_section.dart';
 import 'package:live2d_ai_shell/ui/field_row.dart' show SliderField, ToggleField;

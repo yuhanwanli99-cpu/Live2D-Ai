@@ -1,8 +1,8 @@
 /// **产品面文案门禁**（2026-09-22；2026-10-08 改口径）：防旧说法回潮。
 ///
 /// 这一组守的是**用户看到的那两处**：
-/// 1. 导演卡片上**只剩一句话**——「打开后，说话时会带上表情和轻微的头、颈动作。」；
-///    旧的两条说明（按情绪触发 / 分段送 TTS / 接管 / 留空 / 两项都填）**不得回潮**；
+/// 1. 一级「导演」卡上**常驻状态**——「导演常驻开启（无开关）」+ 一句说明；
+///    旧说法（「打开后」/ 按情绪触发 / 分段送 TTS / 接管 / 留空 / 两项都填）**不得回潮**；
 /// 2. LLM 分区**不再有**「表演层（默认关）」那一行，也不再出现只说 / 只动 / noop /
 ///    `[performance]` 这些用户看不懂的词；2026-10-08 起「谁负责动作」那一行
 ///    也**整体撤掉**——导演按句出 cue 是产品行为，不需要在这里解释。
@@ -15,7 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:live2d_ai_shell/api/api_client.dart';
 import 'package:live2d_ai_shell/api/settings_models.dart';
-import 'package:live2d_ai_shell/settings/mods/director_panel.dart';
+import 'package:live2d_ai_shell/settings/sections/director_section.dart';
 import 'package:live2d_ai_shell/settings/sections/llm_section.dart';
 import 'package:live2d_ai_shell/settings/settings_controller.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
@@ -62,13 +62,12 @@ Future<void> _pumpLlm(WidgetTester tester, {required bool devMode}) async {
 }
 
 void main() {
-  group('导演卡片：只留一句人话', () {
-    test('锚点句就是那一句，旧说法不得回潮', () {
-      expect(
-        kDirectorTakeoverNotice,
-        '打开后，说话时会带上表情和轻微的头、颈动作。',
-      );
+  group('导演一级卡：常驻状态，没有开关', () {
+    test('状态文案：常驻、无开关；旧说法不得回潮', () {
+      expect(kDirectorAlwaysOnTitle, '导演常驻开启（无开关）');
+      expect(kDirectorAlwaysOnNotice, '每一句都按原文给表情与轻微的头、颈动作，不需要启用。');
       for (final String banned in <String>[
+        '打开后',
         '按情绪触发',
         '分段送 TTS',
         '接管',
@@ -77,18 +76,23 @@ void main() {
         '只填一项',
         '不改原文',
       ]) {
-        expect(
-          kDirectorTakeoverNotice,
-          isNot(contains(banned)),
-          reason: '用户看不懂的旧说法「$banned」不得回到产品面板',
-        );
+        for (final String text in <String>[
+          kDirectorAlwaysOnTitle,
+          kDirectorAlwaysOnNotice,
+        ]) {
+          expect(
+            text.contains(banned),
+            isFalse,
+            reason: '用户看不懂的旧说法「$banned」不得回到产品面',
+          );
+        }
       }
     });
 
-    test('面板源码里不再有那批用户看不懂的词（真泵源码）', () {
-      final String src = _code('lib/settings/mods/director_panel.dart');
+    test('一级卡源码里不再有旧调试词，也不再有导演配置表单（真泵源码）', () {
+      final String src = _code('lib/settings/sections/director_section.dart');
       for (final String banned in <String>[
-        'kDirectorPresetNotice',
+        'kDirectorTakeoverNotice',
         '接管状态',
         '规则预设',
         '实际下发',
@@ -96,27 +100,20 @@ void main() {
         '清空决策账本',
         'command_unavailable',
         '依据：',
+        // rc4：导演不再是 Mod，产品面没有它的配置表单。
+        'hiddenKeys',
+        'staging_base_url',
+        'staging_timeout_ms',
+        'motion_bias',
       ]) {
         expect(
           src.contains(banned),
           isFalse,
-          reason: '导演产品面板不得再出现「$banned」',
+          reason: '一级导演卡不得再出现「$banned」',
         );
       }
-      // 8 个配置键声明为「产品面不渲染」。
-      expect(src.contains('hiddenKeys'), isTrue);
-      for (final String key in <String>[
-        'preset_happy',
-        'preset_sad',
-        'preset_greeting',
-        'staging_enabled',
-        'staging_base_url',
-        'staging_model',
-        'staging_api_key_env',
-        'staging_timeout_ms',
-      ]) {
-        expect(src.contains("'$key'"), isTrue, reason: '$key 必须列为隐藏键');
-      }
+      // 扩展区也不再注册导演面板。
+      expect(_code('lib/settings/mods/mod_panels.dart').contains('DirectorPanel'), isFalse);
     });
   });
 

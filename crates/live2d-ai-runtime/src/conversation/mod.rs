@@ -75,7 +75,7 @@
 //!         EngineEvent::SentenceVoiced { text, .. } => println!("[屏] {text}"),
 //!         // 失败轮的**整段**正文兜底（覆盖式设置；健康轮不会出现）。
 //!         EngineEvent::TextFallback { text, .. } => println!("[兜底] {text}"),
-//!         // 表演层按句 cue（表演层开着才有；消费端投影为 WS action_cue）。
+//!         // 按句动作 cue（每句非空才发；消费端投影为 WS action_cue）。
 //!         EngineEvent::ActionCue { cues, .. } => println!("[演] {} 条", cues.len()),
 //!         EngineEvent::Terminal { .. } => break,
 //!         EngineEvent::Error { kind, .. } => eprintln!("turn error: {kind}"),
@@ -235,8 +235,9 @@ pub enum EngineEvent {
     },
     /// **一句正文已切出、即将交给 TTS**（2026-09-16，P1-2）。
     ///
-    /// 发点在 `push_job` **之前**：该句 TTS 合成的 0.5–2s 就是异步导演的天然预算
-    /// 窗口；等 `SentenceVoiced` 再发就晚了半拍（那时音频已可播）。
+    /// 发点在 `push_job` **之前**（比 `SentenceVoiced` 早半拍）。rc4 起 director
+    /// Mod 已退休、**不再订阅它**（host 也不再转发）；保留为通用句锚点 /
+    /// 可观测面。
     ///
     /// **它的 `text` 是上屏文本**（2026-10-08 起）：二路清洗交回的原文切片
     /// （`display`）——emoji / 颜文字 / 括号里的动作描写都留着。
@@ -246,7 +247,7 @@ pub enum EngineEvent {
     /// **不跑二路时**（`cleaner == None` / disabled）两份文本都是
     /// `clean_for_tts(原文)`——既有行为逐字不变。
     ///
-    /// 导演只能读它、不能改它（「导演是备注，不是誊写员」）：
+    /// 消费端只能读它、不能改它（「导演是备注，不是誊写员」）：
     /// - 回灌 LLM 的历史（commit_completed_turn）保持**原文**，模型上下文不受
     ///   清洗影响；
     /// - `speech` 为空串的句子照常占一个序号并走**静音句**路径（worker 见 trim
@@ -325,11 +326,11 @@ pub enum EngineEvent {
     /// **表演层按句 cue**（2026-09-22）：本轮该演哪几条预设，锚点是目标句音频的
     /// `first_chunk`。
     ///
-    /// 产出方唯一：表演层（`crate::performance`）。**只有表演层开着时才会发**；
-    /// 关闸时这条路径不存在（主链走既有流式，规则导演的 cue 走 Mod 通道）。
+    /// **产出方唯一**：主链按句第二路（`engine/run.rs`，动作恒开）。每句非空
+    /// cues 发一条，空表**不发**；表演层（`[performance].enabled=true`）
+    /// **不再发本事件**（rc4 单 cue 写者）。
     ///
-    /// `cues` 为空也照发：消费端按「整份计划覆盖」语义处理——空表 = 本轮不动，
-    /// 同时清掉上一轮的残留计划。payload 形状与 WS `action_cue` 逐字段同形
+    /// payload 形状与 WS `action_cue` 逐字段同形
     ///（`crate::performance::action_cue_payload`）。
     ActionCue {
         /// 本轮轮次号。

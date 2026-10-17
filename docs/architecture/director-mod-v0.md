@@ -1,4 +1,10 @@
-# 导演 Mod v0（已注册第 5 个）：按情绪/意图选动作包 → 按句 `action_cue`（唯一驱动）；`latest.preset_id`（面板只读）
+# 导演 Mod v0（rc4 起**退出注册表**，crate 留 workspace、**不可挂回**）：按情绪/意图选动作包 → 按句 `action_cue`（历史；rc4 起由核心常驻接管）
+
+> **2026-10-17（0.3.1-rc.4）现状 banner**：`director` 已退出 `AVAILABLE_MOD_FACTORIES`；
+> crate 留在 workspace（可编译可测），**不可挂回**。`staging_http` / takeover / 异步二路 /
+> `cues` 投递 / `SentenceReady` 订阅**已删除**；规则表已迁入核心
+> （`live2d_ai_runtime::performance::rules`）。下文凡写 staging_http、已注册、注册面 5 个
+> 的段落均为**历史描述**；现行见 [`CURRENT.md`](CURRENT.md) §4 / §8。
 
 > ## ⚠ v1 已冻结：director **只产 `cues`**；三族表演字段是 v1 的产出面
 >
@@ -15,11 +21,11 @@
 >
 > **本文其余内容（规则层纯函数、账本、面板、零调用红线）继续有效**；与 v1 冲突处以 v1 为准。
 
-> **状态**：2026-09-14 **产品级加强波次**（director 轨道）。
-> 本 crate 已在 `AVAILABLE_MOD_FACTORIES` 中**注册**（产品级加强波次后注册面共 **5 个**：
-> `external-input` / `persona` / `voice-input` / `memory` / `director`），**缺省停用**
-> （不进 `cli_entry::default_mods_manifest`）。`wallpaper` / `pet-desktop` 已 **ARCHIVED**
-> （移出注册表、不再编译进 binary），见 [ARCHIVED-mods.md](ARCHIVED-mods.md)。
+> **状态**：2026-09-14 **产品级加强波次**（director 轨道）；**2026-10-17（rc4）起退休**。
+> 本 crate rc4 起**退出 `AVAILABLE_MOD_FACTORIES`**（在册五个：
+> `external-input` / `persona` / `voice-input` / `memory` / `local-tts-melo`），
+> crate 留 workspace、可编译可测、**不可挂回**；`wallpaper` / `pet-desktop` / `local-llm`
+> 已删除（见 [ARCHIVED-mods.md](ARCHIVED-mods.md)）。
 >
 > 版本保持 `0.2.0-rc.3`：**不改版本号、不 bump、不打 tag**。
 >

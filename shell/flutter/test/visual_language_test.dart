@@ -172,7 +172,7 @@ void main() {
       );
     });
 
-    testWidgets('分区导航是**文字 chip**，没有图标 avatar（7 个中文标签自带辨识度）', (
+    testWidgets('分区导航是**文字 chip**，没有图标 avatar（8 个中文标签自带辨识度）', (
       WidgetTester tester,
     ) async {
       // 2026-09-11：左侧 rail 已删（用户裁决「把左边的这些设置一级选项去掉
@@ -191,14 +191,14 @@ void main() {
           ),
         ),
       );
-      expect(find.byType(ChoiceChip), findsNWidgets(7));
+      expect(find.byType(ChoiceChip), findsNWidgets(8));
       for (final SettingsSection s in visibleSections(devMode: true)) {
         final ChoiceChip chip = tester.widget<ChoiceChip>(
           find.widgetWithText(ChoiceChip, s.label),
         );
         expect(chip.avatar, isNull, reason: '用户裁决「尽量少用图片用文字做按钮」');
       }
-      // 7 个分区都能点。
+      // 8 个分区都能点。
       await tester.tap(find.text('模型服务'));
       expect(picked, 1);
     });

@@ -163,10 +163,10 @@ impl OpenAiClient {
 ///
 /// 由 LLM/TTS/表演层客户端与桌面层设置自检端点（`settings/test/{llm,tts}`）共用。
 ///
-/// **Mod 边界例外**：`live2d-ai-mod-director/src/staging_http.rs` 与
-/// `live2d-ai-mod-memory/src/summary_http.rs` 各自保留一份同语义最小副本——
-/// 两个 Mod 不依赖 runtime 的网络层，且错误口径是 `Result<_, String>` +
-/// 各自配置前缀。改动本函数时必须同步对照那两处。
+/// **Mod 边界例外**：`live2d-ai-mod-memory/src/summary_http.rs` 保留一份同语义
+/// 最小副本——该 Mod 不依赖 runtime 的网络层，且错误口径是 `Result<_, String>` +
+/// 自己的配置前缀。改动本函数时必须同步对照那一处。
+/// （director 的 `staging_http.rs` 已于 rc4 随异步二路退休删除。）
 pub fn join_endpoint(base: &str, path: &str) -> Result<Url> {
     let trimmed = base.trim_end_matches('/');
     let parsed = Url::parse(&format!("{trimmed}{path}")).map_err(|_| Error::InvalidBaseUrl {

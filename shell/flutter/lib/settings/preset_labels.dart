@@ -24,7 +24,7 @@ import 'package:http/http.dart' as http;
 /// `channel` 字段重复的 id 列表。调试面板**已不再使用它**（改用
 /// [PresetLabelTable.idsForChannel]）；它还被两处**没有标签表实例**的显示代码用：
 /// `live2d/live2d_stage.dart`（倒计时显示用 ttl）与
-/// `settings/mods/director_panel.dart`（通道标签）。删掉它要求同时改这两个
+/// `settings/sections/director_section.dart`（通道标签）。删掉它要求同时改这两个
 /// 文件（不在 W3 的文件归属内），所以本轮**记录不改**，见 W3 回报的未决问题。
 const Set<String> kExpressionPresetIds = <String>{'smile', 'unhappy', 'surprised'};
 

@@ -248,15 +248,16 @@ pub enum ConversationUiEvent {
         /// 整轮正文（覆盖式设置，非增量）。
         text: String,
     },
-    /// **表演层按句 cue**（2026-09-22）：投影自 `EngineEvent::ActionCue`，
+    /// **按句 cue**（2026-09-22）：投影自 `EngineEvent::ActionCue`，
     /// web 路径为 **既有** `action_cue` 帧（前端 `ActionCueEvent` 不需要改）。
     ///
-    /// 与 director Mod 的 cue 帧**同一个 wire 契约**：`cues[]` 单条
+    /// wire 契约不变：`cues[]` 单条
     /// `{sentence_seq, preset_id, intensity, ttl_ms, priority}`，前端在该句音频
-    /// `first_chunk` 时应用。产出口现在有两个（表演层 / 规则导演 Mod），
-    /// 但**同轮只会有一个**：表演层开着时 host 不再把 `SentenceReady` 转给 Mod。
-    /// 驱动舞台的**唯一**通道就是本帧（前端拉取 director `latest.preset_id` 的通道
-    /// **已退役**，`latest` 仅面板展示，D12）；`cues[].preset_id=="none"` = 撤销两槽，
+    /// `first_chunk` 时应用。rc4 起产出口**只有一个**：核心本地规则表
+    /// （默认走按句清洗；`[performance].enabled=true` 时按**每一段原文**出 cue，
+    /// 表演层 `resolution.cues` 不投递）——导演 Mod 已退役，host 不再转发
+    /// `SentenceReady`。
+    /// 驱动舞台的**唯一**通道就是本帧；`cues[].preset_id=="none"` = 撤销两槽，
     /// `cues: []` = 本轮不动（D10）。
     ActionCue {
         /// 所属业务代次。

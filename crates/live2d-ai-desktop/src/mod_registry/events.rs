@@ -124,7 +124,7 @@ pub(super) fn event_worker_loop(
     runtimes: BTreeMap<&'static str, SharedRuntime>,
     // S-006（2026-10-16）：形参**刻意**保持不使用。worker 里的两种 skip
     //（host 持锁 / 该 Mod 未启用）是**正常过滤**，不是「事件被丢」——按 per-Mod
-    // 累加会让计数随在册 Mod 数膨胀（6 个在册、2 个启用 ⇒ 每条事件 +4），
+    // 累加会让计数随在册 Mod 数膨胀（rc4 起 5 个在册、2 个启用 ⇒ 每条事件 +3），
     // 那是个骗人的数。真正的丢弃只有一处：`send_event` 的 `try_send` 失败。
     _dropped: Arc<AtomicU64>,
 ) {
@@ -133,7 +133,7 @@ pub(super) fn event_worker_loop(
             let mut guard = match slot.try_lock() { Ok(g) => g, Err(_) => continue }; // host 持锁（restart）→ 跳过。
             if guard.is_none() { continue } // 未启用 → 跳过。
             // L1：走**带会话**入口；缺省实现原样转发给 on_event，
-            // 所以不关心会话的 Mod（director / voice-input）行为一字不变。
+            // 所以不关心会话的 Mod（如 voice-input）行为一字不变。
             if let Err(err) = guard.as_mut().expect("non-none")
                 .on_scoped_event(topic, payload.as_str(), session.as_deref())
             {
