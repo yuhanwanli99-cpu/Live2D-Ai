@@ -12,7 +12,8 @@
 
 - 版本号以 `Cargo.toml` 为准：**`0.3.1`**；发布说明 `docs/releases/v0.3.1.md`。`v0.2.7` 在 `5618b55`，`v0.2.6-rc.1` 在 `767a286`。
 - tag `v0.2.5-rc.1` 仍在原处：导演开启时按句清洗并按原文出动作；出厂不设人设。
-- **`v0.2.7` 是 2.0 稳定版，`v0.3.1` 是外部事件忙时合并。** 其后各版与验收边界在 [`PROMPT-3.0-motion-first-2026-10-17.md`](../plans/PROMPT-3.0-motion-first-2026-10-17.md)：`v0.3.1-rc.3` 手势到期放回，`v0.3.1-rc.4` 第二路并入核心，然后 `v0.3.3` 分仓库、`v0.3.4` 多 TTS/LLM、`v0.3.5` Windows、`v0.3.6` 桌宠、`v0.3.7` 多模型。
+- **`v0.2.7` 是 2.0 稳定版，`v0.3.1` 是外部事件忙时合并。** 其后各版与验收边界在 [`PROMPT-3.0-motion-first-2026-10-17.md`](../plans/PROMPT-3.0-motion-first-2026-10-17.md)：`v0.3.1-rc.3` 手势到期放回，`v0.3.1-rc.4` 第二路并入核心，`v0.3.1-rc.5` 分仓库（原 `v0.3.3`），然后 `v0.3.4` 多 TTS/LLM、`v0.3.5` Windows、`v0.3.6` 桌宠、`v0.3.7` 多模型。
+- **两仓（0.3.1-rc.5 起）**：核心在主仓 `/home/skystar/Live2D-Ai`，五个 Mod 实现住 sibling 仓 `/home/skystar/Live2D-Ai-mods`，主仓经 `path` 依赖引用。主仓**不再 standalone**；公开前换 git 依赖或 CI 双 checkout，见 [`two-repo-mods.md`](two-repo-mods.md)。
 
 ## 3. 出厂不设人设
 
@@ -58,9 +59,11 @@
 
 `external-input`、`persona`、`voice-input`、`memory`、`local-tts-melo`。
 
+- **实现住第二仓** `../Live2D-Ai-mods/crates/`（`live2d-ai-mod-system` 与出厂协议仍在主仓）；
+  工厂数、id、缺省集合不因拆仓改变。
 - **缺省启用**：`external-input` 与 `local-tts-melo`。
 - `memory`：本地 JSONL + 词重叠检索（**零向量云依赖**），缺省**关**。
-- `director` 的 crate 仍在 workspace（规则表已迁入核心），但**退出 `AVAILABLE_MOD_FACTORIES`、不再投递，禁止挂回**；
+- `director` 的 crate 仍在主仓 workspace（规则表已迁入核心），但**退出 `AVAILABLE_MOD_FACTORIES`、不再投递，禁止挂回**；
   旧 8 个配置键（3 个词表映射 + 5 个 `staging_*`）不再出现在界面，`mods.json` 残留键被忽略。
 - `wallpaper`、`pet-desktop`、`local-llm` **已删除，禁止挂回**（台账 `docs/architecture/ARCHIVED-mods.md`）。
 

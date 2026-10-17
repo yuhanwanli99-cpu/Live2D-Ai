@@ -22,6 +22,7 @@
 | 外部输入（弹幕 / 礼物） | `docs/external-input.md` | B 站抓取在 Win sidecar，不在主仓 |
 | 语音转写 | `docs/voice-input.md` | |
 | Mod 产品链路 / 许可 | `docs/architecture/mod-product-chain.md`、`mod-community-license.md` | |
+| 核心与 Mod 两仓结构 | `docs/architecture/two-repo-mods.md` | 2026-10-17 rc5 起；主仓非 standalone，公开前切换计划见文内 |
 | 已**删除** Mod（local-llm / wallpaper / pet-desktop） | `docs/architecture/ARCHIVED-mods.md` | §1.4/§2.4/§3.1 删除记录（W2-A，2026-10-01）；**禁止挂回** |
 | TTS 是核心（不是 Mod） | `docs/architecture/tts-is-core.md` | |
 | 渲染算法 / 纹理档位 | `docs/architecture/renderer-*.md`、`mask-*.md` | |

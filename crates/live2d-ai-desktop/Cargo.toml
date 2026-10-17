@@ -41,16 +41,16 @@ live2d-ai-core = { path = "../live2d-ai-core" }
 live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }
 # 0.2.0-rc.1：external-input 是缺省启用的 Mod（直播弹幕/礼物注入）——
 # handler 复用它的纯函数（render_from_config / token_from_config）。
-live2d-ai-mod-external-input = { path = "../live2d-ai-mod-external-input" }
+live2d-ai-mod-external-input = { workspace = true }
 # live2d-ai-mod-pet-desktop：依赖已移除（不再编译进 binary）；crate 本身已于
 # 2026-10-01（W2-A / D1 第一段）**物理删除**，只存在于 tag
 # `checkpoint/pre-d1-dormant` ⇒ **不要回来找它**，也**禁止**挂回 FACTORIES。
 # live2d-ai-mod-local-llm：同上（0.2.0-rc.1 废除启动 → 2026-10-01 删除）。
 # 理由与恢复条件见 docs/architecture/ARCHIVED-mods.md。
 # rc.4 M5：角色卡标准 Mod（主链只留 system_prompt，卡字段由它合成写回）。
-live2d-ai-mod-persona = { path = "../live2d-ai-mod-persona" }
+live2d-ai-mod-persona = { workspace = true }
 # Wave 1（2026-09-14）：voice-input 骨架（语音转写 → 清洗 → say_tx）。
-live2d-ai-mod-voice-input = { path = "../live2d-ai-mod-voice-input" }
+live2d-ai-mod-voice-input = { workspace = true }
 # live2d-ai-mod-wallpaper：依赖已移除（不再编译进 binary）；crate 本身已于
 # 2026-10-01（W2-A / D1 第一段）**物理删除**，只存在于 tag
 # `checkpoint/pre-d1-dormant` ⇒ **不要回来找它**，也**禁止**挂回 FACTORIES。
@@ -59,7 +59,7 @@ live2d-ai-mod-voice-input = { path = "../live2d-ai-mod-voice-input" }
 # Wave 2 C 轨（2026-09-14）：memory v0（本地 JSONL 记忆 + 词元重叠检索）。
 # **本分支不注册**进 AVAILABLE_MOD_FACTORIES——注册由集成 PR 按
 # docs/plans/parallel-mods/REGISTER-memory-v0.md 一次改到位；缺省停用。
-live2d-ai-mod-memory = { path = "../live2d-ai-mod-memory" }
+live2d-ai-mod-memory = { workspace = true }
 # Wave 3 G 轨（2026-09-14）：导演最小骨架（正文 → 情绪/意图/TTS 建议；只记日志 +
 # state_json，**零投递**）。**缺省停用**；注册由集成 PR（本波主 agent）一次改到位。
 live2d-ai-mod-director = { path = "../live2d-ai-mod-director" }
@@ -67,7 +67,7 @@ live2d-ai-mod-director = { path = "../live2d-ai-mod-director" }
 # 它只 spawn 用户给的 argv；`[tts]` 的唯一写入者仍是「语音合成」设置页。
 # 这是一条**新的产品 Mod 直边** ⇒ 同一次改动把 xtask 的
 # `RATCHET_DESKTOP_DEPS` 22 → 23（`PLAN_DESKTOP_DEPS` 保持 22）。
-live2d-ai-mod-local-tts = { path = "../live2d-ai-mod-local-tts" }
+live2d-ai-mod-local-tts = { workspace = true }
 ringbuf = "0.5"
 # supervisor 的异步设施。
 # - current_thread runtime 跑在独立 OS 线程；

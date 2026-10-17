@@ -11,23 +11,23 @@ members = [
     "crates/live2d-ai-runtime",
     "crates/l2d-wasm-demo",
     "crates/live2d-ai-mod-system",
-    "crates/live2d-ai-mod-external-input",
-    # rc.4 M5：角色卡标准 Mod（酒馆 V1/V2 JSON + PNG chara → 合成 system_prompt）。
-    "crates/live2d-ai-mod-persona",
     # rc.4 M3：新 Mod 模板（不注册进 AVAILABLE_MOD_FACTORIES，只作为复制起点 + 活文档）。
     "crates/live2d-ai-mod-template",
-    # Wave 1（2026-09-14）：语音输入 Mod 骨架（语音转写 → 清洗 → say_tx）。
-    "crates/live2d-ai-mod-voice-input",
-    # Wave 2 C 轨（2026-09-14）：本地记忆 v0（JSONL + 词元重叠检索 → 注入 persona.system_prompt）。
-    "crates/live2d-ai-mod-memory",
     # Wave 3 G 轨（2026-09-14）：导演最小骨架（正文 → 情绪/意图/TTS 建议；只记日志 + state_json，
     # 不投递）。**收束时由主 agent** 注册进 FACTORIES（6 → 7），缺省停用。
     "crates/live2d-ai-mod-director",
-    # 2026-10-09「两类 TTS」：本地拉起 Mod（id `local-tts`）。**只**按用户 argv
-    # spawn 外部进程；缺省停用、不写 `[tts]`、不改出声地址。
-    "crates/live2d-ai-mod-local-tts",
     "xtask",
 ]
+
+# 0.3.1-rc.5 分仓库（2026-10-17）：五个 Mod 实现搬到 sibling checkout
+# ../Live2D-Ai-mods；主仓不再 standalone（缺这个目录 cargo metadata 即失败）。
+# 公开前切换成 git 依赖或 CI 双 checkout，见 docs/architecture/two-repo-mods.md。
+[workspace.dependencies]
+live2d-ai-mod-external-input = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-external-input" }
+live2d-ai-mod-persona = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-persona" }
+live2d-ai-mod-voice-input = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-voice-input" }
+live2d-ai-mod-memory = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-memory" }
+live2d-ai-mod-local-tts = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-local-tts" }
 
 # 第一批基础元数据，各成员可覆盖（如 crates/l2d 的 license 覆盖为 MIT OR Apache-2.0）
 [workspace.package]

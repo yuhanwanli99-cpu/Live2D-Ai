@@ -32,8 +32,8 @@
 | `0.3.1-rc.2` | 基线 | 拆分 + 工程清债：脏树、docs 余量、`>500` 文件、大测试文件。零行为 |
 | `0.3.1-rc.3` | 1 前半 | **已完成**。手势到期改成放回 |
 | `0.3.1-rc.4` | 1 后半 | 第二路 LLM 并入核心；常驻开启；卡片进设置一级；退休无导演链路 |
-| `0.3.1-rc.5` | 占位 | 棘轮超限时做拆分 + 工程清债；否则做下一功能 |
-| `v0.3.3` | 6 | 核心与 Mod 实现分成两个仓库 |
+| `0.3.1-rc.5` | 6 | **本轮交付**。核心与 Mod 实现分成两个本地仓库（原 `v0.3.3` 落号） |
+| ~~`v0.3.3`~~ | 6 | 已落为 `0.3.1-rc.5`，不再单列 |
 | `v0.3.4` | 2 | 多 TTS / 多 LLM 的厂商选择。本地引擎是新的、只拉起进程的 Mod |
 | `v0.3.5` | 4 | Windows 上跑同一套 `--web` 二进制 |
 | `v0.3.6` | 3 | 新的点击穿透桌宠 |
@@ -100,14 +100,20 @@
 - `AGENTS.md` 的历史段落一行不改。现行事实改 `docs/architecture/CURRENT.md`。
 - 已知债：`director/tests.rs` 841>800（rc4 未拆，下一拆分版处理）；开表演层时规则 cue 按段一次（段可多句），CURRENT 已写；A 栏已降级静态。
 
-## v0.3.3 分仓库
+## 0.3.1-rc.5 分仓库（原 v0.3.3，2026-10-17 落号）
 
-在 rc.2 的工厂集合上拆。当时应是 `external-input`、`persona`、`voice-input`、`memory`、`local-tts-melo`。
+在 rc.4 的工厂集合上拆：`external-input`、`persona`、`voice-input`、`memory`、`local-tts-melo`。
 
-主仓留下：`l2d`、`l2d-wasm-demo`、`live2d-ai-core`、`live2d-ai-runtime`、`live2d-ai-desktop`、`xtask`、`shell/flutter`、白模资源、`live2d-ai-mod-system`。
-第二个仓库留下上述五个 Mod 实现。协议、WS 帧、缺省启用集合不变。密钥仍只在主仓。Mod 拿不到密钥的值，不写 `[tts]` / `[llm]`，不接 `action_tx`。
+主仓留下：`l2d`、`l2d-wasm-demo`、`live2d-ai-core`、`live2d-ai-runtime`、`live2d-ai-desktop`、`xtask`、`shell/flutter`、白模资源、`live2d-ai-mod-system`，以及退役的 `live2d-ai-mod-director`（desktop 仍用 `motion_bias`）与 `live2d-ai-mod-template`（脚手架）。
+第二个仓库（`/home/skystar/Live2D-Ai-mods`）留下上述五个 Mod 实现，含 `local-tts` 的 `melo/` 与已封存 `engine/`。协议、WS 帧、缺省启用集合不变。Mod 拿不到密钥的值，不写 `[tts]` / `[llm]`，不接 `action_tx`。
 
-执行 agent 交到本地两个树能编过、测试能跑。不要自己建公开远端，不要推第二个仓库。公开远端在本版验收时由维护者点头再做。
+**实施落点**：主仓根 `[workspace.dependencies]` 五条 `path = "../Live2D-Ai-mods/crates/..."`，desktop 用 `workspace = true`，members 删五项；第二仓独立 workspace（`version = "0.3.1"` / edition 2024 / rust-version 1.92），Mod 反向 path 指主仓 `mod-system` / `runtime`。主仓**不再 standalone**，切换计划见 `docs/architecture/two-repo-mods.md`。
+
+第二仓本地 commit：`0ad5534`（72 files / 21,699 insertions；checkpoint LFS 指针 134 B）。
+
+**密钥偏差 S2**：`external-input` / `memory` 仍各自调用 `runtime::secrets::lookup` 读 `.env` 快照，不新增暴露、不重做 `ModServices` secret 代理；S1 计划同见该文档 §5。
+
+执行 agent 交到本地两个树能编过、测试能跑。不要自己建公开远端，不要推第二个仓库。公开远端在本版验收时由维护者点头再做。本轮只做两个本地提交，未 push、未打 tag。
 
 ## v0.3.4 多 TTS / 多 LLM
 

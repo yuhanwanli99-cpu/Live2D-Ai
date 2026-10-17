@@ -6,11 +6,14 @@
 
 ## 1. 定位
 
-Mod 是**编译进当前二进制的静态模块**（Rust workspace crate）。enable /
+Mod 是**编译进当前二进制的静态模块**（Rust crate；0.3.1-rc.5 起五个实现住
+第二仓 `../Live2D-Ai-mods` 的 workspace）。enable /
 disable / config 是**运行时开关**，不是加载器：
 
 - 没有动态 `.so`、没有热插拔下载市场、没有运行期安装新 crate；
-- 新增 Mod = 改仓库、过门禁、重新构建——见 §3 勾选表；
+- 新增 Mod = 改两个仓库（实现进第二仓，接线进主仓）、过门禁、重新构建——见 §3 勾选表；
+- 主仓经 `path` 依赖引用第二仓 crate，因此**主仓不再 standalone**：缺 sibling checkout
+  连 `cargo metadata` 都失败；公开前切换计划见 [two-repo-mods.md](two-repo-mods.md)；
 - 主链只做「LLM → TTS → 口型 → Live2D + UI」，增强能力一律走 Mod 边界
   （[`core-chain-baseline.md`](core-chain-baseline.md)）。
 
@@ -34,9 +37,10 @@ disable / config 是**运行时开关**，不是加载器：
 
 按顺序做完每一行，缺一行就是「半接线」：
 
-- [ ] `crates/live2d-ai-mod-<id>/` 新建 crate（可复制 `crates/live2d-ai-mod-template`）
-- [ ] 根 `Cargo.toml` 的 `members` 加入该 crate
-- [ ] `crates/live2d-ai-desktop/Cargo.toml` 加依赖
+- [ ] 在 `../Live2D-Ai-mods/crates/` 新建 crate（可复制主仓 `crates/live2d-ai-mod-template`）
+- [ ] 第二仓根 `Cargo.toml` 的 `members` 加入该 crate；`mod-system` / `runtime` 用仓内 workspace 路径
+- [ ] 主仓根 `Cargo.toml` 的 `[workspace.dependencies]` 加 `path = "../Live2D-Ai-mods/crates/..."`
+- [ ] `crates/live2d-ai-desktop/Cargo.toml` 用 `workspace = true` 加依赖
 - [ ] `crates/live2d-ai-desktop/src/main.rs` 的 `AVAILABLE_MOD_FACTORIES` 注册 `&<crate>::FACTORY`
 - [ ] 同步 `main.rs` 里的 Mod 数量 / id 断言（`mod_count_is_*` / `mod_factory_ids_match_expected`）
 - [ ] `descriptor.api_version = MOD_API_VERSION`；settings spec 字段 key 唯一
@@ -56,7 +60,7 @@ disable / config 是**运行时开关**，不是加载器：
   （schema，无则为 `null`）；`settings_spec.fields[].kind` ∈ `bool/string/number/select`。
   `secret=true` 的字段值**永不出现在 GET**；另有 `GET /api/v1/mods/{id}/config` 单读。
 
-## 5. 现行 Mod（2026-10-09 0.2.3-rc.1 起：6 个注册 + 3 个封存 + 1 个废除）
+## 5. 现行 Mod（0.3.1-rc.5：5 个注册 + 3 个封存/删除 + 1 个废除；实现住第二仓）
 
 | id | 缺省 | 语言 | 说明 |
 | --- | --- | --- | --- |
@@ -64,16 +68,17 @@ disable / config 是**运行时开关**，不是加载器：
 | `persona` | off | Rust | 酒馆角色卡（rc.4 M5）：导入 V2 JSON/PNG → 合成 `system_prompt`；`0.2.0-rc.2` 起坏配置**显式 `Failed`**（不再假报「运行中」） |
 | `voice-input` | off | Rust | 语音输入（Wave 2 A 轨 / 0.2.0-rc.3）：`POST /api/v1/voice/transcript` → `clean_transcript` → `say` **已接线**；ASR 本体在 sidecar（Rust 侧不开 socket、不做 IPC），契约见 [voice-input.md](../voice-input.md)，示例见 [docs/examples/voice-sidecar](../examples/voice-sidecar/README.md)，接线清单见 [REGISTER-voice-sidecar-v1](../plans/parallel-mods/REGISTER-voice-sidecar-v1.md) |
 | `memory` | off | Rust | 会话记忆 v0（Wave 2 C 轨 / 0.2.0-rc.3）：本地 JSONL + 词元重叠检索 top-k → 写会话注入槽（有会话）或 `apply_settings` 写全局 `persona.system_prompt`（无会话降级）；**同轮生效**（2026-09-15 起，见 memory-mod-v0.md §2）。全局路径与 persona 仍是 last-writer-wins，见 [memory-mod-v0.md](memory-mod-v0.md) |
-| `director` | off | Rust | 导演（Wave 3 G 轨 2026-09-14 建**最小骨架**，2026-09-21 已接线）：订阅 `TurnPrompt` + `TurnEnded` → 确定性 `{emotion,intent,suggested_tts}` 决策（纯函数、词表驱动），只写日志与 `state_json`；**`action_tx` 休眠、不写 `live2d-ai.toml` 仍成立**；**现状**另产 `latest.preset_id`（只读状态面，供面板展示）+ 按句 `action_cue`（`ModServices.cues` → WS `action_cue`，驱动舞台）。口径：**导演是一个 AI、属产品本体、不做架构搬迁**，输入 = **用户输入**（R1），谁的 `speak` 能力保留**未定、不裁决**；见 [director-mod-v0.md](director-mod-v0.md) |
-| ~~`local-tts`~~ | — | Rust | **已封存（2026-10-09，0.2.3-rc.1）**：CosyVoice3 引擎（界面名 `本地tts_CosyVoice3-0.5B`）**已移出 `AVAILABLE_MOD_FACTORIES`**——引擎脚本与权重布局**还要适配**，**未适配前不要挂回**。crate 与 `engine/` 仍在树上（可编译可测），crate 头注已写封存口径。**出厂出声的不是它** |
-| `local-tts-melo` | **on** | Rust | MeloTTS 中文**拉起**（2026-10-09；**0.2.3-rc.1 起缺省启用**）：与已封存的 `local-tts` **同一个 crate**（不新增 desktop 依赖边），薄封装收成 OpenAI 兼容 `POST /audio/speech`（s16le pcm），声明地址 `http://127.0.0.1:8091/v1`（**不占 8080**），`launch_mode = with_app`、缺省程序 = 仓库内 `melo/start.sh`。**不写 `[tts]` 的任何键**——出厂 `[tts]` 只是恰好指向它（见 [tts-is-core.md](tts-is-core.md) 文末）。权重 `config.json`（普通 git）+ `checkpoint.pth`（Git LFS）；`.bert` 不入库，`.venv` 与 venv 安装都不入库 |
+| ~~`director`~~ | — | Rust | **已退役（0.3.1-rc.4）**：退出 `AVAILABLE_MOD_FACTORIES`、不再投递；按句清洗与 `action_cue` 收归核心第二路。crate 仍留**主仓** workspace（desktop 只用 `director::motion_bias`），**禁止挂回 FACTORIES**；历史见 [director-mod-v0.md](director-mod-v0.md) |
+| ~~`local-tts`~~ | — | Rust | **已封存（2026-10-09，0.2.3-rc.1）**：CosyVoice3 引擎（界面名 `本地tts_CosyVoice3-0.5B`）**已移出 `AVAILABLE_MOD_FACTORIES`**——引擎脚本与权重布局**还要适配**，**未适配前不要挂回**。crate 与 `engine/` 仍在**第二仓**树上（可编译可测），crate 头注已写封存口径。**出厂出声的不是它** |
+| `local-tts-melo` | **on** | Rust | MeloTTS 中文**拉起**（2026-10-09；**0.2.3-rc.1 起缺省启用**）：与已封存的 `local-tts` **同一个 crate**（不新增 desktop 依赖边），薄封装收成 OpenAI 兼容 `POST /audio/speech`（s16le pcm），声明地址 `http://127.0.0.1:8091/v1`（**不占 8080**），`launch_mode = with_app`、缺省程序 = 第二仓内 `melo/start.sh`。**不写 `[tts]` 的任何键**——出厂 `[tts]` 只是恰好指向它（见 [tts-is-core.md](tts-is-core.md) 文末）。权重 `config.json`（普通 git）+ `checkpoint.pth`（Git LFS）；`.bert` 不入库，`.venv` 与 venv 安装都不入库 |
 | ~~`wallpaper`~~ | — | Rust | **已删除（2026-10-01 W2-A/D1）**：移出 `AVAILABLE_MOD_FACTORIES`（2026-09-14 封存）后，crate 已于 2026-10-01 **物理删除**（tag `checkpoint/pre-d1-dormant`），**禁止挂回**。用户手动的舞台/壳背景能力（`DisplayPrefs`）**不受影响**。见 [ARCHIVED-mods.md](ARCHIVED-mods.md) |
 | ~~`pet-desktop`~~ | — | Rust | **已删除（2026-10-01 W2-A/D1）**：移出 `AVAILABLE_MOD_FACTORIES`（2026-09-14 封存）；本波**不做真窗/应用级桌宠**，crate 已于 2026-10-01 物理删除，**禁止挂回**。见 [ARCHIVED-mods.md](ARCHIVED-mods.md) |
 | ~~`local-llm`~~ | — | Rust | **已删除**（0.2.0-rc.1 废除启动 → 2026-10-01 W2-A/D1 物理删除）：移出 `AVAILABLE_MOD_FACTORIES`，**禁止挂回** |
 
-数量由 `main.rs::mod_count_is_six` 守住（Wave 3 的 7 → 产品级加强波次的 5 →
-2026-10-09「两类 TTS」的 6 → 7 → **0.2.3-rc.1 封存 CosyVoice3 后回到 6**；
-出厂**唯一缺省启用**的拉起 Mod 是 `local-tts-melo`）。
+五个实现都在 `../Live2D-Ai-mods/crates/`；主仓只留 `live2d-ai-mod-system`（协议）、
+退役的 `live2d-ai-mod-director`（desktop 仍用 `motion_bias`）与 `live2d-ai-mod-template`（脚手架）。
+数量由 `main.rs::mod_count_is_five` 守住（**现行 5**；`0.3.1-rc.4` 起 director 退役，
+`0.2.3-rc.1` 起 CosyVoice3 已封存）。出厂**唯一缺省启用**的拉起 Mod 是 `local-tts-melo`。
 `live2d-ai-mod-template` 是**模板 crate**，不注册进 `AVAILABLE_MOD_FACTORIES`。
 封存口径（原因 / 没有连坐删掉什么 / 恢复条件）见 [ARCHIVED-mods.md](ARCHIVED-mods.md)。
 
@@ -93,8 +98,9 @@ disable / config 是**运行时开关**，不是加载器：
 
 - 正式 / 稳定发布的 Mod **必须以 Rust（或 C）为实现主体**；非 Rust/C（Python/Dart/JS…）
   只能标**实验**，**不得**出现在正式发布说明的 Mod 清单里。
-- 判定口径与 `cargo run -p xtask -- rust-ratio` 同源：Mod crate 计入 workspace 分子/分母；
-  新增非 Rust/C 实现不得进 workspace（否则拉低全仓占比门禁，属应当被拦下的改动）。
+- 0.3.1-rc.5 起主仓 `rust-ratio` **只统计主仓文件系统**（五个 Mod 已迁出，不再进主仓
+  分子/分母）；第二仓用 `cargo test/fmt/clippy` 全套门禁，不另设占比门槛。
+  新增非 Rust/C 实现不得进任一 workspace（否则拉低占比或逃避门禁，属应被拦下的改动）。
 - 新增 Mod 的 PR 必须自检：`flutter analyze` 不涉及；Rust 侧跑全套门禁（见 `AGENTS.md` 一张表）。
 
 ## 7. 失败隔离
@@ -103,6 +109,9 @@ disable / config 是**运行时开关**，不是加载器：
 - host → Mod 事件经**有界 channel + 独立 worker**：慢 Mod 不卡 supervisor，队列满则丢弃并计数。
 - `on_event` 返回 `Err` → 清空该 Mod runtime 槽位，待 host restart 恢复。
 - 任何 Mod **不得**绕过 core 仲裁、不得直接持有密钥（密钥只经 `live2d-ai-runtime::secrets`）。
+- **已知偏差 S2（0.3.1-rc.5）**：`external-input` / `memory` 仍在自己进程内调用
+  `live2d_ai_runtime::secrets::lookup` 读取 `.env` 快照；未新增暴露面，Mod 拿不到值。
+  S1（`ModServices` secret 代理）未做，计划与理由见 [two-repo-mods.md](two-repo-mods.md) §5。
 
 ## 8. 非目标（rc.4 明文）
 

@@ -727,9 +727,10 @@ fn default_mods_manifest() -> serde_json::Value {
         "mods": {
             "external-input": { "enabled": true, "config": {} },
             // 2026-10-09（0.2.3-rc.1「开箱即用」）：出厂出声的那一个。
-            // `with_app` = 随应用开机（Boot）就 spawn；缺省程序 = 仓库内
-            // `crates/live2d-ai-mod-local-tts/melo/start.sh`，权重在
-            // `melo/weights/`（config.json 普通入库，checkpoint.pth 走 Git LFS）。
+            // `with_app` = 随应用开机（Boot）就 spawn；缺省程序 = 第二仓
+            // `../Live2D-Ai-mods/crates/live2d-ai-mod-local-tts/melo/start.sh`
+            // （0.3.1-rc.5 起 Mod 住 sibling 仓），权重在 `melo/weights/`
+            // （config.json 普通入库，checkpoint.pth 走第二仓 Git LFS）。
             // 它**不写 [tts] 的任何键**：出声端点仍只由 `live2d-ai.toml` 的 [tts] 决定。
             "local-tts-melo": {
                 "enabled": true,

@@ -256,15 +256,26 @@ sleep 0.5
 # 立即退出 → 主链对着卡死的旧进程发请求得到 `tts_upstream_502`。
 #
 # 新代码已给 spawn 出的子进程装 `PR_SET_PDEATHSIG`（父死即内核收掉，见
-# `crates/live2d-ai-mod-local-tts/src/child.rs`）；但**升级之前**留下的孤儿还在，
-# 这里按**仓库内路径**精确点名清掉（只认本仓的 melo/serve.py 与 engine/，
-# 不碰其它进程），使生命周期与刚修好的口径一致。
-for pat in "crates/live2d-ai-mod-local-tts/melo/serve.py" \
-           "crates/live2d-ai-mod-local-tts/engine/"; do
-  stale="$(pgrep -f "$PWD/$pat" 2>/dev/null | tr '\n' ' ' || true)"
+# `../Live2D-Ai-mods/crates/live2d-ai-mod-local-tts/src/child.rs`）；但**升级之前**
+# 留下的孤儿还在，这里按**仓库内路径**精确点名清掉（只认 melo/serve.py 与
+# engine/，不碰其它进程），使生命周期与刚修好的口径一致。
+# 0.3.1-rc.5 起 crate 住第二仓：新路径与拆分前的旧路径都清（旧路径只用于升级窗口）。
+MODS_REPO="$(cd "$PWD/../Live2D-Ai-mods" 2>/dev/null && pwd || true)"
+stale_patterns=(
+  "$PWD/crates/live2d-ai-mod-local-tts/melo/serve.py"
+  "$PWD/crates/live2d-ai-mod-local-tts/engine/"
+)
+if [ -n "$MODS_REPO" ]; then
+  stale_patterns+=(
+    "$MODS_REPO/crates/live2d-ai-mod-local-tts/melo/serve.py"
+    "$MODS_REPO/crates/live2d-ai-mod-local-tts/engine/"
+  )
+fi
+for pat in "${stale_patterns[@]}"; do
+  stale="$(pgrep -f "$pat" 2>/dev/null | tr '\n' ' ' || true)"
   if [ -n "${stale// /}" ]; then
     echo "[warn] 清理残留的本地 TTS 子进程（旧桌面被强杀留下的孤儿）：$pat → pid ${stale}"
-    pkill -f "$PWD/$pat" 2>/dev/null || true
+    pkill -f "$pat" 2>/dev/null || true
   fi
 done
 sleep 0.5

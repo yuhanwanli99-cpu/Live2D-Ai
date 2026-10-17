@@ -11,7 +11,7 @@ Live2D-Ai/
 ├── AGENTS.md                 # Agent/开发者导航
 ├── CHANGELOG.md              # 版本变更
 ├── LICENSE / NOTICE / CREDITS.md
-├── Cargo.toml                # workspace 清单（6 members）
+├── Cargo.toml                # 主仓 workspace 清单（9 members；五个 Mod 在 sibling 仓）
 ├── Cargo.lock                # 依赖锁定
 ├── rustfmt.toml / .editorconfig
 ├── crates/                   # Rust 源码（核心链路）
@@ -20,7 +20,9 @@ Live2D-Ai/
 │   ├── live2d-ai-runtime     # LLM/TTS OpenAI 兼容 + settings + conversation + dialogue
 │   ├── live2d-ai-desktop     # supervisor 事件循环 + Web API + 窗口 + 音频 + 托盘
 │   ├── l2d-wasm-demo         # Web 渲染核心（被 Web 前端复用）
-│   └── (live2d-ai-mod-system)  # Mod trait/factory/registry/services/status/topics（E4 新增）
+│   ├── live2d-ai-mod-system  # Mod trait/factory/registry/services/status/topics（E4 新增）
+│   ├── live2d-ai-mod-director # 已退役（不在 FACTORIES）；desktop 只用 motion_bias
+│   └── live2d-ai-mod-template # 新 Mod 模板（脚手架，不注册）
 ├── xtask/                    # 工程工具（Rust 占比统计）
 ├── assets/models/            # Live2D 模型（仅目录+说明，二进制不入库）
 ├── docs/
@@ -52,28 +54,35 @@ Live2D-Ai/
 | `scripts/` | 可复用脚本 | 一次性草稿 |
 | `tests/` | 根级无 Key Python 测试 | crate 专测（放各自 crate）|
 
-## Mod 目录约定（节点 E）
+## Mod 目录约定（两仓，0.3.1-rc.5 起）
 
-3 个 Mod 作为主仓库 workspace 成员（默认 enable 由 manifest 控制）：
+五个 Mod 实现住 **sibling 仓** `../Live2D-Ai-mods/crates/`，不在主仓 members 里：
+
 ```
-crates/live2d-ai-mod-external-input/  外部事件接入 Mod（`POST /api/v1/external/chat`）
-crates/live2d-ai-mod-pet-desktop/    ⛔ 已删除（2026-10-01 W2-A/D1）：桌宠窗口 Mod v1 骨架，crate 已物理删除（tag checkpoint/pre-d1-dormant）
-crates/live2d-ai-mod-local-llm/      ⛔ 已删除（2026-10-01 W2-A/D1）：本地推理探测 Mod（0.2.0-rc.1 废除启动后删除，tag checkpoint/pre-d1-dormant）
+../Live2D-Ai-mods/crates/live2d-ai-mod-external-input/  外部事件接入（POST /api/v1/external/chat）
+../Live2D-Ai-mods/crates/live2d-ai-mod-persona/         酒馆角色卡
+../Live2D-Ai-mods/crates/live2d-ai-mod-voice-input/     语音输入（ASR 在 sidecar）
+../Live2D-Ai-mods/crates/live2d-ai-mod-memory/          本地记忆
+../Live2D-Ai-mods/crates/live2d-ai-mod-local-tts/       本地 TTS 拉起（melo/ + 已封存 engine/）
 ```
-`crates/live2d-ai-mod-director/`（**动作编排** Mod）已于 `0.1.0-rc.2` **删除**——它是**当时（0.1.0-rc.2）**
-动作序列的唯一驱动方，**当时代码里动作不在产品路径上**；归档分支 `archive/action-layer-p6` **已不存在**（2026-10-06 复核），取回 `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`。
-**2026-09-21 现状更正**：动作包经渲染面 `preset` 协议在产品路径上**存在**（只是不经 core reducer）；
-详见 `AGENTS.md`「动作与表演的现行状态（2026-09 实测）」。
-Wave 3（2026-09-14）新增了一个**同名但不同职责**的 `live2d-ai-mod-director` **最小骨架**：
-当时只读 `TurnPrompt`/`TurnEnded`、只产决策日志与 `state_json`、**零投递**（不驱动动作）——
-**这是 2026-09-14 骨架期历史事实，不是现状**。**2026-09-21 现状**：它另产 `latest.preset_id`
-（只读状态面，供面板展示）与按句 `action_cue`（`ModServices.cues` → WS `action_cue`，驱动舞台），
-只是不经 core reducer（`action_tx` 仍休眠）。详见 [director-mod-v0.md](director-mod-v0.md) 与
-`AGENTS.md` 的「动作与表演的现行状态（2026-09 实测）」；口径：**导演是一个 AI、属产品本体、
-不做架构搬迁**，输入 = **用户输入**（R1），谁的 `speak` 能力保留**未定、不裁决**。
-静态注册的工厂数由 `crates/live2d-ai-desktop/src/main.rs::mod_count_is_six` 守住
-（现行恰为 **6**；第六个是 2026-10-09 的 `local-tts-melo`。`wallpaper` / `pet-desktop` / `local-llm` 三个 crate 已于 2026-10-01 物理删除，见 [ARCHIVED-mods.md](ARCHIVED-mods.md)）。
-各 Mod crate 内含 `src/lib.rs`（ModFactory 实现）+ `README.md`（职责/依赖/配置）。
+
+主仓保留三条 Mod 边界相关目录：
+
+- `crates/live2d-ai-mod-system/`：trait / factory / registry / services / topics——协议唯一真源。
+- `crates/live2d-ai-mod-director/`：**已退役**，退出 `AVAILABLE_MOD_FACTORIES`；desktop 仍用
+  `director::motion_bias`，故 crate 留主仓。规则表已迁入核心。
+- `crates/live2d-ai-mod-template/`：新 Mod 模板（脚手架，不注册）。
+
+接线方式：主仓根 `[workspace.dependencies]` 用
+`path = "../Live2D-Ai-mods/crates/..."` 指五个 crate，`live2d-ai-desktop` 用
+`workspace = true`；第二仓反过来 path 指主仓 `mod-system` / `runtime`。
+**无包级循环**，但主仓**不再 standalone**：缺 sibling 目录 `cargo metadata` 即失败。
+公开前切换计划见 [two-repo-mods.md](two-repo-mods.md)。
+
+工厂数由 `crates/live2d-ai-desktop/src/main.rs::mod_count_is_five` 守住（现行 **5**：
+external-input / persona / voice-input / memory / local-tts-melo）。
+`wallpaper` / `pet-desktop` / `local-llm` 三个 crate 已于 2026-10-01 物理删除，
+**禁止挂回**，见 [ARCHIVED-mods.md](ARCHIVED-mods.md)。
 
 ## 清理规则
 
