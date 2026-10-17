@@ -7,6 +7,7 @@ class LlmSettingsPatch {
     this.model,
     this.maxTokens,
     this.showReasoning,
+    this.vendor,
   });
 
   final Tri<String>? baseUrl;
@@ -24,12 +25,19 @@ class LlmSettingsPatch {
   /// `Tri.clear()` → `show_reasoning: null` → 回落服务端缺省（false）。
   final Tri<bool>? showReasoning;
 
+  /// 厂商选择（rc.6，三态）：
+  /// - 缺省 = 不动；
+  /// - `Tri.set(id)` = 一次「快照→当前」原子复制并打标签；
+  /// - `Tri.clear()` = 只清标签（当前值不动，= 手动填写）。
+  final Tri<String>? vendor;
+
   Map<String, Object?> toJson() {
     final Map<String, Object?> out = <String, Object?>{};
     putTri<String>(out, 'base_url', baseUrl);
     putTri<String>(out, 'model', model);
     putTri<int>(out, 'max_tokens', maxTokens);
     putTri<bool>(out, 'show_reasoning', showReasoning);
+    putTri<String>(out, 'vendor', vendor);
     return out;
   }
 
@@ -46,6 +54,7 @@ class TtsSettingsPatch {
     this.apiKeyEnv,
     this.sampleRate,
     this.channels,
+    this.vendor,
   });
 
   /// 语音来源（`"local"` / `"cloud"`，2026-10-09）。
@@ -67,6 +76,10 @@ class TtsSettingsPatch {
   final Tri<int>? sampleRate;
   final Tri<int>? channels;
 
+  /// 厂商选择（rc.6，三态）：`Tri.set(id)` = 快照→当前（melo → local，
+  /// 其它 → cloud）；`Tri.clear()` = 只清标签（手动填写）。
+  final Tri<String>? vendor;
+
   Map<String, Object?> toJson() {
     final Map<String, Object?> out = <String, Object?>{};
     if (mode != null) out['mode'] = mode;
@@ -76,6 +89,7 @@ class TtsSettingsPatch {
     putTri<String>(out, 'voice', voice);
     putTri<int>(out, 'sample_rate', sampleRate);
     putTri<int>(out, 'channels', channels);
+    putTri<String>(out, 'vendor', vendor);
     return out;
   }
 

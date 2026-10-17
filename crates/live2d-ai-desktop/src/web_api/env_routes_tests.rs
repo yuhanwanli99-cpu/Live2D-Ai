@@ -23,6 +23,8 @@ mod tests {
                 api_key_env: keys.0.map(str::to_string),
                 max_tokens: None,
                 show_reasoning: None,
+                vendor: None,
+                vendors: Default::default(),
             },
             tts: TtsSettings {
                 mode: live2d_ai_runtime::settings::TtsMode::Cloud,
@@ -33,6 +35,8 @@ mod tests {
                 api_key_env: keys.1.map(str::to_string),
                 sample_rate: 24_000,
                 channels: 1,
+                vendor: None,
+                vendors: Default::default(),
             },
             persona: PersonaSettings::default(),
             dev_mode: false,

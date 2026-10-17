@@ -1881,6 +1881,7 @@ dependencies = [
  "live2d-ai-core",
  "live2d-ai-mod-director",
  "live2d-ai-mod-external-input",
+ "live2d-ai-mod-local-engine",
  "live2d-ai-mod-local-tts",
  "live2d-ai-mod-memory",
  "live2d-ai-mod-persona",
@@ -1918,6 +1919,15 @@ dependencies = [
  "live2d-ai-mod-system",
  "live2d-ai-runtime",
  "log",
+ "serde_json",
+]
+
+[[package]]
+name = "live2d-ai-mod-local-engine"
+version = "0.3.1"
+dependencies = [
+ "libc",
+ "live2d-ai-mod-system",
  "serde_json",
 ]
 

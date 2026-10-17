@@ -1,25 +1,25 @@
-# 两仓：核心与 Mod 实现（0.3.1-rc.5，2026-10-17）
+# 两仓：核心与 Mod 实现（0.3.4，2026-10-17）
 
 > 状态：**活**。这一页只讲**仓库边界**；协议、WS 帧、缺省启用集合仍以
 > [CURRENT.md](CURRENT.md) 与源码为准。拆分口径来自
 > [PROMPT-3.0-motion-first-2026-10-17.md](../plans/PROMPT-3.0-motion-first-2026-10-17.md)
-> 的「分仓库」一节（原 v0.3.3，落到 0.3.1-rc.5）。
+> 的「分仓库」一节（原 v0.3.3，落到 0.3.3）。
 
 ## 1. 布局
 
 | 仓库 | 路径（本机） | 内容 |
 | --- | --- | --- |
 | 主仓 | `/home/skystar/Live2D-Ai` | `l2d`、`live2d-ai-core`、`live2d-ai-runtime`、`live2d-ai-desktop`、`l2d-wasm-demo`、`xtask`、`live2d-ai-mod-system`、`director`（已退役，仅留 `motion_bias`）、`template`、Flutter 壳、白模资源、协议文档 |
-| 第二仓 | `/home/skystar/Live2D-Ai-mods` | 五个 Mod 实现：`external-input`、`persona`、`voice-input`、`memory`、`local-tts`（含 `melo/` 与已封存的 `engine/`） |
+| 第二仓 | `/home/skystar/Live2D-Ai-mods` | 六个 Mod 实现：`external-input`、`persona`、`voice-input`、`memory`、`local-tts`（含 `melo/` 与已封存的 `engine/`）、`local-engine`（0.3.4，spawn-only，缺省停用） |
 
 第二仓是主仓的 **sibling checkout**，不是 git submodule，也不是 vendored 副本。
 
 ## 2. 依赖方向
 
 - 主仓根 `Cargo.toml` 的 `[workspace.dependencies]` 用
-  `path = "../Live2D-Ai-mods/crates/..."` 指五个 Mod；`live2d-ai-desktop`
-  用 `workspace = true` 继承。主仓 members 不再含这五个 crate。
-- 第二仓五个 Mod 用 `live2d-ai-mod-system = { workspace = true }`，根清单把
+  `path = "../Live2D-Ai-mods/crates/..."` 指六个 Mod；`live2d-ai-desktop`
+  用 `workspace = true` 继承。主仓 members 不再含这六个 crate。
+- 第二仓六个 Mod 用 `live2d-ai-mod-system = { workspace = true }`，根清单把
   `live2d-ai-mod-system` / `live2d-ai-runtime` 指向
   `../Live2D-Ai/crates/...`；persona 的 dev-dep memory 用仓内路径。
 - **无包级循环**：desktop → mod → mod-system/runtime，依赖图仍是 DAG。
@@ -51,15 +51,19 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-主仓 `rust-ratio` 只统计主仓文件系统，不再把五个 Mod crate 计入分子/分母；
+主仓 `rust-ratio` 只统计主仓文件系统，不再把六个 Mod crate 计入分子/分母；
 第二仓的门禁是 `cargo test/fmt/clippy`，不另设占比门槛。
 
 ## 4. 不变性（拆分不改变产品）
 
-- 工厂仍 **5**：`mod_count_is_five` / `mod_factory_ids_match_expected` 不动。
-- 缺省启用仍 `external-input` + `local-tts-melo`。
+- 工厂 0.3.4 起 **6**：`mod_count_is_six` / `mod_factory_ids_match_expected`
+  （新增 `local-engine`，**缺省停用**）。
+- 缺省启用仍 `external-input` + `local-tts-melo`（`local-engine` 不进缺省 manifest）。
 - 协议、WS 帧、`ModServices` 契约不动；`action_tx` 仍休眠。
-- Mod **不写** `[tts]` / `[llm]`，不接 `action_tx`。
+- Mod **不写** `[tts]` / `[llm]`，不接 `action_tx`；`local-engine` 也没有
+  `base_url`，只按 4 项 schema（program / args_json / workdir / launch_mode）spawn。
+- 0.3.4 多厂商选择（`[llm].vendor` / `[tts].vendor` + `vendors` 快照）是**核心设置**，
+  与 Mod 无关；`local-engine` 不参与、切 TTS 厂商也不碰它。
 - `director` 与 `template` 留主仓：desktop 仍用 `director::motion_bias`；
   template 是脚手架。
 - `docs/examples/voice-sidecar/` 留主仓；voice-input 的测试 fixture 在第二仓

@@ -42,7 +42,7 @@ mod platform;
 /// `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`（director）、
 /// `git show ef9f428^:crates/l2d-wasm-demo/src/web/surface.rs`（渲染面编舞）。
 /// **不要再挂回去**：
-/// 下方 `mod_count_is_five` 是防回归断言。
+/// 下方 `mod_count_is_six`（rc.6 起）是防回归断言。
 ///
 /// 2026-10-17（rc4）：**决策/按句 cue 版 director Mod 也已退役**——按句清洗与
 /// cue 收归核心第二路（单一 cue 写者），本表由 6 → **5**。
@@ -90,6 +90,11 @@ pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &
     // 只按 argv spawn 外部进程；出声端点仍只由 `live2d-ai.toml` 的 `[tts]` 决定。
     // **不新加 desktop 的 Cargo 依赖边**（工厂与运行时都在 local-tts crate 里）。
     &live2d_ai_mod_local_tts::MELO_FACTORY,
+    // rc.6（2026-10-17）：spawn-only 本地引擎 —— id `local-engine`，界面名
+    // 「本地引擎（仅拉起进程）」。**只注册、缺省停用**（不进 default_mods_manifest）：
+    // 它按用户给的 program/args/workdir 拉起**任意**本地进程，没有 base_url，
+    // 不写 [tts]/[llm]、不探活、不换地址、不重启。5 → 6。
+    &live2d_ai_mod_local_engine::FACTORY,
     // 同轮的封存：CosyVoice3（id `local-tts`，界面名 `本地tts_CosyVoice3-0.5B`）
     // **已移出本表**——crate 与 engine/ 留在树上（可编译可测），头注写明「封存，
     // 还要适配，未适配前不要挂回」。数字 7 → **6**，断言守住
@@ -291,11 +296,11 @@ mod tests {
     /// 2026-10-17（rc4）：**director Mod 退役**——按句清洗与 cue 收归核心第二路
     /// （单一 cue 写者）→ 6 → **5**。断言继续守住「别再挂回来」。
     #[test]
-    fn mod_count_is_five() {
+    fn mod_count_is_six() {
         assert_eq!(
             super::AVAILABLE_MOD_FACTORIES.len(),
-            5,
-            "AVAILABLE_MOD_FACTORIES must contain exactly 5 Mod factories (external-input, persona, voice-input, memory, local-tts-melo)"
+            6,
+            "AVAILABLE_MOD_FACTORIES must contain exactly 6 Mod factories (external-input, persona, voice-input, memory, local-tts-melo, local-engine)"
         );
     }
 
@@ -313,8 +318,10 @@ mod tests {
         // 2026-10-09（0.2.3-rc.1）：CosyVoice3 的 id `local-tts` 已封存移出；
         // 出厂出声的那一个是 `local-tts-melo`（MeloTTS 中文）。
         // 2026-10-17（rc4）：director 已退役（按句 cue 收归核心第二路）。
+        // rc.6：+ local-engine（spawn-only 本地引擎，缺省停用）。
         let mut expected = vec![
             "external-input",
+            "local-engine",
             "local-tts-melo",
             "memory",
             "persona",

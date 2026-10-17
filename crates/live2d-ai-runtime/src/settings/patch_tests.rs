@@ -22,6 +22,8 @@ pub(super) fn sample() -> AppSettings {
             api_key_env: Some("LLM_KEY".into()),
             max_tokens: None,
             show_reasoning: None,
+            vendor: None,
+            vendors: Default::default(),
         },
         tts: TtsSettings {
             mode: crate::settings::TtsMode::Cloud,
@@ -32,6 +34,8 @@ pub(super) fn sample() -> AppSettings {
             api_key_env: Some("TTS_KEY".into()),
             sample_rate: 24_000,
             channels: 1,
+            vendor: None,
+            vendors: Default::default(),
         },
         persona: PersonaSettings {
             system_prompt: "你是桌宠".into(),
@@ -56,7 +60,8 @@ fn settings_to_view_with_keys_drops_key_env_name_and_derives_from_lookup() {
         !json.contains("api_key_env"),
         "view 暴露 api_key_env 字段：{json}"
     );
-    assert_eq!(json.matches("\"has_api_key\":false").count(), 3, "{json}");
+    // 3 个当前段 + 内置 melo 虚拟快照（rc.6，无密钥）各一个 false。
+    assert_eq!(json.matches("\"has_api_key\":false").count(), 4, "{json}");
 
     // (b) 有非空值 → llm / tts / performance 三段走**同一**私有派生函数，
     //     一起翻 true；值本身永不出现在视图里。
@@ -144,6 +149,7 @@ fn patch_none_keeps_old_base_url() {
             api_key_env: None,
             max_tokens: None,
             show_reasoning: None,
+            vendor: None,
         })),
         ..Default::default()
     };
@@ -186,7 +192,8 @@ fn patch_some_empty_string_clears_api_key_env() {
     assert!(!v.llm.has_api_key);
     assert!(!v.tts.has_api_key);
     let json = serde_json::to_string(&v).unwrap();
-    assert_eq!(json.matches("\"has_api_key\":false").count(), 3, "{json}");
+    // 3 个当前段 + 内置 melo 虚拟快照（rc.6，无密钥）。
+    assert_eq!(json.matches("\"has_api_key\":false").count(), 4, "{json}");
     assert!(!json.contains("_KEY\""), "视图不得回环境变量名：{json}");
 }
 
@@ -472,24 +479,4 @@ fn json_three_state_field_null_after_value_clears_only_that_field() {
     // base_url / model **没动**（缺省 = 不修改）。
     assert_eq!(next.llm.base_url, s.llm.base_url);
     assert_eq!(next.llm.model, s.llm.model);
-}
-
-#[test]
-fn json_three_state_invalid_payload_is_rejected() {
-    // `base_url` 非法值走 `apply_patch` 错误路径——三态拆开后非法值的拒绝
-    // 仍要在 deserializer + apply_patch 双层都生效。
-    let json = r#"{"llm":{"base_url":"not a url"}}"#;
-    let patch: SettingsPatch = serde_json::from_str(json).expect("JSON 形状合法");
-    let s = sample();
-    assert!(apply_patch(&s, &patch).is_err(), "非法 base_url 必须拒绝");
-
-    // 非法 sample_rate（0）——数值类型可解，但 apply_patch 拒绝。
-    let json2 = r#"{"tts":{"sample_rate":0}}"#;
-    let patch2: SettingsPatch = serde_json::from_str(json2).expect("JSON 形状合法");
-    assert!(apply_patch(&s, &patch2).is_err());
-
-    // 真正的 JSON 语法错（缺右括号）—— deserializer 拒绝。
-    let bad = r#"{"llm":{"base_url":"x""#;
-    let parse_err = serde_json::from_str::<SettingsPatch>(bad);
-    assert!(parse_err.is_err(), "JSON 语法错必须被 deserializer 拒绝");
 }

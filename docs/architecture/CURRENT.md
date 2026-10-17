@@ -12,8 +12,8 @@
 
 - 版本号以 `Cargo.toml` 为准：**`0.3.1`**；发布说明 `docs/releases/v0.3.1.md`。`v0.2.7` 在 `5618b55`，`v0.2.6-rc.1` 在 `767a286`。
 - tag `v0.2.5-rc.1` 仍在原处：导演开启时按句清洗并按原文出动作；出厂不设人设。
-- **`v0.2.7` 是 2.0 稳定版，`v0.3.1` 是外部事件忙时合并。** 其后各版与验收边界在 [`PROMPT-3.0-motion-first-2026-10-17.md`](../plans/PROMPT-3.0-motion-first-2026-10-17.md)：`v0.3.1-rc.3` 手势到期放回，`v0.3.1-rc.4` 第二路并入核心，`v0.3.1-rc.5` 分仓库（原 `v0.3.3`），然后 `v0.3.4` 多 TTS/LLM、`v0.3.5` Windows、`v0.3.6` 桌宠、`v0.3.7` 多模型。
-- **两仓（0.3.1-rc.5 起）**：核心在主仓 `/home/skystar/Live2D-Ai`，五个 Mod 实现住 sibling 仓 `/home/skystar/Live2D-Ai-mods`，主仓经 `path` 依赖引用。主仓**不再 standalone**；公开前换 git 依赖或 CI 双 checkout，见 [`two-repo-mods.md`](two-repo-mods.md)。
+- **`v0.2.7` 是 2.0 稳定版，原 `v0.3.1` 内容是 `0.3.1-rc.1`（外部事件忙时合并）。** 其后各版与验收边界在 [`PROMPT-3.0-motion-first-2026-10-17.md`](../plans/PROMPT-3.0-motion-first-2026-10-17.md)：`0.3.1-rc.2` 基线拆分，`0.3.2-rc.1` 手势到期放回，`0.3.2-rc.2` 导演常驻 + 第二路并入核心，`0.3.3` 分仓库，`0.3.4` 多 TTS/LLM 厂商选择 + spawn-only `local-engine`，然后 `0.3.5` 多 Live2D、`0.4.0` Windows + 桌宠真实窗口（真实窗口/点火未验）。
+- **两仓（0.3.3 起）**：核心在主仓 `/home/skystar/Live2D-Ai`，六个 Mod 实现住 sibling 仓 `/home/skystar/Live2D-Ai-mods`，主仓经 `path` 依赖引用。主仓**不再 standalone**；公开前换 git 依赖或 CI 双 checkout，见 [`two-repo-mods.md`](two-repo-mods.md)。
 
 ## 3. 出厂不设人设
 
@@ -54,14 +54,24 @@
 - 出厂 TTS 是**本机 Melo**：`http://127.0.0.1:8091/v1`（`live2d-ai.toml` 的 `[tts]`）。
 - `./scripts/ignite.sh`：等本机 `GET {tts}/models` = 200，才打印
   `http://127.0.0.1:18080/app/` 并打开浏览器；在此之前不报地址。
+- **多厂商（0.3.4）**：`[llm].vendor` / `[tts].vendor` 只是标签，当前段始终是唯一权威；
+  `[llm.vendors.*]` / `[tts.vendors.*]` 是文件里的快照。一次 PATCH 原子「快照→当前」复制；
+  手改当前后 GET 只给 `vendor_modified`，不回写快照。内置虚拟 `melo` 快照不进文件
+  （选中 = `apply_local_tts_defaults()` + `mode=local`），其它厂商一律 `mode=cloud`。
+  每厂商只存 `api_key_env`（变量名），值仍只住 `.env`；GET 只给 `has_api_key`。
+  本版只选不建厂商（TOML 手配）；旧 toml 无 vendor 字段时逐字 round-trip。
+  **旧二进制读新 toml 可能因 `deny_unknown_fields` 失败**——rc 线接受。
 
-## 8. Mod（在册五个）
+## 8. Mod（在册六个）
 
-`external-input`、`persona`、`voice-input`、`memory`、`local-tts-melo`。
+`external-input`、`persona`、`voice-input`、`memory`、`local-tts-melo`、`local-engine`。
 
 - **实现住第二仓** `../Live2D-Ai-mods/crates/`（`live2d-ai-mod-system` 与出厂协议仍在主仓）；
   工厂数、id、缺省集合不因拆仓改变。
-- **缺省启用**：`external-input` 与 `local-tts-melo`。
+- **缺省启用**：`external-input` 与 `local-tts-melo`；`local-engine` 只注册、**缺省停用**。
+- `local-engine`（0.3.4）：spawn-only，4 项 schema（program / args_json / workdir / launch_mode），
+  无 `base_url`；不写 `[tts]`/`[llm]`、不探活、不换地址、不重启；`apply_settings` 恒 0 次。
+  立即退出（1s 窗口）→ Failed 带 stderr 尾；之后退出只进 `state_json`。
 - `memory`：本地 JSONL + 词重叠检索（**零向量云依赖**），缺省**关**。
 - `director` 的 crate 仍在主仓 workspace（规则表已迁入核心），但**退出 `AVAILABLE_MOD_FACTORIES`、不再投递，禁止挂回**；
   旧 8 个配置键（3 个词表映射 + 5 个 `staging_*`）不再出现在界面，`mods.json` 残留键被忽略。

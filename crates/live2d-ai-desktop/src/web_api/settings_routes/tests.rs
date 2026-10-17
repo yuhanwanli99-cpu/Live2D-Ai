@@ -9,7 +9,7 @@
 
 use super::*;
 
-fn sample() -> AppSettings {
+pub(super) fn sample() -> AppSettings {
     AppSettings {
         // 2026-09-16：action 段默认（幅度倍率）。
         action: Default::default(),
@@ -21,6 +21,8 @@ fn sample() -> AppSettings {
             api_key_env: Some("LIVE2D_AI_LLM_API_KEY".into()),
             max_tokens: None,
             show_reasoning: None,
+            vendor: None,
+            vendors: Default::default(),
         },
         tts: live2d_ai_runtime::settings::TtsSettings {
             mode: live2d_ai_runtime::settings::TtsMode::Cloud,
@@ -31,6 +33,8 @@ fn sample() -> AppSettings {
             api_key_env: Some("LIVE2D_AI_TTS_API_KEY".into()),
             sample_rate: 24_000,
             channels: 1,
+            vendor: None,
+            vendors: Default::default(),
         },
         persona: live2d_ai_runtime::settings::PersonaSettings {
             system_prompt: "你是桌宠".into(),
@@ -44,7 +48,7 @@ fn sample() -> AppSettings {
 ///
 /// 测试一律用注入的 fake lookup，绝不 `std::env::set_var`——那会污染
 /// 同进程其它测试，也绕过了「读密钥只走 secrets::lookup」的纪律。
-fn no_keys(_name: &str) -> Option<String> {
+pub(super) fn no_keys(_name: &str) -> Option<String> {
     None
 }
 
@@ -471,6 +475,53 @@ fn url_invalid_patch_returns_400() {
         apply_and_write(&current, &patch, &tmp.to_string_lossy(), None, &no_keys, "").unwrap_err();
     assert_eq!(err.error.code, "url_invalid");
 }
+/// rc.6：切到不存在的厂商 → 400 invalid_payload，且**不写盘**；
+/// GET 视图同时只给 has_api_key（不泄露 vendor 的变量名）。
+#[test]
+fn unknown_vendor_patch_returns_400_without_writing() {
+    let mut current = sample();
+    current.llm.vendors.insert(
+        "foo".to_string(),
+        live2d_ai_runtime::settings::LlmVendor {
+            base_url: "https://api.example.com/v1".into(),
+            model: "foo".into(),
+            api_key_env: Some("FOO_SECRET_ENV".into()),
+            max_tokens: None,
+            show_reasoning: None,
+        },
+    );
+    let patch = SettingsPatch {
+        llm: Some(Some(live2d_ai_runtime::settings::patch::LlmPatch {
+            vendor: Some(Some("ghost".into())),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let tmp = tempdir_path("vendor_ghost");
+    let _ = std::fs::remove_file(&tmp);
+    let err =
+        apply_and_write(&current, &patch, &tmp.to_string_lossy(), None, &no_keys, "").unwrap_err();
+    assert_eq!(err.error.code, "invalid_payload");
+    assert!(!tmp.exists(), "400 不得写盘");
+
+    // 合法厂商：一次 PATCH 复制快照。
+    let ok = SettingsPatch {
+        llm: Some(Some(live2d_ai_runtime::settings::patch::LlmPatch {
+            vendor: Some(Some("foo".into())),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let resp = apply_and_write(&current, &ok, &tmp.to_string_lossy(), None, &no_keys, "")
+        .expect("合法厂商应保存成功");
+    assert_eq!(resp.settings.llm.vendor.as_deref(), Some("foo"));
+    assert_eq!(resp.settings.llm.base_url, "https://api.example.com/v1");
+    let json = serde_json::to_string(&resp.settings).unwrap();
+    assert!(!json.contains("api_key_env"), "视图不得回变量名");
+    assert!(!json.contains("FOO_SECRET_ENV"), "视图不得回变量名");
+    let _ = std::fs::remove_file(&tmp);
+}
+
 #[test]
 fn test_outcome_serializes_with_ok_tag() {
     let s = TestOutcome::success(42, "qwen2.5:7b");

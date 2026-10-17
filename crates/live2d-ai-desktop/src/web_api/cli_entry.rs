@@ -861,5 +861,10 @@ mod tests {
             m["mods"].get("director").is_none(),
             "director 已退役（rc4），不得进缺省 manifest"
         );
+        // rc.6：local-engine 只注册、**缺省停用**（用户自己填 program 才拉起）。
+        assert!(
+            m["mods"].get("local-engine").is_none(),
+            "local-engine 缺省停用，不得进缺省 manifest"
+        );
     }
 }

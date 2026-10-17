@@ -186,7 +186,12 @@ const RATCHET_DART_800: u64 = 0;
 /// 实测值，不是把红的门禁涂绿）。`PLAN_DESKTOP_DEPS` **保持 22**——PLAN §5
 /// 的目标口径不动，`--strict-plan` 在 deps 上继续是红的（如实打印，不涂绿）。
 /// 复算：`cargo run -q -p xtask -- code-stats --check --only deps`（23 ≤ 23 = PASS）。
-const RATCHET_DESKTOP_DEPS: u64 = 23;
+///
+/// **已调到 24**（2026-10-17 rc.6）：+1 条真实新增的产品依赖边——
+/// `live2d-ai-mod-local-engine`（id `local-engine`，缺省停用，spawn-only）。
+/// 同样不是放宽棘轮：这是实测的直接依赖数 24；`PLAN_DESKTOP_DEPS` 仍保持 22。
+/// 复算：`cargo run -q -p xtask -- code-stats --check --only deps`（24 ≤ 24 = PASS）。
+const RATCHET_DESKTOP_DEPS: u64 = 24;
 
 /// PLAN §5 量化目标（`--strict-plan`）。
 const PLAN_SRC_RS_500: u64 = 15;

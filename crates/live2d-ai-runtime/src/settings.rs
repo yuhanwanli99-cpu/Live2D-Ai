@@ -41,14 +41,23 @@ mod patch_tests;
 #[cfg(test)]
 #[path = "settings/patch_tts_mode_tests.rs"]
 mod patch_tts_mode_tests;
+/// 2026-10-17：三态 JSON 非法载荷回归（自 `patch_tests` 再拆一片，控制 ≤500 行）。
+#[cfg(test)]
+mod patch_vendor_tests;
 #[cfg(test)]
 mod settings_tests;
 /// 2026-10-17：写回 / round-trip / merge 回归（settings_tests 拆分为两片）。
 #[cfg(test)]
 mod settings_tests_roundtrip;
+/// 0.3.4 厂商快照类型（从本文件拆出，保持 ≤1000 行）。
+mod vendor;
+/// 0.3.4 多厂商选择（vendor / vendors）回归。
+#[cfg(test)]
+mod vendor_tests;
 pub mod view;
 use std::collections::BTreeMap;
 use std::path::Path;
+pub use vendor::{LlmVendor, MAX_VENDOR_ID_LEN, MELO_VENDOR_ID, TtsVendor, is_valid_vendor_id};
 
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -183,6 +192,16 @@ pub struct LlmSettings {
     /// 「省流量 / 加速」——那是对它的误读。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_reasoning: Option<bool>,
+    /// 当前选中的厂商标签（rc.6，2026-10-17）。**只是标签**：真正的权威仍是
+    /// 本段各字段；vendors 里存的是快照，选厂商 = 一次 PATCH 的「快照→当前」复制。
+    /// 省略 = 没有厂商标签（旧 toml 的逐字现状）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendor: Option<String>,
+    /// 厂商快照表（rc.6）：键 = 厂商 id（[a-z0-9][a-z0-9_-]{0,31}）。
+    /// **不参与** resolve——只有被选中并复制进本段当前值后才生效；
+    /// 非激活项配置有误也不会 brick。空表时**不序列化**（旧 toml 逐字 round-trip）。
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub vendors: BTreeMap<String, LlmVendor>,
 }
 
 /// [`LlmSettings::max_tokens`] 省略时的默认上限。
@@ -284,6 +303,14 @@ pub struct TtsSettings {
     /// 返回 PCM 流声道数；默认单声道。
     #[serde(default = "default_channels")]
     pub channels: u16,
+    /// 当前选中的厂商标签（rc.6，2026-10-17）。**只是标签**：权威仍是本段字段。
+    /// 特殊值 melo = 内置虚拟快照（不进文件；选中即 apply_local_tts_defaults）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendor: Option<String>,
+    /// 厂商快照表（rc.6）：键 = 厂商 id（[a-z0-9][a-z0-9_-]{0,31}）。
+    /// 本表**不参与** resolve；空表时不序列化（旧 toml 逐字 round-trip）。
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub vendors: BTreeMap<String, TtsVendor>,
 }
 
 /// 出厂 TTS 服务地址（2026-10-09）：仓库自带的 MeloTTS 垫片。
@@ -352,6 +379,8 @@ impl Default for TtsSettings {
             api_key_env: None,
             sample_rate: default_sample_rate(),
             channels: default_channels(),
+            vendor: None,
+            vendors: BTreeMap::new(),
         }
     }
 }

@@ -137,6 +137,13 @@ void main() {
     expect(find.textContaining('base_url'), findsNothing);
   });
 
+  testWidgets('A6：厂商下拉说明含「空闲后 / 下一轮生效」（与 LLM 卡一致）', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, controller: _controller(), view: _view(model: null));
+    expect(find.textContaining('空闲后 / 下一轮生效'), findsOneWidget);
+  });
+
   testWidgets('A5：服务端静音只在开发者模式里画（2026-10-08）', (
     WidgetTester tester,
   ) async {

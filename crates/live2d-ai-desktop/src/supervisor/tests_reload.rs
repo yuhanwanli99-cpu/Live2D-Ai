@@ -87,6 +87,8 @@ fn write_settings_with_tts(path: &std::path::Path, llm_base_url: &str, tts_base_
             api_key_env: None,
             max_tokens: None,
             show_reasoning: None,
+            vendor: None,
+            vendors: Default::default(),
         },
         tts: live2d_ai_runtime::settings::TtsSettings {
             mode: live2d_ai_runtime::settings::TtsMode::Cloud,
@@ -97,6 +99,8 @@ fn write_settings_with_tts(path: &std::path::Path, llm_base_url: &str, tts_base_
             api_key_env: None,
             sample_rate: 24_000,
             channels: 1,
+            vendor: None,
+            vendors: Default::default(),
         },
         ..AppSettings::default()
     };

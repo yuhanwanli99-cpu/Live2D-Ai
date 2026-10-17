@@ -20,7 +20,8 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use super::{
-    ActionSettings, AppSettings, LlmSettings, PerformanceSettings, PersonaSettings, TtsSettings,
+    ActionSettings, AppSettings, LlmSettings, LlmVendor, MELO_VENDOR_ID, PerformanceSettings,
+    PersonaSettings, TtsMode, TtsSettings, TtsVendor,
 };
 
 /// `AppSettings` 的脱敏只读视图，序列化结果可直接交给 Web API。
@@ -73,6 +74,13 @@ pub struct LlmView {
     /// 与 `max_tokens` 同口径：界面要看到「现在到底开没开」，
     /// 而不是看到 `null` 再自己猜缺省。
     pub show_reasoning: bool,
+    /// 当前厂商标签（rc.6）。`null` = 没有标签（旧配置的逐字现状）。
+    pub vendor: Option<String>,
+    /// 当前值与标签所指快照是否已经不一致（手改过当前值）。
+    /// **只报告，不回写快照**；标签悬空（快照不存在）时为 `false`（容忍，不 brick）。
+    pub vendor_modified: bool,
+    /// 厂商快照表（键 = id）。只给 `has_api_key`，**绝不**回 `api_key_env` / 值。
+    pub vendors: BTreeMap<String, LlmVendorView>,
 }
 
 /// 视图中的 TTS 段。
@@ -80,6 +88,33 @@ pub struct LlmView {
 pub struct TtsView {
     /// 语音来源（`"local"` / `"cloud"`，2026-10-09）。前端据此选中二选一。
     pub mode: String,
+    pub base_url: String,
+    pub model: Option<String>,
+    pub voice: String,
+    pub has_api_key: bool,
+    pub sample_rate: u32,
+    pub channels: u16,
+    /// 当前厂商标签（rc.6）。`null` = 没有标签；`melo` = 内置虚拟快照。
+    pub vendor: Option<String>,
+    /// 当前值与标签所指快照是否已经不一致（只报告，不回写快照）。
+    pub vendor_modified: bool,
+    /// 厂商快照表（键 = id，**始终包含内置 melo**）。只给 `has_api_key`。
+    pub vendors: BTreeMap<String, TtsVendorView>,
+}
+
+/// 视图中的一份 LLM 厂商快照（rc.6）。密钥纪律：只有 `has_api_key`。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LlmVendorView {
+    pub base_url: String,
+    pub model: String,
+    pub has_api_key: bool,
+    pub max_tokens: u32,
+    pub show_reasoning: bool,
+}
+
+/// 视图中的一份 TTS 厂商快照（rc.6）。密钥纪律：只有 `has_api_key`。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TtsVendorView {
     pub base_url: String,
     pub model: Option<String>,
     pub voice: String,
@@ -157,12 +192,42 @@ impl From<&LlmSettings> for LlmView {
             has_api_key: s.api_key_env.as_deref().is_some_and(|n| !n.is_empty()),
             max_tokens: s.effective_max_tokens(),
             show_reasoning: s.effective_show_reasoning(),
+            vendor: s.vendor.clone(),
+            vendor_modified: llm_vendor_modified(s),
+            vendors: s
+                .vendors
+                .iter()
+                .map(|(id, v)| (id.clone(), LlmVendorView::from_vendor(v)))
+                .collect(),
+        }
+    }
+}
+
+impl LlmVendorView {
+    /// 弱口径的厂商视图（`has_api_key` = 「声明了非空变量名」）。
+    fn from_vendor(v: &LlmVendor) -> Self {
+        Self {
+            base_url: v.base_url.clone(),
+            model: v.model.clone(),
+            has_api_key: v.api_key_env.as_deref().is_some_and(|n| !n.is_empty()),
+            max_tokens: v.max_tokens.unwrap_or(super::DEFAULT_MAX_TOKENS),
+            show_reasoning: v.show_reasoning.unwrap_or(false),
         }
     }
 }
 
 impl From<&TtsSettings> for TtsView {
     fn from(s: &TtsSettings) -> Self {
+        let mut vendors: BTreeMap<String, TtsVendorView> = s
+            .vendors
+            .iter()
+            .map(|(id, v)| (id.clone(), TtsVendorView::from_vendor(v)))
+            .collect();
+        // 内置虚拟 melo 快照**不进文件**，但 GET 永远列出它（含被文件项同名覆盖时）。
+        vendors.insert(
+            MELO_VENDOR_ID.to_string(),
+            TtsVendorView::from_vendor(&TtsVendor::from_settings(&TtsSettings::default())),
+        );
         Self {
             mode: s.mode.as_str().to_string(),
             base_url: s.base_url.clone(),
@@ -171,8 +236,49 @@ impl From<&TtsSettings> for TtsView {
             has_api_key: s.api_key_env.as_deref().is_some_and(|n| !n.is_empty()),
             sample_rate: s.sample_rate,
             channels: s.channels,
+            vendor: s.vendor.clone(),
+            vendor_modified: tts_vendor_modified(s),
+            vendors,
         }
     }
+}
+
+impl TtsVendorView {
+    /// 弱口径的厂商视图（`has_api_key` = 「声明了非空变量名」）。
+    fn from_vendor(v: &TtsVendor) -> Self {
+        Self {
+            base_url: v.base_url.clone(),
+            model: v.model.clone(),
+            voice: v.voice.clone(),
+            has_api_key: v.api_key_env.as_deref().is_some_and(|n| !n.is_empty()),
+            sample_rate: v.sample_rate,
+            channels: v.channels,
+        }
+    }
+}
+
+/// 当前 LLM 值与标签所指快照是否不一致（rc.6：**只报告，不回写快照**）。
+fn llm_vendor_modified(s: &LlmSettings) -> bool {
+    let Some(id) = &s.vendor else {
+        return false;
+    };
+    s.vendors
+        .get(id)
+        .is_some_and(|v| v != &LlmVendor::from_settings(s))
+}
+
+/// 当前 TTS 值与标签所指快照是否不一致（melo 对内置虚拟快照比较）。
+fn tts_vendor_modified(s: &TtsSettings) -> bool {
+    let Some(id) = &s.vendor else {
+        return false;
+    };
+    if id == MELO_VENDOR_ID {
+        return s.mode != TtsMode::Local
+            || TtsVendor::from_settings(s) != TtsVendor::from_settings(&TtsSettings::default());
+    }
+    s.vendors
+        .get(id)
+        .is_some_and(|v| s.mode != TtsMode::Cloud || v != &TtsVendor::from_settings(s))
 }
 
 /// 视图中的 `[performance]` 段。
@@ -274,6 +380,21 @@ pub fn settings_to_view_with_keys(
     view.llm.has_api_key = key_is_ready(s.llm.api_key_env.as_deref(), lookup);
     view.tts.has_api_key = key_is_ready(s.tts.api_key_env.as_deref(), lookup);
     view.performance.has_api_key = key_is_ready(s.performance.api_key_env.as_deref(), lookup);
+    // 厂商快照同一条口径：只回 has_api_key，且不因新增 vendor 而泄露变量名/值。
+    for (id, vendor) in &s.llm.vendors {
+        if let Some(v) = view.llm.vendors.get_mut(id) {
+            v.has_api_key = key_is_ready(vendor.api_key_env.as_deref(), lookup);
+        }
+    }
+    for (id, vendor) in &s.tts.vendors {
+        // melo 是内置虚拟快照（文件里的同名项不生效），不拿文件项改它的密钥位。
+        if id == MELO_VENDOR_ID {
+            continue;
+        }
+        if let Some(v) = view.tts.vendors.get_mut(id) {
+            v.has_api_key = key_is_ready(vendor.api_key_env.as_deref(), lookup);
+        }
+    }
     view
 }
 

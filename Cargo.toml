@@ -28,6 +28,8 @@ live2d-ai-mod-persona = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-persona
 live2d-ai-mod-voice-input = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-voice-input" }
 live2d-ai-mod-memory = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-memory" }
 live2d-ai-mod-local-tts = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-local-tts" }
+# rc.6（2026-10-17）：spawn-only 本地引擎 Mod（缺省停用，不进缺省 manifest）。
+live2d-ai-mod-local-engine = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-local-engine" }
 
 # 第一批基础元数据，各成员可覆盖（如 crates/l2d 的 license 覆盖为 MIT OR Apache-2.0）
 [workspace.package]

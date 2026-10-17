@@ -173,11 +173,12 @@ void main() {
     test('registeredModIds 从 Rust 静态注册表解出全部在册 Mod', () {
       final Set<String> ids = registeredModIds();
       expect(ids, isNotEmpty, reason: '真源一个 id 都没解出来 —— 门禁在空转（不是「后端没有 Mod」）');
-      // 2026-10-17（rc4）：导演退役成核心常驻 → 工厂表 6 → **5**。
+      // 2026-10-17（rc4）：导演退役成核心常驻 → 工厂表 6 → **5**；
+      // rc.6 新增 spawn-only `local-engine`（缺省停用）→ **6**。
       expect(
         ids,
-        hasLength(5),
-        reason: 'rc4 起工厂表恰为 5 个（director 已退役、移出注册表）',
+        hasLength(6),
+        reason: 'rc.6 起工厂表恰为 6 个（director 已退役；+ local-engine）',
       );
       expect(
         ids,
@@ -191,6 +192,8 @@ void main() {
           // 出厂出声的是同一个 crate 的第二个引擎 `local-tts-melo`；
           // 它的 id 推不出来（见 kExtraFactoryIds）——所以这里必须点名断言。
           'local-tts-melo',
+          // rc.6：spawn-only 本地引擎（只注册、缺省停用）。
+          'local-engine',
         ]),
         reason: '`AVAILABLE_MOD_FACTORIES` 变了（删 / 改 Mod）就必须在这里看见',
       );

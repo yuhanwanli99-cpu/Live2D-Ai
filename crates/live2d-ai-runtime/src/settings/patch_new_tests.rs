@@ -24,6 +24,7 @@ fn json_three_state_serialize_round_trip_preserves_three_states() {
             api_key_env: None,               // 缺省 → skip，不出现
             max_tokens: None,                // 同上
             show_reasoning: None,            // 同上
+            vendor: None,                    // 同上
         })),
         ..Default::default()
     };
@@ -84,6 +85,7 @@ fn max_tokens_patch_tri_state_does_not_collapse_zero_and_absent() {
             api_key_env: None,
             max_tokens: None,
             show_reasoning: None,
+            vendor: None,
         })),
         ..Default::default()
     };
@@ -100,6 +102,7 @@ fn max_tokens_patch_tri_state_does_not_collapse_zero_and_absent() {
                 api_key_env: None,
                 max_tokens: Some(Some(value)),
                 show_reasoning: None,
+                vendor: None,
             })),
             ..Default::default()
         };
@@ -116,6 +119,7 @@ fn max_tokens_patch_tri_state_does_not_collapse_zero_and_absent() {
             api_key_env: None,
             max_tokens: Some(None),
             show_reasoning: None,
+            vendor: None,
         })),
         ..Default::default()
     };

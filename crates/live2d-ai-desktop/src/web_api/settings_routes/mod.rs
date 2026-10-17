@@ -365,3 +365,5 @@ fn error_response_from(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_vendor;

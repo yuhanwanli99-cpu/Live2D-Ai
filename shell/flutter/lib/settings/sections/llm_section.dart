@@ -24,6 +24,14 @@ import '../settings_controller.dart';
 import 'env_key_field.dart';
 import 'pane_helpers.dart';
 
+/// 草稿优先的当前厂商（空串 = 手动填写 / 没有标签）。
+String llmVendorOf(SettingsDraft draft, LlmSettingsView llm) {
+  final Tri<String>? drafted = draft.llmVendor;
+  if (drafted is TriSet<String>) return drafted.value;
+  if (drafted is TriClear<String>) return '';
+  return llm.vendor ?? '';
+}
+
 class LlmSection extends StatelessWidget {
   const LlmSection({
     required this.controller,
@@ -65,10 +73,40 @@ class LlmSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final SettingsDraft d = controller.draft;
     final LlmSettingsView llm = view.llm;
+    final String vendor = llmVendorOf(d, llm);
+    final List<FieldOption<String>> vendorOptions = <FieldOption<String>>[
+      const FieldOption<String>(value: '', label: '手动填写（不绑定厂商）'),
+      for (final String id in llm.vendors.keys)
+        FieldOption<String>(value: id, label: id),
+      if (vendor.isNotEmpty && !llm.vendors.containsKey(vendor))
+        FieldOption<String>(value: vendor, label: '$vendor（快照缺失）'),
+    ];
+
+    // rc.6：切换厂商 = 一次「快照→当前」复制；清空本卡草稿，避免把旧厂商的
+    // 地址 / 模型名混进新快照。服务端在空闲后换 engine，失败不回退。
+    void switchVendor(String id) {
+      controller.edit((SettingsDraft draft) {
+        draft.llmVendor = id.isEmpty ? Tri.clear<String>() : Tri.set(id);
+        draft.llmBaseUrl = null;
+        draft.llmModel = null;
+        draft.llmMaxTokens = null;
+        draft.llmShowReasoning = null;
+      });
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
+        DropdownField<String>(
+          label: '当前厂商',
+          icon: Icons.storefront_outlined,
+          value: vendor,
+          options: vendorOptions,
+          description: llm.vendorModified
+              ? '当前值已手改（保存不会回写快照）；切回同一厂商即可重新套用快照。'
+              : '切换后仍需「保存并重载」；空闲后 / 下一轮生效。',
+          onChanged: switchVendor,
+        ),
         TextFieldRow(
           label: '服务地址',
           icon: Icons.link,
