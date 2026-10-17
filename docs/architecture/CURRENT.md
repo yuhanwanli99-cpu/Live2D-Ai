@@ -12,7 +12,7 @@
 
 - 版本号以 `Cargo.toml` 为准：**`0.2.7`**；发布说明 `docs/releases/v0.2.7.md`。tag `v0.2.6-rc.1` 仍在 `767a286`。
 - tag `v0.2.5-rc.1` 仍在原处：导演开启时按句清洗并按原文出动作；出厂不设人设。
-- **`v0.2.7` 是 2.0 稳定版。** 3.0 顺序：1 动作、6 分仓库、2 多 TTS/LLM、4 Windows、3 桌宠、7 多模型。第一片见 [`PROMPT-3.0-motion-first-2026-10-17.md`](../plans/PROMPT-3.0-motion-first-2026-10-17.md)。
+- **`v0.2.7` 是 2.0 稳定版。** 3.0 队首是外部事件忙时合并再注入，其后 1 动作、6 分仓库、2 多 TTS/LLM、4 Windows、3 桌宠、7 多模型。见 [`PROMPT-3.0-motion-first-2026-10-17.md`](../plans/PROMPT-3.0-motion-first-2026-10-17.md)。
 
 ## 3. 出厂不设人设
 
