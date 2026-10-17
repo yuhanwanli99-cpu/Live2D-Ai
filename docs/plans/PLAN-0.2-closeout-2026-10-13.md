@@ -129,15 +129,16 @@ S3 的测试与第 7 节通过之后：
 - 活文档里的现行身份句保持「本地优先的皮套接入服务」（身份单已做，不要重做）。
 - 发布说明写出下面这些边界。
 
-这些**留着**，写进 `v0.2.5-rc.1` 的已知边界，本时代不改：
+这些**当时**留着，写进 `v0.2.5-rc.1` 的已知边界，本时代不改；2026-10-16/17 债务片后的状态逐条标注：
 
 - `action_tx` 继续休眠。`action_request_is_dormant_not_delivered` 继续守。不删 core 的 `action/`、`performance/`，不改不变量 4 和 6。
 - 只证明白模。缺参数丢 cue。
 - `CHANGELOG.md` 约 1955 行的「桌宠」历史句。
 - `docs/local-inference-setup.md` 里 local-llm 删除横幅之下的 PowerShell `netsh` 示例。不把它当步骤执行。
 - `AGENTS.md` 变更历史里的「桌宠」。
-- 拆 `supervisor.rs` / `engine.rs`、给 `AGENTS.md` 减肥、CI 真 runner、wasm 体积、生产 `unwrap` 清点。
-- 静默错误 S-000–S-007。
+- 拆 `supervisor.rs` / `engine.rs`、给 `AGENTS.md` 减肥、生产 `unwrap` 清点 —— **2026-10-16 `74b1ecb` 已做**（`supervisor.rs` 492 / `engine.rs` 236，>500 棘轮 42；清点见 `docs/audit/2026-10-16-unwrap-inventory.md`）。
+- 静默错误 S-000–S-007 —— **2026-10-16 `74b1ecb` 已做**；S-007 的无 supervisor 分支 2026-10-17 补齐。
+- CI 真 runner（D1）、wasm 体积 —— **仍开**：D1 待真 runner 出结果；wasm 本机无 `wasm-opt`，按 D8 停。
 - 核心开发者页上的表情 / 动作调试面板。不在本时代搬家。
 - 不挂回 `pet-desktop`、`wallpaper`、`local-llm`。
 
