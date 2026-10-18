@@ -14,6 +14,7 @@
 - tag `v0.2.5-rc.1` 仍在原处：导演开启时按句清洗并按原文出动作；出厂不设人设。
 - **`v0.2.7` 是 2.0 稳定版，原 `v0.3.1` 内容是 `0.3.1-rc.1`（外部事件忙时合并）。** 其后各版与验收边界在 [`PROMPT-3.0-motion-first-2026-10-17.md`](../plans/PROMPT-3.0-motion-first-2026-10-17.md)：`0.3.1-rc.2` 基线拆分，`0.3.2-rc.1` 手势到期放回，`0.3.2-rc.2` 导演常驻 + 第二路并入核心，`0.3.3` 分仓库，`0.3.4` 多 TTS/LLM 厂商选择 + spawn-only `local-engine`，`0.3.5` 多 Live2D。其后 `0.4.0` 只做 Windows 支持，`0.4.1` 只做桌面透传的复杂 Mod。两版都还没点火。
 - **版本号写法 `0.x.y-rc.z`（2026-10-18）**：`0.x.y` 通常是一块具体功能，下一块用下一个号。`z` 不事先钉死，由做这块的执行 agent 按代码拆成小任务；`0.x.y-rc.1` … `0.x.y-rc.z` 都在实现这块功能，每步换一队 agent，每步一次本地提交加一个本地附注 tag，不 push。最后一个才是 `0.x.y-rc.(z+1)`，只清理这一块的拆分、测试、文档和棘轮，不加功能，也不另开一个 `0.x.y`。`Cargo.toml` 仍是 `0.3.1`，本地 rc 不改版本串。2026-09-10 的本地 tag `v0.4.0`–`v0.4.5` 不在当前 `main` 上，远端也没有，已经删除，号留给上面的 `0.4.0` / `0.4.1`。`CHANGELOG.md` 里的同名旧条目是历史正文，不改。
+- **0.3.6 已收口（2026-10-18，本地 tag `v0.3.6-rc.1`…`v0.3.6-rc.4`，未 push）**：热换原子化（panic 未复现，结构性删除二次 load）、设置纪律（草稿不生效，只有「保存并重载」）、cue / field map 重绑（`model_epoch`）。发布说明 `docs/releases/v0.3.6-rc.4.md`。
 - **两仓（0.3.3 起）**：核心在主仓 `/home/skystar/Live2D-Ai`，六个 Mod 实现住 sibling 仓 `/home/skystar/Live2D-Ai-mods`，主仓经 `path` 依赖引用。主仓**不再 standalone**；公开前换 git 依赖或 CI 双 checkout，见 [`two-repo-mods.md`](two-repo-mods.md)。
 - **多 Live2D（0.3.5）**：设置 → 模型库可加载本机 `model3`。唯一真源仍是
   `model_registry.json.active_id`；`GET /api/v1/app/status` 同时派生 `active_model_url`
@@ -38,9 +39,12 @@
   **动作仍按每段原文走核心规则表**（不是无动作），表演层自己的 `cues` 不投递。
 - 动作链路：`action_cue` → 前端 → 渲染面 `preset`（表情槽 / 手势槽）。
   **不走 core reducer**；`ModServices.action_tx` 仍是休眠 sender。
-- **换模（0.3.5）**：iframe 热换、不重载 iframe；只认**匹配 URL 的 `loaded`**，
-  旧/错帧忽略。失败保留旧模型并给「重试换皮」；成功后按新 model id 重载
-  `/actions/field_map.json`，清旧贡献 / pending、保留 idle。
+- **换模（0.3.5 / 0.3.6）**：iframe 热换、不重载 iframe；只认**匹配 URL 的 `loaded`**，
+  旧/错帧忽略。渲染面 `model_epoch` 首装 1、只有成功换模 +1；`loaded` 带 `model_id` /
+  `model_epoch` / `field_map{source,degraded,reason}`，失败 `error` 带当前旧模型身份且**不换 epoch**。
+  失败保留旧模型（同 GpuContext 新核心装载成功才原子替换，**不再回滚二次 load**）并给「重试换皮」；
+  成功后按新 model id 重载 field map、清旧贡献 / pending、保留 idle；Flutter 按新 epoch 清
+  `DirectorCuePlan` / `PresetStatus` 并重设动作幅度上下文，旧 epoch 的 preset 帧渲染面 Ignore。
 - 同槽换动作从屏幕上的姿势接上。表情进出走曲线。撤销从屏幕值收回；手势到期也走同一条放回（`ttl × (1-HOLD_END)`），表情到期仍立即清槽。
 - 第二路失败（请求失败 / 超时 / 坏 JSON）：回退**按句规则表**。
 - 设置一级「**导演**」卡：常驻状态 + 动作幅度滑条；`dev_mode` 下才显示可观测四栏与调试面板。

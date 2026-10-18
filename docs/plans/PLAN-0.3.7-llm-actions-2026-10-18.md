@@ -54,19 +54,24 @@
 **建议 B**，并把「不支持就明说、不假装」作为验收硬条件。若维护者不接受白名单扩张，退回 A 并删掉
 需要手臂的 4 个 id——**不要**用「只动头身」冒充挥手 / 鼓掌 / 指 / 捂嘴。
 
+> **D1 已裁决（维护者 2026-10-18）**：**手不做**。不扩参数白名单，渲染面仍是 13 个标准参数；
+> 表情 8 条全做；手势只保留头/身能诚实表达的 `bow`，删掉 `wave` / `clap` / `point` /
+> `cover_mouth`（需要手臂/手）与 `shrug`（需要肩，13 参数里没有，头身冒充不算）。
+> 本块动作总数 12 → **21**（不含 `none`），四处一致性 / 应用撤销 / ttl 回归都按 21 条做。
+
 ### 3.2 新增内容（按 D1 取舍）
 
 - 表情 8 条：`angry`、`sad`、`blush`、`wink`、`confused`、`sleepy`、`excited`、`calm`。
-- 手势 6 条：`bow`、`wave`、`clap`、`point`、`shrug`、`cover_mouth`。
-- 合计 12 → **26**（不含 `none`）；每条按现有 v3 规则：表情 = 五官 + 小幅头身，手势 = 头 + 半身；
-  幅值 / 周期 / 时长按 `scales.rs` 标定，不超头 30 / 身 10 / 五官 4；手臂类参数只走可选通道。
+- 手势 1 条：`bow`（D1 裁决：手不做，其余 5 个 id 不做）。
+- 合计 12 → **21**（不含 `none`）；每条按现有 v3 规则：表情 = 五官 + 小幅头身，手势 = 头 + 半身；
+  幅值 / 周期 / 时长按 `scales.rs` 标定，不超头 30 / 身 10 / 五官 4；**不加手臂/手/肩参数**。
 
 ### 3.3 单一真源与接线（逐处改，不许漏）
 
 | 位置 | 改动 |
 | --- | --- |
-| `assets/actions/presets.json` | 14 条包（参数表 / duration / morph 如需要） |
-| `assets/actions/preset_labels.json` | 14 条 zh/en/channel/source/note |
+| `assets/actions/presets.json` | 9 条新包（8 表情 + bow；参数表 / duration / morph 如需要） |
+| `assets/actions/preset_labels.json` | 9 条新条目 zh/en/channel/source/note |
 | `performance/rules/presets.rs` | `PRESET_IDS` + `preset_slot` + `EXPRESSION_PRESET_IDS` |
 | `preset/table.rs` / `field_map.rs` | 白名单（按 D1）、每模型可选通道、解析降级 |
 | `preset/*` ack | 复用既有 ack 字段报告缺失参数 / 降级，不新增 WS 帧 |
@@ -75,10 +80,10 @@
 1. 未知 id 仍 `Ignore`；`none` 语义不变；同槽换包仍走 handoff / release。
 2. 导演规则表可引用新 id，但仍是「这一句原文」裁决；不整篇分类、不随机、不跨轮常驻。
 3. **一致性回归**：Rust `PRESET_IDS` ↔ `presets.json` ↔ `preset_labels.json` ↔ `preset_slot` /
-   `EXPRESSION_PRESET_IDS` 四向断言；未知参数降级断言；每条 apply / revoke / ttl 边界。
-4. **验收**：wasm 重建后真实浏览器逐条肉眼（至少表情 / 手势各 3 条 + 一条缺手臂参数的降级）；
-   bai（无手臂参数）与 Epsilon（按实际参数）各测一次。未验就写「未验」。
-5. 文档：CURRENT `4 动作表、`preset_labels` 说明、发布说明；写清「哪些模型不支持哪些包」。
+   `EXPRESSION_PRESET_IDS` 四向断言（**21 条**）；未知参数降级断言；每条 apply / revoke / ttl 边界。
+4. **验收**：wasm 重建后真实浏览器逐条肉眼（8 条表情全看 + bow）；bai 与 Epsilon 各测一次。
+   未验就写「未验」。
+5. 文档：CURRENT 动作表、`preset_labels` 说明、发布说明；写清 D1=A（手不做）。
 
 ## 4. T3 末步 `rc.(m+1)`：只清理本块
 
@@ -92,19 +97,19 @@
 | --- | --- | --- |
 | `[llm].mode` 旧 toml 兼容 | serde round-trip 测试 | — |
 | 本地端点状态诚实 | 自检分类测试 + 实际 Ollama（可选） | 没装 Ollama 就只测分类 |
-| 26 条动作四处一致 | 四向一致性测试 | — |
-| 缺手臂参数明示降级 | bai 上跑 wave/clap/point/cover_mouth 的 ack + UI | 依赖 D1 方案 |
+| 21 条动作四处一致 | 四向一致性测试 | — |
+| 手不做（D1=A） | 无手臂/手/肩参数进白名单；wave/clap/point/cover_mouth/shrug 不存在 | — |
 | 动作不越红线 | 幅值 / clamp 单测 + 肉眼 | — |
 
 ## 6. 风险
 
-- 白名单扩张会把「未知参数静默丢」变成「可见降级」，是行为变化，必须写进发布说明。
+- D1=A 的好处是白名单零扩张；代价是动作数量 26 → 21，发布说明要写清「手不做，不冒充」。
 - 本地 LLM 各家 `/models` 行为不一致（404 算可达）；不能拿一次对话当自检。
 - 动作数量翻倍后 UI 选择器密度与标签翻译；保持 zh/en，不新增手写标签。
 - docs 余量有限：新增 14 条动作的说明要进既有表，不另开长文。
 
 ## 7. 完成定义
 
-LLM 设置能在 cloud / local 间切换且旧配置不破；本地不可达状态诚实；26 条动作在 Rust / JSON /
-标签 / 槽位四处一致；无手臂参数的模型明确降级而不是假装；全门禁绿；本地 commit + tag；报告区分
+LLM 设置能在 cloud / local 间切换且旧配置不破；本地不可达状态诚实；21 条动作在 Rust / JSON /
+标签 / 槽位四处一致；D1=A（手不做、不扩白名单、不冒充）；全门禁绿；本地 commit + tag；报告区分
 「已验 / 未验」。
