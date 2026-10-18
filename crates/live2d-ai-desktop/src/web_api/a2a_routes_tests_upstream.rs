@@ -44,6 +44,13 @@ fn real_client_collects_text_drops_reasoning_and_sends_no_tools() {
         raw.contains("\"thinking\":{\"type\":\"disabled\"}"),
         "缺省关思考必须显式上线：{raw}"
     );
+    assert!(
+        raw.contains(&format!(
+            "\"max_tokens\":{}",
+            live2d_ai_runtime::DEFAULT_MAX_TOKENS
+        )),
+        "输出上限必须来自设置（缺省 DEFAULT_MAX_TOKENS）：{raw}"
+    );
     assert!(!raw.contains("\"tools\""), "A2A 请求体不得含 tools：{raw}");
     assert!(
         !raw.to_ascii_lowercase().contains("authorization"),

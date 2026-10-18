@@ -277,6 +277,38 @@ fn malformed_json_is_parse_error() {
     assert_eq!(body["error"]["code"], -32700);
 }
 
+/// JSON-RPC id 原样回显：字符串 / 整数 / null 都是合法 id 类型。
+#[test]
+fn jsonrpc_id_is_echoed_verbatim() {
+    let (chat, _) = counting_chat(REPLY);
+    let (_, body) = call(
+        &strict_ctx(),
+        r#"{"jsonrpc":"2.0","id":"abc","method":"foo/bar","params":{}}"#,
+        &chat,
+    );
+    assert_eq!(body["id"], "abc");
+    let (_, body) = call(
+        &strict_ctx(),
+        r#"{"jsonrpc":"2.0","id":null,"method":"foo/bar"}"#,
+        &chat,
+    );
+    assert_eq!(body["id"], serde_json::Value::Null);
+}
+
+/// 连 params 都不给 → invalid params（-32602），不打上游。
+#[test]
+fn message_send_without_params_is_invalid_params() {
+    let (chat, hits) = counting_chat(REPLY);
+    let (status, body) = call(
+        &strict_ctx(),
+        r#"{"jsonrpc":"2.0","id":8,"method":"message/send"}"#,
+        &chat,
+    );
+    assert_eq!(status, 200);
+    assert_eq!(body["error"]["code"], -32602);
+    assert_eq!(hits.load(Ordering::Relaxed), 0);
+}
+
 /// jsonrpc 版本不对 / 缺 method → Invalid Request（-32600），id 原样回显。
 #[test]
 fn invalid_envelope_is_invalid_request() {
