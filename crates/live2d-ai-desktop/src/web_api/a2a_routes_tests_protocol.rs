@@ -301,8 +301,10 @@ fn invalid_envelope_is_invalid_request() {
 #[test]
 fn post_without_origin_is_rejected_in_strict_mode() {
     let (chat, _) = counting_chat(REPLY);
+    let tasks = store();
     let (status, body) = call_with(
         &strict_ctx(),
+        &tasks,
         Method::Post,
         &rpc_body("message/send", send_params("你好")),
         None,
@@ -317,8 +319,10 @@ fn post_without_origin_is_rejected_in_strict_mode() {
 #[test]
 fn post_with_foreign_origin_is_rejected() {
     let (chat, _) = counting_chat(REPLY);
+    let tasks = store();
     let (status, body) = call_with(
         &strict_ctx(),
+        &tasks,
         Method::Post,
         &rpc_body("message/send", send_params("你好")),
         Some("http://evil.example:18080"),
@@ -334,8 +338,10 @@ fn post_with_foreign_origin_is_rejected() {
 fn post_without_json_content_type_is_rejected() {
     let (chat, _) = counting_chat(REPLY);
     for ct in [None, Some("text/plain")] {
+        let tasks = store();
         let (status, body) = call_with(
             &strict_ctx(),
+            &tasks,
             Method::Post,
             &rpc_body("message/send", send_params("你好")),
             Some(ORIGIN),
@@ -351,8 +357,10 @@ fn post_without_json_content_type_is_rejected() {
 #[test]
 fn post_without_origin_is_allowed_for_tool_clients() {
     let (chat, hits) = counting_chat(REPLY);
+    let tasks = store();
     let (status, body) = call_with(
         &dev_ctx(),
+        &tasks,
         Method::Post,
         &rpc_body("message/send", send_params("你好")),
         None,
@@ -368,7 +376,16 @@ fn post_without_origin_is_allowed_for_tool_clients() {
 #[test]
 fn rpc_path_only_accepts_post_and_route_matching_is_exact() {
     let (chat, _) = counting_chat(REPLY);
-    let (status, body) = call_with(&strict_ctx(), Method::Get, "", Some(ORIGIN), None, &chat);
+    let tasks = store();
+    let (status, body) = call_with(
+        &strict_ctx(),
+        &tasks,
+        Method::Get,
+        "",
+        Some(ORIGIN),
+        None,
+        &chat,
+    );
     assert_eq!(status, 405);
     assert_eq!(body["error"]["code"], "method_not_allowed");
 
