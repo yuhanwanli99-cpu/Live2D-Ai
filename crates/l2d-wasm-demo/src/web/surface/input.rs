@@ -274,8 +274,11 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
     // **事件级 ack（O13 冻结 wire 名）**：preset-applied / preset-replaced /
     // preset-expired / preset-dropped 由字段状态机产生，这里统一发给父页。
     // 不是每帧状态流：frame 只在事件发生的那一帧返回事件。
+    // 0.3.6 T2：全部事件 ack 都盖当前模型代号（既有 `epoch` 语义不变）。
+    let model_epoch = state.borrow().model_epoch;
     for event in field_acks {
-        crate::web::emit_event(event.kind.wire_type(), event.to_json());
+        let kind = event.kind.wire_type();
+        crate::web::emit_event(kind, event.with_model_epoch(model_epoch).to_json());
     }
 }
 

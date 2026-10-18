@@ -47,7 +47,14 @@ class StageAckEvent {
     this.scale,
     this.offsetX,
     this.offsetY,
+    this.modelEpoch,
   });
+
+  /// 渲染面的**模型纪元**（0.3.6 T2；扁平历史帧，字段在根上）。
+  ///
+  /// `null` = 旧渲染面没带（legacy）；旧 epoch 的迟到达不到这里
+  /// （[Live2DBridge] 在解析入口就丢弃）。
+  final int? modelEpoch;
 
   /// 渲染面是否真的应用了。
   final bool applied;
@@ -63,7 +70,59 @@ class StageAckEvent {
   @override
   String toString() =>
       'StageAckEvent(applied: $applied, msgType: $msgType, scale: $scale, '
-      'offset: $offsetX,$offsetY)';
+      'offset: $offsetX,$offsetY, modelEpoch: $modelEpoch)';
+}
+
+/// `loaded.field_map` 的来源 / 降级原因（0.3.6 T2）。
+///
+/// 渲染面在换模成功后**重载** field map；失败时不得沿用旧表，`loaded` 回执
+/// 用这三项说明「这次生效的是哪张表」。Flutter 只显示，不据此改变任何行为。
+class FieldMapInfo {
+  const FieldMapInfo({this.source, this.degraded = false, this.reason});
+
+  /// `external`（外置覆盖表）/ `builtin`（内建表）/ `degraded`（降级）。
+  final String? source;
+
+  /// 是否降级（缺模型段、解析失败等）。
+  final bool degraded;
+
+  /// 可读原因；没降级时通常为 `null`。
+  final String? reason;
+
+  @override
+  String toString() =>
+      'FieldMapInfo(source: $source, degraded: $degraded, reason: $reason)';
+}
+
+/// 一次 `loaded` 回执里的模型身份（0.3.6 T2）。
+///
+/// **这是「渲染面真的装上了哪个模型」的唯一权威**：`sync.model` 发出去之后，
+/// 只有匹配 URL 的 `loaded` 才算换模成功；`model_epoch` 由渲染面自增
+/// （首次装载 = 1，**只有成功换模才 +1**，失败不变）。
+class ModelLoadedInfo {
+  const ModelLoadedInfo({
+    required this.url,
+    this.modelId,
+    this.modelEpoch,
+    this.fieldMap,
+  });
+
+  /// 渲染面报的模型 URL（`url`；历史帧用 `model` 字段，两者都接受）。
+  final String url;
+
+  /// 渲染面从 URL 推出来的模型 id。
+  final String? modelId;
+
+  /// 渲染面自增的模型纪元。`null` = 旧渲染面没带（legacy）。
+  final int? modelEpoch;
+
+  /// field map 的来源 / 降级原因。
+  final FieldMapInfo? fieldMap;
+
+  @override
+  String toString() =>
+      'ModelLoadedInfo(url: $url, modelId: $modelId, '
+      'modelEpoch: $modelEpoch, fieldMap: $fieldMap)';
 }
 
 /// 协议 v1 渲染面客户端。
@@ -111,6 +170,23 @@ class Live2DBridge extends ChangeNotifier {
   String? _pendingSwapUrl;
   String? _lastSwapError;
 
+  /// 渲染面当前的**模型身份**（0.3.6 T2）：只有匹配 URL 的 `loaded` 才推进。
+  ///
+  /// `model_epoch` 由渲染面自增（首次装载 = 1，只有成功换模 +1，失败不变）。
+  /// `null` = 旧渲染面没报过（legacy：所有门控按「缺字段 = 接受」处理）。
+  int? _modelEpoch;
+  String? _modelId;
+  FieldMapInfo? _fieldMap;
+  ModelLoadedInfo? _lastLoaded;
+
+  /// 每次**被采纳**的 `loaded`（含首次装载）→ [ModelLoadedInfo] 流。
+  ///
+  /// 与 [modelLoads]（只给 URL 字符串）的区别：这里带 `model_id` /
+  /// `model_epoch` / `field_map`——宿主据此把模型身份显示到开发面，
+  /// 并感知「换模成功、epoch 已推进」。
+  final StreamController<ModelLoadedInfo> _modelLoadedEvents =
+      StreamController<ModelLoadedInfo>.broadcast();
+
   /// 渲染面**事件级回执**流（协议 §7：四条 ack + segment-ended，O13 冻结名）。
   ///
   /// 与 [acks]（历史形状的 `stage-ack`）是两条通道：后者是「下行消息应用回声」，
@@ -134,6 +210,23 @@ class Live2DBridge extends ChangeNotifier {
 
   /// 最近一条回执（没收到过为 `null`）。
   StageAckEvent? get lastAck => _lastAck;
+
+  /// 渲染面当前的模型纪元（0.3.6 T2）。`null` = 还没收到过带该字段的 `loaded`。
+  int? get modelEpoch => _modelEpoch;
+
+  /// 渲染面当前的模型 id（0.3.6 T2）。`null` = 旧渲染面没带。
+  String? get modelId => _modelId;
+
+  /// 当前生效的 field map 来源 / 降级原因。`null` = 旧渲染面没带。
+  FieldMapInfo? get fieldMap => _fieldMap;
+
+  /// 最近一次**被采纳**的 `loaded`（模型身份快照；换模成功判定的副产品）。
+  ///
+  /// 换模失败**不会**改它（失败不换 epoch、旧模型不动）。
+  ModelLoadedInfo? get lastLoaded => _lastLoaded;
+
+  /// 每次被采纳的 `loaded` 流（见 [_modelLoadedEvents]）。
+  Stream<ModelLoadedInfo> get modelLoadedEvents => _modelLoadedEvents.stream;
 
   StreamSubscription<String>? _sub;
   Timer? _readyTimer;
@@ -346,6 +439,7 @@ class Live2DBridge extends ChangeNotifier {
     int? seq,
     int? epoch,
     int? sentenceSeq,
+    int? modelEpoch,
   }) {
     final payload = <String, Object?>{'id': id};
     if (source != null && source.isNotEmpty) payload['source'] = source;
@@ -365,6 +459,12 @@ class Live2DBridge extends ChangeNotifier {
     if (seq != null) payload['seq'] = seq;
     if (epoch != null) payload['epoch'] = epoch;
     if (sentenceSeq != null) payload['sentence_seq'] = sentenceSeq;
+    // 模型纪元（0.3.6 T2）：**默认带上当前已知值**——这不是「调用方记得传」的
+    // 可选礼貌，而是 epoch 门控的发送侧一半：旧模型的 cue 若在换模后才送达，
+    // 带着旧 epoch 会被渲染面直接 Ignore（不写参数、不回 ack），绝不串到新模型。
+    // 缺省（还没收到过带 epoch 的 loaded / 旧渲染面）= 不带，渲染面按 legacy 接受。
+    final int? epochToSend = modelEpoch ?? _modelEpoch;
+    if (epochToSend != null) payload['model_epoch'] = epochToSend;
     return _enqueueOrSend('preset', payload);
   }
 
@@ -493,12 +593,33 @@ class Live2DBridge extends ChangeNotifier {
         notifyListeners();
         unawaited(_flush());
       case 'loaded':
-        _modelLoaded = true;
+        // **旧 epoch 的 loaded 是迟到帧**（0.3.6 T2）：既不得改模型身份 /
+        // 采纳 epoch，也不得结束当前这次换模；整帧丢弃。字段缺失 = legacy 照收。
+        if (!_isCurrentModelEpoch(_intOrNull(payload['model_epoch']))) {
+          return;
+        }
         // 渲染端历史上发 model，当前发 url；两者都接受。
         final name = payload['model'] ?? payload['url'];
         if (name is String) {
+          _modelLoaded = true;
+          final int? modelEpoch = _intOrNull(payload['model_epoch']);
+          final String? modelId = _stringOrNull(payload['model_id']);
+          final FieldMapInfo? fieldMap = _parseFieldMap(payload['field_map']);
+          // 采纳渲染面的身份：epoch 由渲染面自增（成功换模才 +1），这里只跟随。
+          if (modelEpoch != null) _modelEpoch = modelEpoch;
+          if (modelId != null) _modelId = modelId;
+          if (fieldMap != null) _fieldMap = fieldMap;
           _model = name;
+          _lastLoaded = ModelLoadedInfo(
+            url: name,
+            modelId: _modelId,
+            modelEpoch: _modelEpoch,
+            fieldMap: _fieldMap,
+          );
           if (!_modelLoads.isClosed) _modelLoads.add(name);
+          if (!_modelLoadedEvents.isClosed) {
+            _modelLoadedEvents.add(_lastLoaded!);
+          }
           // 只有**匹配当前请求 URL** 的 loaded 才算换模成功。旧帧 / 错帧
           // 一律忽略并继续等（0.3.5：不能再把上一轮的 loaded 当本轮回执）。
           if (_pendingSwap != null &&
@@ -516,6 +637,11 @@ class Live2DBridge extends ChangeNotifier {
           notifyListeners();
         }
       case 'error':
+        // 旧 epoch 的 error 是迟到帧（0.3.6 T2）：不结束任何换模、也不把桥
+        // 打成 error。字段缺失 = legacy（老渲染面没有 epoch）照旧处理。
+        if (!_isCurrentModelEpoch(_intOrNull(payload['model_epoch']))) {
+          return;
+        }
         final message = payload['message'];
         final text =
             message is String && message.isNotEmpty ? message : '渲染面报告未知错误';
@@ -540,6 +666,11 @@ class Live2DBridge extends ChangeNotifier {
         }
       case 'stage-ack':
         // 回执是**历史形状**（没有 version），字段直接挂在根上而不是 payload。
+        // 旧 epoch 的回执是迟到帧（0.3.6 T2）：丢弃，不更新 lastAck / 不回调；
+        // 字段缺失 = legacy 接受。
+        if (!_isCurrentModelEpoch(_intOrNull(frame['model_epoch']))) {
+          return;
+        }
         final ack = StageAckEvent(
           applied: frame['applied'] == true,
           msgType: frame['msg_type'] is String
@@ -552,6 +683,7 @@ class Live2DBridge extends ChangeNotifier {
           offsetY: frame['offset_y'] is num
               ? (frame['offset_y']! as num).toDouble()
               : null,
+          modelEpoch: _intOrNull(frame['model_epoch']),
         );
         _lastAck = ack;
         if (!_acks.isClosed) _acks.add(ack);
@@ -563,6 +695,11 @@ class Live2DBridge extends ChangeNotifier {
       case 'segment-ended':
         // 渲染面事件级 ack（协议 §7）。字段在 `payload` 里；**表外字段忽略**
         // （V11）——解析器只取 §7.2 声明的键。
+        // **旧 epoch 的 preset 回执是迟到帧**（0.3.6 T2）：丢弃，不进导演日志、
+        // 不更新 PresetStatus；字段缺失 = legacy 接受。
+        if (!_isCurrentModelEpoch(_intOrNull(payload['model_epoch']))) {
+          return;
+        }
         final RenderEvent? event = parseRenderEvent(type, payload);
         if (event != null && !_renderEvents.isClosed) {
           _renderEvents.add(event);
@@ -571,6 +708,20 @@ class Live2DBridge extends ChangeNotifier {
       default:
         break; // 未知 type → 忽略（绝不抛）
     }
+  }
+
+  /// 帧上的 `model_epoch` 是否属于**当前**模型纪元（0.3.6 T2）。
+  ///
+  /// 契约：只认当前 epoch 的 `loaded` / `error` ack 与 preset 回执；**旧 epoch
+  /// 的迟到帧丢弃**；**字段缺失 = legacy 接受**（不得因缺字段丢帧）。
+  ///
+  /// 「本地还不知道 epoch」同样接受：首次 `loaded` 之前来的帧无从比较（老渲染面
+  /// 永远不报），一律先收下——这正是「旧渲染面缺省 = legacy」的落点。
+  bool _isCurrentModelEpoch(int? epoch) {
+    if (epoch == null) return true; // 缺字段 = legacy
+    final int? current = _modelEpoch;
+    if (current == null) return true; // 还没收到过 epoch：不丢帧
+    return epoch >= current;
   }
 
   void _fail(String message) {
@@ -595,12 +746,38 @@ class Live2DBridge extends ChangeNotifier {
     }
     unawaited(_acks.close());
     unawaited(_modelLoads.close());
+    unawaited(_modelLoadedEvents.close());
     unawaited(_renderEvents.close());
     unawaited(_sub?.cancel());
     unawaited(_transport.dispose());
     super.dispose();
   }
 }
+
+/// `field_map` 解析（宽容：缺字段 / 类型不对 → 对应项为 null，不抛）。
+FieldMapInfo? _parseFieldMap(Object? raw) {
+  if (raw is! Map) return null;
+  final Map<String, Object?> map = <String, Object?>{};
+  raw.forEach((Object? key, Object? value) {
+    if (key is String) map[key] = value;
+  });
+  return FieldMapInfo(
+    source: _stringOrNull(map['source']),
+    degraded: map['degraded'] == true,
+    reason: _stringOrNull(map['reason']),
+  );
+}
+
+/// 数值（含数字字符串）→ int；其它 → null（宽容解析，绝不抛）。
+int? _intOrNull(Object? value) {
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value);
+  return null;
+}
+
+/// 非空字符串 → String；其它 → null。
+String? _stringOrNull(Object? value) =>
+    value is String && value.isNotEmpty ? value : null;
 
 double _clamp01(double value) {
   if (value < 0) return 0;

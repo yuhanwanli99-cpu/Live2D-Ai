@@ -41,6 +41,7 @@ class RenderEvent {
     required this.kind,
     required this.type,
     this.epoch,
+    this.modelEpoch,
     this.tsMs,
     this.seq,
     this.field,
@@ -61,6 +62,13 @@ class RenderEvent {
   /// 原始 wire type（preset-applied …），日志文本直接用。
   final String type;
   final int? epoch;
+
+  /// 渲染面的**模型纪元**（0.3.6 T2；`payload.model_epoch`）。
+  ///
+  /// 与 [epoch]（导演 / 句 epoch）是**两个不同维度**：旧 epoch 的迟到回执
+  /// 在 [Live2DBridge] 就被丢弃，能到这里的一定是当前模型纪元的。
+  /// `null` = 旧渲染面没带（legacy）。
+  final int? modelEpoch;
   final int? tsMs;
   final int? seq;
   final String? field;
@@ -89,6 +97,7 @@ RenderEvent? parseRenderEvent(String type, Map<String, Object?> payload) {
     kind: kind,
     type: type,
     epoch: _intOrNull(payload['epoch']),
+    modelEpoch: _intOrNull(payload['model_epoch']),
     tsMs: _intOrNull(payload['ts_ms']),
     seq: _intOrNull(payload['seq']),
     field: _str(payload['field']),
@@ -112,6 +121,7 @@ RenderEvent? parseRenderEvent(String type, Map<String, Object?> payload) {
 String formatRenderEvent(RenderEvent e) {
   final StringBuffer b = StringBuffer('[render] ');
   b.write(e.type);
+  if (e.modelEpoch != null) b.write(' model_epoch=${e.modelEpoch}');
   if (e.seg != null) b.write(' seg=${e.seg}');
   if (e.seq != null) b.write(' seq=${e.seq}');
   if (e.field != null) b.write(' field=${e.field}');
@@ -431,6 +441,8 @@ String formatPresetAppliedLine(RenderEvent? e) {
   }
   b.write(' type=${e.type}');
   if (e.field != null && e.field!.isNotEmpty) b.write(' field=${e.field}');
+  // 模型纪元（0.3.6 T2）：C 栏「生效果」能直接看到这条 ack 属于哪个模型纪元。
+  if (e.modelEpoch != null) b.write(' model_epoch=${e.modelEpoch}');
   return b.toString();
 }
 

@@ -205,7 +205,11 @@ impl AckKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AckEvent {
     pub kind: AckKind,
+    /// 导演 / 句 epoch（既有语义，**不要动**）。
     pub epoch: i64,
+    /// 渲染面模型代号（0.3.6 T2）：`None` = 未盖章（构造点不知道当前模型），
+    /// 由唯一 emit 点用 [`AckEvent::with_model_epoch`] 统一补上。
+    pub model_epoch: Option<u64>,
     pub ts_ms: f64,
     pub seq: u32,
     pub field: Option<Field>,
@@ -238,6 +242,7 @@ impl AckEvent {
         Self {
             kind,
             epoch,
+            model_epoch: None,
             ts_ms,
             seq: 0,
             field: None,
@@ -271,6 +276,7 @@ impl AckEvent {
         Self {
             kind: ctx.kind,
             epoch: ctx.epoch,
+            model_epoch: None,
             ts_ms: ctx.ts_ms,
             seq: c.seq,
             field: Some(c.field),
@@ -290,6 +296,7 @@ impl AckEvent {
         Self {
             kind: AckKind::Dropped,
             epoch,
+            model_epoch: None,
             ts_ms,
             seq: cue.seq,
             field: Some(cue.field),
@@ -305,11 +312,21 @@ impl AckEvent {
         }
     }
 
+    /// 盖上当前渲染面模型代号（0.3.6 T2：全部事件 ack 都带 `model_epoch`）。
+    pub fn with_model_epoch(mut self, model_epoch: u64) -> Self {
+        self.model_epoch = Some(model_epoch);
+        self
+    }
+
     /// 投影成协议 §7.2 的 payload（`{version,type,payload}` 由 `emit_event` 加壳）。
     pub fn to_json(&self) -> Value {
         let mut obj = serde_json::Map::new();
         obj.insert("type".to_string(), Value::from(self.kind.wire_type()));
         obj.insert("epoch".to_string(), Value::from(self.epoch));
+        // 0.3.6 T2：模型代号是**独立**字段，与导演 / 句 epoch 并存。
+        if let Some(model_epoch) = self.model_epoch {
+            obj.insert("model_epoch".to_string(), Value::from(model_epoch));
+        }
         obj.insert("ts_ms".to_string(), Value::from(self.ts_ms));
         match self.seg {
             Some(seg) => {

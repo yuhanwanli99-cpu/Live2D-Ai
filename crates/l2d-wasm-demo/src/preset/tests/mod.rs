@@ -322,6 +322,7 @@ fn expression_packs_carry_face_and_small_head_body() {
 }
 
 mod assets;
+mod field_reload;
 mod fields;
 mod fields_common;
 mod fields_map_tests;

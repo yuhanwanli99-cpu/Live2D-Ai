@@ -570,6 +570,11 @@ class _ShellRootState extends State<ShellRoot> {
             // 放大/缩小时才读，于是初始状态一直显示「—」。
             // 渲染面事件级 ack（协议 §7）→ **喂导演的日志文本**（§7.3）。
             onRenderEvent: _directorLog.add,
+            // 0.3.6 T2：渲染面每采纳一次 loaded（含首次装载）→ 模型身份进
+            // dev 可观测面（B 栏，只住内存）；换模**成功** → 清按句计划 +
+            // 按新 model_id 重设动作幅度上下文并补发（见 shell_lifecycle_wiring）。
+            onModelLoaded: _onStageModelLoaded,
+            onModelSwapped: _onStageModelSwapped,
             // 自动热换失败（didUpdateWidget 路径）：保留旧模型，只把错误
             // 交给模型库，给出「重试换皮」；**不**静默回白模。
             onModelSwapFailed: (String message) {

@@ -152,6 +152,46 @@ extension _ShellLifecycleWiring on _ShellRootState {
     unawaited(_refreshVoiceModState());
   }
 
+  /// 渲染面每采纳一次 loaded（含首次装载，0.3.6 T2）：模型身份进 dev 可观测面。
+  ///
+  /// **只记内存**：不新增 WS 帧、不落盘（导演可观测栏的红线）。B 栏因此能
+  /// 看到 model_id / model_epoch / field_map 来源与降级原因——换模到底换了
+  /// 哪个模型、哪个 epoch，开发者面有唯一证据。
+  void _onStageModelLoaded(ModelLoadedInfo info) {
+    final FieldMapInfo? map = info.fieldMap;
+    DirectorObserverFeed.instance.pushModelLoaded(
+      url: info.url,
+      modelId: info.modelId,
+      modelEpoch: info.modelEpoch,
+      fieldMapSource: map?.source,
+      fieldMapDegraded: map?.degraded ?? false,
+      fieldMapReason: map?.reason,
+    );
+  }
+
+  /// 换模**成功**（匹配 URL 的 loaded，0.3.6 T2）：清计划 + 重绑动作幅度。
+  ///
+  /// 只由 [Live2DStage.onModelSwapped] 调用——失败路径不回调，所以这里无需
+  /// 再判「是否成功」：失败时旧模型、旧 cue、旧 epoch 一概不动。
+  void _onStageModelSwapped(ModelLoadedInfo info) {
+    if (!mounted) return;
+    // ① **旧 cue 不得落到新模型**：换模前到达的按句计划整表清空。
+    _directorCues.replace(const <ActionCue>[]);
+    // ② 按**渲染面确认的** model_id 重设 D40「每模型覆盖」上下文，并补发一次
+    //    有效幅度。force 绕过同值去重（模型已换，旧快照不算数）；syncer 内部
+    //    仍是临时覆盖（dev pin）优先——force 冲不掉调试面板钉住的值。
+    final ActionSettingsView? action = _settings.remote?.action;
+    _actionScalesSyncer.setModelContext(
+      activeModelId: (info.modelId ?? '').isEmpty ? null : info.modelId,
+      overrides: action == null
+          ? const <String, Map<String, double>>{}
+          : toModelOverrideMap(action.models),
+    );
+    _syncActionScalesNow(force: true);
+    // ③ C 栏记下这次「两槽放回」的请求（真帧由舞台紧接着下发，source=swap）。
+    _recordPresetRequest(id: 'none', source: 'swap');
+  }
+
   void _didUpdateShell(ShellRoot oldWidget) {
     if (oldWidget.prefs == widget.prefs) return;
     // 已保存那份变了（保存成功 / 水合回填背景库）：它才是舞台与音频的真源，

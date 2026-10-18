@@ -135,6 +135,9 @@ pub struct FieldMap {
     head: FieldAxes,
     expressions: Vec<ExpressionEntry>,
     warnings: Vec<String>,
+    /// 外置覆盖表是否**真的**改写了至少一个轴 / expression（0.3.6 T2：
+    /// loaded ack 的 `field_map.source` 用它区分 external / builtin）。
+    overridden: bool,
 }
 
 /// `Param` 是否允许出现在该字段（协议 §4.6 / §5.5 的通道红线）。
@@ -234,6 +237,7 @@ impl FieldMap {
                 },
             ],
             warnings: Vec::new(),
+            overridden: false,
         }
     }
 
@@ -288,16 +292,19 @@ impl FieldMap {
             ));
             return Ok(map);
         };
-        map.merge_field(Field::Body, section.get("body"));
-        map.merge_field(Field::Head, section.get("head"));
-        map.merge_expressions(section.get("expression"));
+        let mut overridden = false;
+        overridden |= map.merge_field(Field::Body, section.get("body"));
+        overridden |= map.merge_field(Field::Head, section.get("head"));
+        overridden |= map.merge_expressions(section.get("expression"));
+        map.overridden = overridden;
         Ok(map)
     }
 
-    fn merge_field(&mut self, field: Field, raw: Option<&serde_json::Value>) {
+    fn merge_field(&mut self, field: Field, raw: Option<&serde_json::Value>) -> bool {
         let Some(obj) = raw.filter(|v| v.is_object()) else {
-            return;
+            return false;
         };
+        let mut changed = false;
         for (axis, name) in ["x", "y", "z"].into_iter().enumerate() {
             let Some(arr) = obj.get(name) else { continue };
             let targets = self.parse_targets(field, arr);
@@ -311,16 +318,19 @@ impl FieldMap {
             }
             let axes = self.axes_mut(field);
             *axes.axis_mut(axis) = targets;
+            changed = true;
         }
+        changed
     }
 
-    fn merge_expressions(&mut self, raw: Option<&serde_json::Value>) {
+    fn merge_expressions(&mut self, raw: Option<&serde_json::Value>) -> bool {
         let Some(obj) = raw.filter(|v| v.is_object()) else {
-            return;
+            return false;
         };
         let Some(entries) = obj.as_object() else {
-            return;
+            return false;
         };
+        let mut changed = false;
         for (id, arr) in entries {
             let targets = self.parse_targets(Field::Expression, arr);
             if targets.is_empty() {
@@ -336,7 +346,9 @@ impl FieldMap {
                     targets,
                 }),
             }
+            changed = true;
         }
+        changed
     }
 
     /// 解析一组目标（`[{"param":…,"amount":…}]`），只留该字段允许的通道。
@@ -418,6 +430,11 @@ impl FieldMap {
     /// 加载期告警。
     pub fn warnings(&self) -> &[String] {
         &self.warnings
+    }
+
+    /// 外置覆盖表是否真的改写了至少一个轴 / expression（0.3.6 T2）。
+    pub fn has_override(&self) -> bool {
+        self.overridden
     }
 
     /// `body` / `head` 某条轴的目标（expression → 空）。

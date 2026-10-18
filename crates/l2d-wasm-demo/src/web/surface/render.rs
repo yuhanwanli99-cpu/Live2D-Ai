@@ -50,11 +50,15 @@ pub(crate) struct FrameState {
     /// rAF 时间戳到达时累加 real_dt，直到累积 >= FIXED_DT_60HZ 再消费一次
     /// core.update，避免 240Hz 时物理/姿态模拟跑到 4× 速度。
     pub(crate) last_layout_transform: Affine2,
-    /// 当前成功装进 core 的 model3 URL（0.3.5：换模失败时用它回滚）。
+    /// 当前成功装进 core 的 model3 URL（换模失败时旧值原样保留）。
     pub(crate) current_model_url: String,
     /// 换模请求代际：每来一次新请求 +1；异步结果只在代际未变时生效，
     /// 防止「先发的慢请求」把后发的模型覆盖掉。
     pub(crate) model_generation: u64,
+    /// **模型代号**（0.3.6 T2）：首次装载 = 1；只有**成功**换模才 +1，失败不变。
+    /// 渲染事件 ack 与 stage-ack 都带上它；带 `model_epoch` 且不等于它的
+    /// `preset` 帧一律 Ignore（旧模型的 cue 不得落到新模型上）。
+    pub(crate) model_epoch: u64,
     /// adapter 的 `max_texture_dimension_2d`（2026-10-10）：档位边长超过它时
     /// 逐级回落（16384→8192→4096）。init 时快照一次。
     pub(crate) adapter_max_dim: u32,

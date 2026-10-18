@@ -124,16 +124,34 @@ pub use scales::{
 // 与旧的 `preset_id` 双槽（`PresetRuntime`）**并存**：旧路径一字不删（V11）。
 mod field_clock;
 mod field_map;
+mod field_reload;
 mod field_runtime;
 #[allow(unused_imports)]
 pub use field_clock::{ClockDomain, ClockState, StageClock};
 #[allow(unused_imports)]
 pub use field_map::{FACIAL_PARAMS, Field, FieldMap, field_allows, model_id_from_url};
 #[allow(unused_imports)]
+pub use field_reload::{
+    FieldMapLoad, FieldMapReport, FieldMapSource, OverrideFetch, rebuild_for_model,
+};
+#[allow(unused_imports)]
 pub use field_runtime::{
     AckEvent, AckKind, Anchor, DEFAULT_TTL_EXPRESSION_MS, FieldCue, FieldRuntime, FrameOutcome,
     FrameWrite, default_ttl_ms, dropped_for_bad_cue,
 };
+
+/// `preset` 帧的**模型代号门控**（0.3.6 T2）。
+///
+/// - 不带 `model_epoch`（旧 Flutter / 旧宿主）或显式 `null` → 按 legacy 接受；
+/// - 带了且等于当前渲染面代号 → 接受；
+/// - 带了但不等（含非 u64 的坏值）→ **Ignore**：不写任何参数、不回执
+///   （旧模型的 cue 不得落到新模型上）。
+pub fn preset_frame_matches_model(current_model_epoch: u64, payload: &serde_json::Value) -> bool {
+    match payload.get("model_epoch") {
+        None | Some(serde_json::Value::Null) => true,
+        Some(raw) => raw.as_u64() == Some(current_model_epoch),
+    }
+}
 
 /// 一条预设用到的**全部通道**（低 / 高两极并集；去重、稳定顺序）。
 pub fn spec_channels(spec: &PresetSpec) -> Vec<&'static str> {

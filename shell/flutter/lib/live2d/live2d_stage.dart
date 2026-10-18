@@ -103,6 +103,8 @@ class Live2DStage extends StatefulWidget {
     this.onProgress,
     this.onAck,
     this.onRenderEvent,
+    this.onModelLoaded,
+    this.onModelSwapped,
     this.onModelSwapFailed,
   });
 
@@ -187,6 +189,25 @@ class Live2DStage extends StatefulWidget {
   /// 快照是唯一例外，且它同样只由 ack 驱动。
   final ValueChanged<RenderEvent>? onRenderEvent;
 
+  /// 渲染面**每采纳一次** `loaded` 就回调一次（0.3.6 T2）：带 `model_id` /
+  /// `model_epoch` / `field_map`。
+  ///
+  /// 与 [onModelSwapped] 的分工：这条在**首次装载**时也触发（宿主要把当前
+  /// 模型身份显示到开发面）；后者只在**换模成功**时触发（要清计划、重绑幅度）。
+  /// 只做展示 / 记账，不据此改变舞台行为。
+  final ValueChanged<ModelLoadedInfo>? onModelLoaded;
+
+  /// 换模**成功**回调（0.3.6 T2）：渲染面回了匹配 URL 的 `loaded`，且新
+  /// `model_epoch` 已在本桥采纳。
+  ///
+  /// 宿主此时必须做两件事（见 `main.dart`）：清导演按句计划（旧 cue 不得落到
+  /// 新模型）、按新 `model_id` 重设动作幅度上下文并补发一次有效值。
+  /// 舞台自己已经做了另一半：清 [Live2DStageState.presetStatus] 显示快照 +
+  /// 对新模型下发一次 `preset none`（两槽放回）。
+  ///
+  /// **失败不回调**（换模失败不换 epoch、不清计划、旧模型旧 cue 全不动）。
+  final ValueChanged<ModelLoadedInfo>? onModelSwapped;
+
   /// 热换失败回调（0.3.5）：`didUpdateWidget` 自动换模失败时调用。
   ///
   /// 失败**保留旧模型**（wasm 侧已回滚），宿主据此显示错误并提供重试；
@@ -237,6 +258,9 @@ class Live2DStageState extends State<Live2DStage>
 
   /// 渲染面事件订阅（每次 [_attach] 重新挂；随旧桥一起取消）。
   StreamSubscription<RenderEvent>? _renderSubscription;
+
+  /// `loaded` 身份订阅（0.3.6 T2；每次 [_attach] 重新挂；随旧桥一起取消）。
+  StreamSubscription<ModelLoadedInfo>? _modelLoadedSubscription;
 
   /// ── 舞台底的**插值**（2026-09-11，P1-3） ──
   ///
@@ -335,6 +359,7 @@ class Live2DStageState extends State<Live2DStage>
   @override
   void dispose() {
     unawaited(_renderSubscription?.cancel());
+    unawaited(_modelLoadedSubscription?.cancel());
     presetStatus.dispose();
     _stageColorMotion.dispose();
     final bridge = _bridge;
@@ -417,8 +442,10 @@ class Live2DStageState extends State<Live2DStage>
       previous.dispose();
     }
     unawaited(_renderSubscription?.cancel());
+    unawaited(_modelLoadedSubscription?.cancel());
     final bridge = Live2DBridge(transport)..addListener(_onBridgeChanged);
     _renderSubscription = bridge.renderEvents.listen(_onRenderEvent);
+    _modelLoadedSubscription = bridge.modelLoadedEvents.listen(_onModelLoaded);
     _bridge = bridge;
     setState(() {});
     bridge.start();
@@ -508,6 +535,7 @@ class Live2DStageState extends State<Live2DStage>
     int? seq,
     int? epoch,
     int? sentenceSeq,
+    int? modelEpoch,
   }) async {
     final bool hasField = field != null && field.isNotEmpty;
     if (!hasField && id.isEmpty) return; // 旧语义：空串 = 本轮不动
@@ -525,6 +553,9 @@ class Live2DStageState extends State<Live2DStage>
       seq: seq,
       epoch: epoch,
       sentenceSeq: sentenceSeq,
+      // 缺省 = 桥自动带上「当前已知的 model_epoch」（0.3.6 T2，见
+      // Live2DBridge.sendPreset）；只有测试 / 特殊诊断才显式传。
+      modelEpoch: modelEpoch,
     );
   }
 
@@ -568,10 +599,37 @@ class Live2DStageState extends State<Live2DStage>
     if (bridge == null) return false;
     _pendingSwapUrl = url;
     try {
-      return await bridge.swapModel(url, timeout: timeout);
+      final bool swapped = await bridge.swapModel(url, timeout: timeout);
+      // 换模**成功**才重绑（0.3.6 T2）：清显示快照 → 通知宿主清计划 / 重设
+      // 幅度上下文 → 对新模型下发一次「preset none」（两槽放回）。
+      // 失败路径什么都不做：不换 epoch、不清计划、旧模型与旧 cue 全不动。
+      if (swapped) await _afterModelSwapped();
+      return swapped;
     } finally {
       if (_pendingSwapUrl == url) _pendingSwapUrl = null;
     }
+  }
+
+  /// 渲染面采纳了一次 loaded（含**首次装载**）：把身份交给宿主显示 / 记账
+  /// （0.3.6 T2）。不改任何舞台行为——换模的副作用在 [_afterModelSwapped]。
+  void _onModelLoaded(ModelLoadedInfo info) {
+    if (!mounted) return;
+    widget.onModelLoaded?.call(info);
+  }
+
+  /// 换模成功后的**本侧**重绑（0.3.6 T2）。
+  ///
+  /// 顺序刻意如此：
+  /// 1. 清 [presetStatus] 显示快照——旧模型 ack 的「还剩多久」不属于新模型；
+  /// 2. **同步**通知宿主：清 [DirectorCuePlan]（旧 cue 绝不落到新模型）+
+  ///    按新 model_id 重设 ActionScalesSyncer 上下文并 force 补发；
+  /// 3. 对新模型下发一次 preset none（两槽放回）。桥会自动带上刚采纳的
+  ///    model_epoch——若这一帧迟到，渲染面按旧 epoch Ignore，也不会串模型。
+  Future<void> _afterModelSwapped() async {
+    presetStatus.value = null;
+    final ModelLoadedInfo? info = _bridge?.lastLoaded;
+    if (info != null) widget.onModelSwapped?.call(info);
+    await applyPreset('none', source: 'swap');
   }
 
   /// `didUpdateWidget` 触发的后台热换：失败只上报，不打断旧模型。
@@ -638,6 +696,7 @@ class Live2DStageState extends State<Live2DStage>
     final previous = _bridge;
     _bridge = null;
     unawaited(_renderSubscription?.cancel());
+    unawaited(_modelLoadedSubscription?.cancel());
     if (previous != null) {
       previous.removeListener(_onBridgeChanged);
       unawaited(previous.destroy());

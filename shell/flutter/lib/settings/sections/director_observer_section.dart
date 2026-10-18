@@ -98,6 +98,42 @@ class DirectorObserverFeed extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 一条渲染面的模型身份回执（`loaded`，0.3.6 T2）：进 B 栏。
+  ///
+  /// 这是「开发者能看见换模换到了哪个 model_id / 哪个 model_epoch、field map
+  /// 是外置还是降级」的唯一落点。**只住内存**：不新增 WS 帧、不落盘、不改
+  /// B 栏既有行为（与其它 render 记录同一条环形缓冲、同一个上限）。
+  void pushModelLoaded({
+    required String url,
+    String? modelId,
+    int? modelEpoch,
+    String? fieldMapSource,
+    bool fieldMapDegraded = false,
+    String? fieldMapReason,
+  }) {
+    final StringBuffer text = StringBuffer('loaded');
+    if (modelId != null && modelId.isNotEmpty) text.write(' model_id=$modelId');
+    if (modelEpoch != null) text.write(' model_epoch=$modelEpoch');
+    if (url.isNotEmpty) text.write(' url=$url');
+    if (fieldMapSource != null && fieldMapSource.isNotEmpty) {
+      text.write(' field_map=$fieldMapSource');
+      if (fieldMapDegraded) text.write(' field_map_degraded=true');
+      if (fieldMapReason != null && fieldMapReason.isNotEmpty) {
+        text.write(' field_map_reason=$fieldMapReason');
+      }
+    }
+    events.add(
+      ObserverRecord(
+        at: clock(),
+        type: 'loaded',
+        source: 'render',
+        epoch: modelEpoch,
+        text: text.toString(),
+      ),
+    );
+    notifyListeners();
+  }
+
   /// 一次音频时钟采样（协议 §6.5 / O13）：进 B 栏。
   void pushStageClock({int? seg, required int posMs, required bool playing}) {
     events.add(

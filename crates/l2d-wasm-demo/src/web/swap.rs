@@ -19,6 +19,7 @@ use std::pin::Pin;
 use l2d::model::LoadedModel;
 
 use super::{emit_event, load_field_map, load_model_from_url, status};
+use crate::preset::{FieldMap, FieldMapLoad};
 use crate::swap_core::{self, FieldMapReloader, ModelLoader, SwapHost};
 use crate::web::surface::{self, SharedState};
 
@@ -51,6 +52,20 @@ impl SwapHost for WasmHost {
         self.state.borrow().model_generation
     }
 
+    fn model_epoch(&self) -> u64 {
+        self.state.borrow().model_epoch
+    }
+
+    fn advance_model_epoch(&mut self) -> u64 {
+        let mut st = self.state.borrow_mut();
+        st.model_epoch += 1;
+        st.model_epoch
+    }
+
+    fn current_model_id(&self) -> String {
+        crate::preset::model_id_from_url(&self.state.borrow().current_model_url)
+    }
+
     /// **原子替换**（修法 B）：新核心从零装载，全部成功才换进 `FrameState`。
     ///
     /// 失败时 `Err` 已在 `load_fresh` 内部 return，旧 `core` 未被赋值过。
@@ -72,6 +87,11 @@ impl SwapHost for WasmHost {
 
     fn set_current_url(&mut self, url: String) {
         self.state.borrow_mut().current_model_url = url;
+    }
+
+    /// 字段表由 load_field_map 按**新 model id** 重建，这里只装进运行时。
+    fn apply_field_map(&mut self, map: FieldMap) {
+        self.state.borrow_mut().bridge.fields.set_map(map);
     }
 
     fn status(&mut self, msg: &str) {
@@ -103,20 +123,18 @@ impl ModelLoader for WasmModelLoader {
     }
 }
 
-/// 字段映射重载器：wasm 侧是异步 fetch，取不到时由 `load_field_map` 落回内建表。
+/// 字段映射重载器：wasm 侧是异步 fetch（取不到时回退**新 model id** 的内建表）。
 struct WasmFieldMapReloader {
-    state: SharedState,
     window: web_sys::Window,
 }
 
 impl FieldMapReloader for WasmFieldMapReloader {
-    type Fut = Pin<Box<dyn Future<Output = String>>>;
+    type Fut = Pin<Box<dyn Future<Output = FieldMapLoad>>>;
 
     fn reload(&self, model_id: &str) -> Self::Fut {
-        let state = self.state.clone();
         let window = self.window.clone();
         let model_id = model_id.to_owned();
-        Box::pin(async move { load_field_map(&state, &window, &model_id).await })
+        Box::pin(async move { load_field_map(&window, &model_id).await })
     }
 }
 
@@ -133,7 +151,7 @@ pub(super) fn spawn_swap_model(state: SharedState, url: String) {
         let loader = WasmModelLoader {
             window: window.clone(),
         };
-        let field_map = WasmFieldMapReloader { state, window };
+        let field_map = WasmFieldMapReloader { window };
         swap_core::run_swap(&mut host, url, &loader, &field_map).await;
     });
 }

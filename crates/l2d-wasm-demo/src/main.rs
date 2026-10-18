@@ -259,63 +259,19 @@ mod web {
         }
     }
 
-    /// 加载**可选**的字段映射覆盖表（O9，阶段4c）。
+    /// 取回**可选**的字段映射覆盖表并按 model id 重建（O9，阶段4c；0.3.6 T2）。
     ///
     /// 文件缺失 / 校验失败不是错误：内建默认表就是本轮「每皮套」的完整映射
-    /// （O9 明写「本轮不要求每皮套一份」）。成功时返回一句可读结果写进状态栏。
+    /// （O9 明写「本轮不要求每皮套一份」）。**任何**取不到外置表的路径都回退
+    /// **新 model id** 的内建表（绝不沿用旧表）；来源 / 降级原因由平台无关的
+    /// [`crate::preset::rebuild_for_model`] 产出（原生 cargo test 覆盖）。
     async fn load_field_map(
-        state: &SharedState,
         window: &web_sys::Window,
         model_id: &str,
-    ) -> String {
-        let bytes = match net::fetch_bytes(window, FIELD_MAP_URL).await {
-            Ok(b) => b,
-            Err(e) => {
-                // 换模型后取不到覆盖表：内建表 + **新 model id**，绝不把旧 id
-                // 的覆盖表留在新皮套上。
-                state
-                    .borrow_mut()
-                    .bridge
-                    .fields
-                    .set_map(crate::preset::FieldMap::for_model(model_id));
-                return format!("字段映射覆盖表未加载（{e}），用内建默认表");
-            }
-        };
-        let text = match String::from_utf8(bytes) {
-            Ok(t) => t,
-            Err(e) => {
-                state
-                    .borrow_mut()
-                    .bridge
-                    .fields
-                    .set_map(crate::preset::FieldMap::for_model(model_id));
-                return format!("字段映射覆盖表不是 UTF-8（{e}），用内建默认表");
-            }
-        };
-        match crate::preset::FieldMap::with_override_json(model_id, &text) {
-            Ok(map) => {
-                let model = map.model().to_string();
-                let warnings = map.warnings().to_vec();
-                state.borrow_mut().bridge.fields.set_map(map);
-                if warnings.is_empty() {
-                    format!("字段映射覆盖表：model={model}（外置 {FIELD_MAP_URL}）")
-                } else {
-                    format!(
-                        "字段映射覆盖表：model={model}（外置；{} 条告警：{}）",
-                        warnings.len(),
-                        warnings.join("；")
-                    )
-                }
-            }
-            Err(e) => {
-                state
-                    .borrow_mut()
-                    .bridge
-                    .fields
-                    .set_map(crate::preset::FieldMap::for_model(model_id));
-                format!("字段映射覆盖表校验失败（{e}），用内建默认表")
-            }
-        }
+    ) -> crate::preset::FieldMapLoad {
+        let fetch =
+            crate::preset::OverrideFetch::from_fetch(net::fetch_bytes(window, FIELD_MAP_URL).await);
+        crate::preset::rebuild_for_model(model_id, fetch)
     }
 
     /// 一次性启动流程：fetch 清单 → fetch 资源 → 内存组包 → GPU 初始化 →
@@ -376,6 +332,8 @@ mod web {
             last_layout_transform: layout_transform,
             current_model_url: model_url.clone(),
             model_generation: 0,
+            // 0.3.6 T2：首次装载的模型代号 = 1；只有成功换模才 +1。
+            model_epoch: 1,
             adapter_max_dim,
             // 运行期重配 surface 时要 `&Adapter`（`get_default_config`）；这里
             // 克隆一份进共享态，`adapter` 本身留给下面的 adapter_info 快照。
@@ -387,12 +345,14 @@ mod web {
         // 用户可改幅值 / 周期 / 时长而**不需要重编 Rust**；缺失或校验失败回退内建表。
         let preset_note = load_preset_table(&state, &window).await;
         // 阶段4c（O9）：可选的每皮套字段映射覆盖；缺文件 → 内建默认表。
-        let field_map_note = load_field_map(
-            &state,
-            &window,
-            &crate::preset::model_id_from_url(&model_url),
-        )
-        .await;
+        // 0.3.6 T2：重建结果带来源报告，供首条 `loaded` 的 field_map 载荷使用。
+        let model_id = crate::preset::model_id_from_url(&model_url);
+        let crate::preset::FieldMapLoad {
+            map: field_map,
+            report: field_map_report,
+        } = load_field_map(&window, &model_id).await;
+        state.borrow_mut().bridge.fields.set_map(field_map);
+        let field_map_note = field_map_report.reason.clone();
 
         // 一次性快照 adapter 信息到 HUD（供 500ms 周期内反复渲染）。
         let (backend, adp_name, is_webgpu) = adapter_info(&adapter);
@@ -411,8 +371,18 @@ mod web {
         install_stage_bridge(&state);
         install_stage_interaction(&state);
         // **协议 v1**：listener 就绪 → `ready`（宿主可开始下发）；模型已进核心 → `loaded`。
+        // 0.3.6 T2：首装 model_epoch = 1；loaded 带 model_id 与字段表来源。
         emit_event("ready", serde_json::json!({ "protocol": true }));
-        emit_event("loaded", serde_json::json!({ "url": model_url }));
+        let model_epoch = state.borrow().model_epoch;
+        emit_event(
+            "loaded",
+            serde_json::json!({
+                "url": model_url,
+                "model_id": model_id,
+                "model_epoch": model_epoch,
+                "field_map": field_map_report.to_json(),
+            }),
+        );
         start_render_loop(state);
         Ok(())
     }
@@ -486,6 +456,17 @@ mod web {
             } else {
                 None
             };
+            // 0.3.6 T2：`preset` 帧的模型代号门控——旧 epoch 的 cue 不得落到新模型。
+            // 带了 `model_epoch` 且不等于当前值 → Ignore（不写任何参数、不回执）；
+            // 不带（旧 Flutter / 旧宿主）按 legacy 接受。
+            if kind == "preset"
+                && !crate::preset::preset_frame_matches_model(
+                    handler_state.borrow().model_epoch,
+                    &payload,
+                )
+            {
+                return;
+            }
             // 应用消息 → 记录待 ACK 的类型（borrow 结束后回执）。
             let mut applied = false;
             // 阶段4c：字段状态机产生的事件级 ack（borrow 结束后 emit）。
@@ -691,8 +672,11 @@ mod web {
             // **阶段4c 事件级 ack**：wire 名由 O13 冻结（preset-applied /
             // preset-replaced / preset-expired / preset-dropped / segment-ended）。
             // 只在这一帧真有事件时发；**不是**每帧状态流（V8）。
+            // 0.3.6 T2：全部渲染事件 ack 都盖当前模型代号（既有 `epoch` 语义不变）。
+            let model_epoch = handler_state.borrow().model_epoch;
             for event in field_acks {
-                emit_event(event.kind.wire_type(), event.to_json());
+                let kind = event.kind.wire_type();
+                emit_event(kind, event.with_model_epoch(model_epoch).to_json());
             }
             // v1 `sync.payload.model`：异步换模型（与 `load-model` 同一实现）。
             if let Some(url) = sync_model_url {
@@ -717,6 +701,7 @@ mod web {
                         "scale": handler_state.borrow().bridge.scale,
                         "offset_x": handler_state.borrow().bridge.offset_x,
                         "offset_y": handler_state.borrow().bridge.offset_y,
+                        "model_epoch": handler_state.borrow().model_epoch,
                     })
                     .to_string();
                     if let Ok(Some(parent)) = win.parent() {
