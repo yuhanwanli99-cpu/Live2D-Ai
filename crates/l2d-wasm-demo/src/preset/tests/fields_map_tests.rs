@@ -315,3 +315,58 @@ fn thinking_expression_writes_facial_channels_only() {
         );
     }
 }
+
+/// **0.3.7 T2**：字段通道也必须「承载新 id」——12 条表情各在内建字段表里有一条
+/// 五官映射，且与 `assets/actions/presets.json` 的五官部分**逐值一致**；
+/// 头身通道不进字段表（V3：头身交给 body / head）。
+#[test]
+fn field_map_carries_every_expression_preset_face() {
+    let presets = PresetTable::from_json(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../assets/actions/presets.json"
+    )))
+    .expect("出厂 presets.json 必须合法");
+    let map = FieldMap::builtin();
+    let mut expression_count = 0usize;
+    for spec in presets.all() {
+        if spec.kind != PresetKind::Expression {
+            continue;
+        }
+        expression_count += 1;
+        let targets = map
+            .expression_targets(spec.id)
+            .unwrap_or_else(|| panic!("字段表缺表情 {}", spec.id));
+        // 期望值 = 包里的五官部分（头 / 身分量不参与字段通道，避两路叠加）。
+        let expected: Vec<(&str, f32)> = spec
+            .params
+            .iter()
+            .copied()
+            .filter(|(ch, _)| FACIAL_PARAMS.contains(ch))
+            .collect();
+        let got: Vec<(&str, f32)> = targets
+            .iter()
+            .map(|t| (t.param.as_str(), t.amount))
+            .collect();
+        assert_eq!(
+            got, expected,
+            "{} 的字段映射必须与包表的五官部分逐值一致",
+            spec.id
+        );
+        for t in targets {
+            assert!(
+                field_allows(Field::Expression, &t.param),
+                "{} 的字段映射写了五官之外通道 {}",
+                spec.id,
+                t.param
+            );
+        }
+    }
+    assert_eq!(
+        expression_count, 12,
+        "12 条表情都要在字段表里（0.3.7 T2 新增 8 条）"
+    );
+    // 内建字段表不得有包表之外的幽灵表情 id。
+    for id in map.expression_ids() {
+        assert!(presets.get(id).is_some(), "字段表出现幽灵表情 id（{id}）");
+    }
+}

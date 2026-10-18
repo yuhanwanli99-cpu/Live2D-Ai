@@ -43,7 +43,20 @@ pub const PRIORITY_PERFORMANCE: u8 = 40;
 /// `preset_slot(id) == Face`（去掉 none）必须与这一份**逐项相等**，回归
 /// `performance::rules::tests::expression_slot_matches_the_performance_field_map` 钉住。
 /// （规则表已于 rc4 迁入 runtime `performance::rules`。）
-pub const EXPRESSION_PRESET_IDS: &[&str] = &["smile", "unhappy", "surprised", "thinking"];
+pub const EXPRESSION_PRESET_IDS: &[&str] = &[
+    "smile",
+    "unhappy",
+    "surprised",
+    "thinking",
+    "angry",
+    "sad",
+    "blush",
+    "wink",
+    "confused",
+    "sleepy",
+    "excited",
+    "calm",
+];
 
 /// 该 id 是否是 expression 字段可用的表情 id（none 另算）。
 pub fn is_expression_preset(id: &str) -> bool {

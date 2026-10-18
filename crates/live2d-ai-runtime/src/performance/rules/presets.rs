@@ -2,12 +2,15 @@
 //!
 //! # 范围（严格按任务书）
 //!
-//! v3（2026-09-23）把「包」收成两族；T9（2026-10-07）加上 `thinking` /
-//! `look_up` / `look_down`，主 allowlist 12 条：
-//! - **表情包**（expression）：`smile` / `unhappy`（intensity morph sad→angry）/
-//!   `surprised` / `thinking`（T9，2026-10-07）；
-//! - **手势包**（motion）：`nod` / `shake` / `look_left` / `look_right` /
-//!   `tilt_left` / `tilt_right` / `look_up` / `look_down`（T9）。
+//! v3（2026-09-23）把「包」收成两族；T9（2026-10-07）加 `thinking` /
+//! `look_up` / `look_down`；0.3.7 T2（2026-10-18，维护者 D1 裁决「手不做」）
+//! 再加 8 条表情（`angry` / `sad` / `blush` / `wink` / `confused` /
+//! `sleepy` / `excited` / `calm`）与手势 `bow`，主 allowlist **21 条**
+//! （不含 `none`）：
+//! - **表情包**（expression，12 条）：`smile` / `unhappy`（intensity morph
+//!   sad→angry）/ `surprised` / `thinking` / 8 条 T2 新增；
+//! - **手势包**（motion，9 条）：`nod` / `shake` / `look_left` / `look_right` /
+//!   `tilt_left` / `tilt_right` / `look_up` / `look_down` / `bow`（T2）。
 //!
 //! 具体参数写在外置 `assets/actions/presets.json` 里，本表只持 **id 契约**
 //! （allowlist + 面板选项 + 二路能力集三处共用同一个常量）。v2 的旧 id 已于
@@ -36,10 +39,20 @@ pub const PRESET_NONE: &str = "none";
 /// 表演层 schema 的可见集合。**不要**在别处再抄一份 id 列表。
 pub const PRESET_IDS: &[&str] = &[
     PRESET_NONE,
+    // 表情槽（12）：顺序与 assets/actions/presets.json / 内建 fallback 逐项一致。
     "smile",
     "unhappy",
     "surprised",
     "thinking",
+    "angry",
+    "sad",
+    "blush",
+    "wink",
+    "confused",
+    "sleepy",
+    "excited",
+    "calm",
+    // 手势槽（9）：bow = 0.3.7 T2（13 参数能诚实表达的深鞠躬）。
     "nod",
     "shake",
     "look_left",
@@ -48,6 +61,7 @@ pub const PRESET_IDS: &[&str] = &[
     "look_down",
     "tilt_left",
     "tilt_right",
+    "bow",
 ];
 
 /// 槽位（与渲染面的 `kind` 对齐）：表情与手势可同轮并存。
@@ -63,7 +77,7 @@ pub enum PresetSlot {
 pub fn preset_slot(id: &str) -> PresetSlot {
     match id {
         "nod" | "shake" | "look_left" | "look_right" | "tilt_left" | "tilt_right" | "look_up"
-        | "look_down" => PresetSlot::Gesture,
+        | "look_down" | "bow" => PresetSlot::Gesture,
         _ => PresetSlot::Face,
     }
 }

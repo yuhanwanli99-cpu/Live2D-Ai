@@ -13,11 +13,14 @@
 //!
 //! # v3：包 = 五官 + 小幅头身；intensity 是一等公民
 //!
-//! - **表情包**（`smile` / `unhappy` / `surprised`，`kind="expression"`）：五官通道
-//!   **加上**小幅 Angle/Body 位移（头为主、身约头的 1/3，头 ≤12、身 ≤4）。表情不再
-//!   是「只有嘴和眉」——但也**不是**手势包那种大姿态（红线见 `EXPRESSION_HEAD_LIMIT`）。
-//! - **手势包**（`nod` / `shake` / `look_*` / `tilt_*`，`kind="motion"`）：头 + 半身，
-//!   头角可用到 ±30、身 ±10；左右方向与 intensity 正交，故左右各自保留一条。
+//! - **表情包**（12 条：`smile` / `unhappy` / `surprised` / `thinking` /
+//!   `angry` / `sad` / `blush` / `wink` / `confused` / `sleepy` / `excited` /
+//!   `calm`，`kind="expression"`）：五官通道**加上**小幅 Angle/Body 位移（头为主、
+//!   身约头的 1/3，头 ≤12、身 ≤4）。表情不再「只有嘴和眉」——但也**不是**手势包
+//!   那种大姿态（红线见 `EXPRESSION_HEAD_LIMIT`）。
+//! - **手势包**（9 条：`nod` / `shake` / `look_*` / `tilt_*` / `bow`，
+//!   `kind="motion"`）：头 + 半身，头角可用到 ±30、身 ±10；左右方向与 intensity
+//!   正交，故左右各自保留一条。
 //! - **intensity ∈ [0,3]**：普通包 = 表值 × intensity（五官 + 头身一起缩放）；
 //!   **morph 包**（`PresetMorph`，目前只有 `unhappy`）= 在 low/high 两极之间按
 //!   intensity 插值（1=难过相、3=生气相），intensity 不再二次相乘。
@@ -97,6 +100,7 @@
 //!
 //! 未知 id **仍静默忽略**（不报错、不改任何参数）。解析逻辑是纯函数
 //! `parse_command`，原生 `cargo test` 直接回归。
+mod builtin;
 mod command;
 mod data;
 mod params;
@@ -124,6 +128,7 @@ pub use scales::{
 // 与旧的 `preset_id` 双槽（`PresetRuntime`）**并存**：旧路径一字不删（V11）。
 mod field_clock;
 mod field_map;
+mod field_map_expressions;
 mod field_reload;
 mod field_runtime;
 #[allow(unused_imports)]

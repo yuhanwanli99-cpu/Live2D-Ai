@@ -36,23 +36,112 @@ fn shipped_presets_json_parses_clean_and_matches_builtin_ids() {
         MotionWave::Oscillate { cycles } => assert!((cycles - SHAKE_CYCLES).abs() < 1e-9),
         other => panic!("shake 必须是 oscillate：{other:?}"),
     }
-    for id in [
-        "nod",
-        "shake",
-        "look_left",
-        "look_right",
-        "look_up",
-        "look_down",
-    ] {
+    // 每一条手势包（9 条，0.3.7 T2 起含 bow）都必须带半身随动。
+    for spec in table.all() {
+        if spec.kind != PresetKind::Motion {
+            continue;
+        }
         assert!(
-            table
-                .get(id)
-                .unwrap()
-                .params
+            spec.params
                 .iter()
                 .any(|(k, _)| k.starts_with("ParamBodyAngle")),
-            "{id} 必须带半身随动"
+            "{} 必须带半身随动",
+            spec.id
         );
+    }
+}
+
+/// 内建 fallback 与出厂外置表**逐值相同**（0.3.7 T2 起 21 条）：kind / duration /
+/// wave / params / morph 五项全等，顺序也一致。两份表是「产品表 + 加载失败兜底」，
+/// 漂了就会出现「改了 JSON 忘改 Rust」的悬空能力。
+#[test]
+fn builtin_fallback_matches_the_external_table_for_every_pack() {
+    let table = PresetTable::from_json(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../assets/actions/presets.json"
+    )))
+    .unwrap();
+    assert_eq!(table.all().len(), PRESETS.len(), "21 条：两份表条数一致");
+    let external_ids: Vec<&str> = table.all().iter().map(|s| s.id).collect();
+    let builtin_ids: Vec<&str> = PRESETS.iter().map(|s| s.id).collect();
+    assert_eq!(external_ids, builtin_ids, "两份表顺序也要一致（面板按序）");
+    for builtin in PRESETS {
+        let ext = table
+            .get(builtin.id)
+            .unwrap_or_else(|| panic!("外置表缺 {}", builtin.id));
+        assert_eq!(ext.kind, builtin.kind, "{} kind 漂了", builtin.id);
+        assert_eq!(
+            ext.duration_ms, builtin.duration_ms,
+            "{} duration_ms 漂了",
+            builtin.id
+        );
+        assert_eq!(ext.wave, builtin.wave, "{} wave 漂了", builtin.id);
+        assert_eq!(ext.params, builtin.params, "{} params 逐值漂了", builtin.id);
+        match (ext.morph, builtin.morph) {
+            (None, None) => {}
+            (Some(a), Some(b)) => {
+                assert_eq!(a.low, b.low, "{} morph.low 漂了", builtin.id);
+                assert_eq!(a.high, b.high, "{} morph.high 漂了", builtin.id);
+                assert_eq!(
+                    a.high_params, b.high_params,
+                    "{} morph.high_params 逐值漂了",
+                    builtin.id
+                );
+            }
+            other => panic!(
+                "{} 的 morph 存在性漂了：{:?}",
+                builtin.id,
+                other.0.is_some()
+            ),
+        }
+    }
+}
+
+/// **D1=A（维护者 2026-10-18：手不做）的资产面证据**：
+/// - 参数白名单仍是 **13 个标准参数**，没有手臂 / 手 / 肩 / 口型；
+/// - wave / clap / point / cover_mouth / shrug 在内外两张表里都不存在，收到即未知 id；
+/// - 21 条包（内建 + 外置）写的每个通道都在白名单内。
+#[test]
+fn d1_hand_is_out_whitelist_stays_thirteen_and_hand_packs_are_absent() {
+    assert_eq!(
+        ALLOWED_PARAMS.len(),
+        13,
+        "D1=A：渲染面参数白名单不得扩张（仍 13 个标准参数）"
+    );
+    for ch in ALLOWED_PARAMS {
+        for forbidden in ["Arm", "Hand", "Shoulder", "MouthOpen"] {
+            assert!(
+                !ch.contains(forbidden),
+                "白名单混入手 / 手臂 / 肩 / 口型通道：{ch}"
+            );
+        }
+    }
+    let table = PresetTable::from_json(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../assets/actions/presets.json"
+    )))
+    .unwrap();
+    for id in ["wave", "clap", "point", "cover_mouth", "shrug"] {
+        assert!(preset(id).is_none(), "{id} 不得出现在内建表（D1 手不做）");
+        assert!(table.get(id).is_none(), "{id} 不得出现在外置表");
+        assert_eq!(
+            parse_command(Some(id), None, None, None),
+            PresetCommand::Ignore,
+            "{id} 收到必须是未知 id（静默 Ignore）"
+        );
+    }
+    for spec in PRESETS.iter().chain(table.all().iter().copied()) {
+        for (ch, _) in spec
+            .params
+            .iter()
+            .chain(spec.morph.iter().flat_map(|m| m.high_params.iter()))
+        {
+            assert!(
+                ALLOWED_PARAMS.contains(ch),
+                "{} 写了白名单外通道 {ch}",
+                spec.id
+            );
+        }
     }
 }
 
@@ -91,6 +180,11 @@ fn preset_labels_json_covers_every_shipped_preset_id() {
         .get("labels")
         .and_then(|v| v.as_object())
         .expect("preset_labels.json 缺少 labels 对象");
+    assert_eq!(
+        map.len(),
+        presets.all().len() + 1,
+        "标签表 = 21 条包 + none（0.3.7 T2 起）"
+    );
     for spec in presets.all() {
         let entry = map
             .get(spec.id)
@@ -99,6 +193,17 @@ fn preset_labels_json_covers_every_shipped_preset_id() {
         let en = entry.get("en").and_then(|v| v.as_str()).unwrap_or("");
         assert!(!zh.trim().is_empty(), "{} 缺中文展示名", spec.id);
         assert!(!en.trim().is_empty(), "{} 缺英文展示名", spec.id);
+        // channel 必须与包表 kind 一致（渲染面槽位 / Flutter 面板按钮分组同源）。
+        let want = match spec.kind {
+            PresetKind::Expression => "expression",
+            PresetKind::Motion => "motion",
+        };
+        assert_eq!(
+            entry.get("channel").and_then(|v| v.as_str()).unwrap_or(""),
+            want,
+            "{} 的 channel 与 kind 漂了",
+            spec.id
+        );
     }
     assert!(map.contains_key("none"), "撤销哨兵 none 也要有展示名");
     // 标签表不得出现幽灵 id（旧 id 条目已随兼容层删除）。
@@ -310,9 +415,10 @@ fn shipped_presets_json_carries_the_calibrated_amplitudes() {
         "tilt_left",
         "tilt_right",
     ] {
-        let (head_id, body_id) = super::packs::main_axis_pair(id).expect("手势包必须有主轴配对");
-        let head = super::packs::max_table_value(table.get(id).unwrap(), head_id);
-        let body = super::packs::max_table_value(table.get(id).unwrap(), body_id);
+        let (head_id, body_id) =
+            super::calibration::main_axis_pair(id).expect("手势包必须有主轴配对");
+        let head = super::calibration::max_table_value(table.get(id).unwrap(), head_id);
+        let body = super::calibration::max_table_value(table.get(id).unwrap(), body_id);
         let ratio = body / head;
         assert!(
             (0.30..=0.50).contains(&ratio),

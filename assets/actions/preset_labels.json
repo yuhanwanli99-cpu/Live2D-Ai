@@ -54,6 +54,78 @@
       "aligned": false,
       "note": "问句补丁的表情：垂眼 / 眉下压 / 抿嘴，另带小幅歪头（AngleZ 6 + BodyAngleZ 2）。字段通道只抄五官五行，头角留给 preset_id 通道，避免两路叠加。"
     },
+    "angry": {
+      "zh": "生气",
+      "en": "Angry",
+      "channel": "expression",
+      "canonical": "angry",
+      "source": "neko:angry · cubism 标准参数（2026-10-18 T2，D1 手不做）",
+      "aligned": true,
+      "note": "眉下压 + 嘴角下撇 + 略低头。unhappy 的生气相走 intensity morph；这一条是可直接点名的常驻表情包。"
+    },
+    "sad": {
+      "zh": "难过",
+      "en": "Sad",
+      "channel": "expression",
+      "canonical": "sad",
+      "source": "neko:sad · cubism 标准参数（2026-10-18 T2，D1 手不做）",
+      "aligned": true,
+      "note": "内眉上挑 + 垂眼 + 嘴角下撇 + 低头。unhappy@1 是 morph 难过相；这一条可直接点名。"
+    },
+    "blush": {
+      "zh": "害羞",
+      "en": "Blush",
+      "channel": "expression",
+      "canonical": null,
+      "source": "本项目扩展（2026-10-18 T2，D1 手不做）",
+      "aligned": false,
+      "note": "13 个标准参数里没有脸颊通道：用眯眼笑 + 低头歪头表达害羞，不假装脸红（与 D1「不做不冒充」同一条纪律）。"
+    },
+    "wink": {
+      "zh": "眨眼",
+      "en": "Wink",
+      "channel": "expression",
+      "canonical": null,
+      "source": "本项目扩展（2026-10-18 T2，D1 手不做）",
+      "aligned": false,
+      "note": "左眼闭（EyeLOpen 0 + EyeLSmile 0.9）+ 右眼开 + 嘴角上扬 + 歪头；单眼即可表达，不靠手臂。"
+    },
+    "confused": {
+      "zh": "困惑",
+      "en": "Confused",
+      "channel": "expression",
+      "canonical": null,
+      "source": "本项目扩展（2026-10-18 T2，D1 手不做）",
+      "aligned": false,
+      "note": "左右眉异号 + 双眼不对称 + 歪头；不对称就是这一条的语义（不是抖动）。"
+    },
+    "sleepy": {
+      "zh": "困倦",
+      "en": "Sleepy",
+      "channel": "expression",
+      "canonical": null,
+      "source": "本项目扩展（2026-10-18 T2，D1 手不做）",
+      "aligned": false,
+      "note": "半垂眼（Open 0.25）+ 头以 Y 低下；没有张嘴参数（口型归 TTS），所以不表现哈欠。"
+    },
+    "excited": {
+      "zh": "兴奋",
+      "en": "Excited",
+      "channel": "expression",
+      "canonical": "happy",
+      "source": "neko:happy（强度档）· cubism 标准参数（2026-10-18 T2，D1 手不做）",
+      "aligned": true,
+      "note": "满幅笑眼 + 睁大眼 + 抬眉 + 抬头；与 smile 同族，区别是幅度与眉/头方向（保留可点名的强弱两档，不合并）。"
+    },
+    "calm": {
+      "zh": "平静",
+      "en": "Calm",
+      "channel": "expression",
+      "canonical": "neutral",
+      "source": "本项目扩展（2026-10-18 T2，D1 手不做）",
+      "aligned": false,
+      "note": "轻微闭眼（Open 0.85）+ 微抿嘴 + 极小幅偏头；比 none（归零回中性）多一层放松的表情常驻。"
+    },
     "nod": {
       "zh": "点头",
       "en": "Nod",
@@ -125,6 +197,15 @@
       "source": "本项目扩展",
       "aligned": false,
       "note": "头向右倾 + 半身小随动。"
+    },
+    "bow": {
+      "zh": "鞠躬",
+      "en": "Bow",
+      "channel": "motion",
+      "canonical": null,
+      "source": "本项目扩展（2026-10-18 T2，D1 手不做）",
+      "aligned": false,
+      "note": "头 + 半身同向一次深起点落（头 Y -12 / 身 Y -3.9，1600ms）；与 nod 同主轴同幅值，区别是更深更慢。没有肩 / 手臂通道，不躬身抱拳。"
     }
   }
 }

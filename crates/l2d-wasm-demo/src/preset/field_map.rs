@@ -187,55 +187,9 @@ impl FieldMap {
                 y: vec![target("ParamAngleY", HEAD_LIMIT)],
                 z: vec![target("ParamAngleZ", HEAD_LIMIT)],
             },
-            // 现有三个表情包（smile / unhappy / surprised）的**五官部分**：
+            // 12 条表情（0.3.7 T2 起：4 旧 + 8 新）的**五官部分**：
             // 表值与 assets/actions/presets.json 逐值一致；头身分量按 V3 不在这里。
-            expressions: vec![
-                ExpressionEntry {
-                    id: "smile".to_string(),
-                    targets: vec![
-                        target("ParamMouthForm", 1.0),
-                        target("ParamEyeLSmile", 1.0),
-                        target("ParamEyeRSmile", 1.0),
-                        target("ParamBrowLY", 0.5),
-                        target("ParamBrowRY", 0.5),
-                    ],
-                },
-                ExpressionEntry {
-                    // unhappy 的 low 极（难过相）；morph 是包时代的概念，
-                    // v1 expression 字段取首版映射 = low 极。
-                    id: "unhappy".to_string(),
-                    targets: vec![
-                        target("ParamMouthForm", -1.0),
-                        target("ParamBrowLY", 0.4),
-                        target("ParamBrowRY", 0.4),
-                        target("ParamEyeLOpen", 0.65),
-                        target("ParamEyeROpen", 0.65),
-                    ],
-                },
-                ExpressionEntry {
-                    // T9（2026-10-07）：问句补丁的思考表情。**只抄五官五行**——
-                    // 预设包里的 AngleZ / BodyAngleZ 走 preset_id 通道；字段通道的
-                    // 歪头由补丁的 head.z 负责，避免两路叠加。
-                    id: "thinking".to_string(),
-                    targets: vec![
-                        target("ParamMouthForm", 0.0),
-                        target("ParamEyeLOpen", 0.55),
-                        target("ParamEyeROpen", 0.55),
-                        target("ParamBrowLY", -0.45),
-                        target("ParamBrowRY", -0.45),
-                    ],
-                },
-                ExpressionEntry {
-                    id: "surprised".to_string(),
-                    targets: vec![
-                        target("ParamEyeLOpen", 1.26),
-                        target("ParamEyeROpen", 1.26),
-                        target("ParamBrowLY", 0.8),
-                        target("ParamBrowRY", 0.8),
-                        target("ParamMouthForm", 0.2),
-                    ],
-                },
-            ],
+            expressions: super::field_map_expressions::builtin_expressions(),
             warnings: Vec::new(),
             overridden: false,
         }
@@ -490,7 +444,7 @@ pub fn channel_amount_limit(param: &str) -> f32 {
     }
 }
 
-fn target(param: &str, amount: f32) -> AxisTarget {
+pub(super) fn target(param: &str, amount: f32) -> AxisTarget {
     AxisTarget {
         param: param.to_string(),
         amount,

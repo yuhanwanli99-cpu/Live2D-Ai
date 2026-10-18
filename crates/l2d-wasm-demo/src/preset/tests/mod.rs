@@ -62,10 +62,26 @@ fn builtin_ids_match_the_main_allowlist() {
     let ids: Vec<&str> = PRESETS.iter().map(|p| p.id).collect();
     assert_eq!(
         ids.len(),
-        12,
-        "内建 fallback = 主 allowlist（T9 起 12 条包：9 + thinking / look_up / look_down）"
+        21,
+        "内建 fallback = 主 allowlist（0.3.7 T2 起 21 条：12 表情 + 9 手势，不含 none）"
     );
-    for id in ["smile", "unhappy", "surprised", "nod", "shake"] {
+    for id in [
+        "smile",
+        "unhappy",
+        "surprised",
+        "thinking",
+        "angry",
+        "sad",
+        "blush",
+        "wink",
+        "confused",
+        "sleepy",
+        "excited",
+        "calm",
+        "nod",
+        "shake",
+        "bow",
+    ] {
         assert!(preset(id).is_some(), "{id} 应可查");
     }
     for id in PRESET_IDS.iter().filter(|id| **id != REVOKE_ID) {
@@ -322,6 +338,8 @@ fn expression_packs_carry_face_and_small_head_body() {
 }
 
 mod assets;
+mod boundaries;
+mod calibration;
 mod field_reload;
 mod fields;
 mod fields_common;

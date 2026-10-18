@@ -51,8 +51,8 @@ const PresetLabelTable _table = PresetLabelTable(<String, PresetLabel>{
   'smile': PresetLabel(zh: '微笑', en: 'Smile', channel: 'expression'),
   // 在 kExpressionPresetIds 里，但表说它是 motion —— 表必须赢。
   'unhappy': PresetLabel(zh: '不悦', en: 'Unhappy', channel: 'motion'),
-  // 不在 kExpressionPresetIds 里，但表说它是 expression —— 表必须赢。
-  'wink': PresetLabel(zh: '眨眼', en: 'Wink', channel: 'expression'),
+  // 不在 kExpressionPresetIds 里（手势 id），但表说它是 expression —— 表必须赢。
+  'bow': PresetLabel(zh: '鞠躬', en: 'Bow', channel: 'expression'),
 });
 
 /// 读一份 `lib/**` 源码（`flutter test` 的工作目录 = 包根）。
@@ -267,18 +267,22 @@ void main() {
 
   group('W7：点名的文案 / 通道口径守卫（B②/C③/A①）', () {
     test('B②：通道判据优先查标签表，取不到表才回落 kExpressionPresetIds', () {
-      // 表里 'unhappy'=motion、'wink'=expression，都与常量集合相反。
+      // 表里 'unhappy'=motion、'bow'=expression，都与常量集合相反（表必须赢）。
       expect(directorPresetText('unhappy', labels: _table), '短动作（unhappy）');
-      expect(directorPresetText('wink', labels: _table), '表情（wink）');
+      expect(directorPresetText('bow', labels: _table), '表情（bow）');
       expect(isExpressionChannel('unhappy', labels: _table), isFalse);
-      expect(isExpressionChannel('wink', labels: _table), isTrue);
+      expect(isExpressionChannel('bow', labels: _table), isTrue);
 
-      // 取不到表（空表）→ 回落常量：旧行为一字不改。
+      // 取不到表（空表）→ 回落常量：旧 4 条 + 0.3.7 T2 新增 8 条表情。
       expect(directorPresetText('unhappy'), '表情（unhappy）');
-      expect(directorPresetText('wink'), '短动作（wink）');
+      expect(directorPresetText('thinking'), '表情（thinking）');
+      expect(directorPresetText('wink'), '表情（wink）');
+      expect(directorPresetText('calm'), '表情（calm）');
+      expect(directorPresetText('bow'), '短动作（bow）');
       expect(directorPresetText('bogus'), '短动作（bogus）');
       expect(isExpressionChannel('unhappy'), isTrue);
-      expect(isExpressionChannel('wink'), isFalse);
+      expect(isExpressionChannel('wink'), isTrue);
+      expect(isExpressionChannel('bow'), isFalse);
     });
 
     test('B②：面板到点时长来自渲染面 ack（O3 默认），前端不再跑本地计时器', () {

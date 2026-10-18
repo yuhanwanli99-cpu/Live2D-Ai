@@ -17,16 +17,30 @@ import 'package:http/http.dart' as http;
 
 /// 表情通道的包 id（与渲染面 `assets/actions/presets.json` 的 `kind=expression` 对齐）。
 ///
-/// **显示用**分类：只影响调试面板倒计时与「表情 / 短动作」前缀。行为真源是渲染面
+/// **显示用分类**：只影响调试面板倒计时与「表情 / 短动作」前缀。行为真源是渲染面
 /// 的 `presets.json`；旧 id 已删除，不再按前缀识别。
 ///
-/// **W3 残留（2026-09-21，已知重复）**：这是一份与 `preset_labels.json` 的
-/// `channel` 字段重复的 id 列表。调试面板**已不再使用它**（改用
-/// [PresetLabelTable.idsForChannel]）；它还被两处**没有标签表实例**的显示代码用：
-/// `live2d/live2d_stage.dart`（倒计时显示用 ttl）与
-/// `settings/sections/director_section.dart`（通道标签）。删掉它要求同时改这两个
-/// 文件（不在 W3 的文件归属内），所以本轮**记录不改**，见 W3 回报的未决问题。
-const Set<String> kExpressionPresetIds = <String>{'smile', 'unhappy', 'surprised'};
+/// **这是一份兜底常量，不是真源**：正常路径读 `assets/actions/preset_labels.json`
+/// 的 `channel` 字段（[PresetLabelTable.idsForChannel]）；只有**取不到标签表**时
+/// 两处没有表实例的显示代码才回落到它——`live2d/live2d_stage.dart`（倒计时 ttl 的
+/// 通道判据）与 `settings/sections/director_section.dart`（通道标签）。
+///
+/// **0.3.7 T2（2026-10-18）**：表情从 4 条扩到 12 条（+angry / sad / blush / wink /
+/// confused / sleepy / excited / calm）。`none` 是撤销哨兵，不在本集合里。
+const Set<String> kExpressionPresetIds = <String>{
+  'smile',
+  'unhappy',
+  'surprised',
+  'thinking',
+  'angry',
+  'sad',
+  'blush',
+  'wink',
+  'confused',
+  'sleepy',
+  'excited',
+  'calm',
+};
 
 /// 该 id 是否是表情包（只认上面的新 id 集合）。
 bool isExpressionPreset(String id) => kExpressionPresetIds.contains(id);

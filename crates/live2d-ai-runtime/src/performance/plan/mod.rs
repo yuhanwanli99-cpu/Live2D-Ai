@@ -33,8 +33,8 @@
 //! - **field=body → 丢该条 cue + warn**（T8 起只演头与表情；整份失败会连带丢语音，
 //!   代价不对等，所以是丢条而不是失败）；
 //! - 未知表情 id → **丢该条 cue + warn**（§2.4 #16；整份失败会连带丢语音）；
-//! - **expression 的 id 只认表情槽**（[EXPRESSION_PRESET_IDS] = smile / unhappy /
-//!   surprised / thinking，外加撤销哨兵 none）：手势 id（nod / tilt_left / look_up …）
+//! - **expression 的 id 只认表情槽**（[EXPRESSION_PRESET_IDS] = 12 条表情 id，
+//!   见 `types.rs`；外加撤销哨兵 none）：手势 id（nod / tilt_left / look_up / bow …）
 //!   填进 expression → **丢该条 cue + warn**（T9；整份仍成功——表情表只有脸，
 //!   手势 id 交上来在渲染面本来也会被丢掉）。
 //!

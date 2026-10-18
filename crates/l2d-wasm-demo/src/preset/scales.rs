@@ -54,6 +54,9 @@ pub const MAX_SCALE: f32 = 2.2;
 //   五官 `ParamEyeLOpen/ROpen`（surprised）= 1.26 → 3.016
 //   T9：look_up / look_down 主轴同为 12.0 / 3.9（死区同上）；thinking 的
 //   `ParamAngleZ` = 6 → 4.75、`ParamBodyAngleZ` = 2 → 4.75、五官最大 0.55 → 6.909。
+//   T2（0.3.7）：8 条新表情五官最大 1.0（excited / wink）→ 3.8、头角最大 6
+//   （sad / confused）→ 4.75、身最大 2.0（sad BodyAngleY）→ 4.75；bow 主轴
+//   12.0 / 3.9（与 nod 同死区）。
 // 全部 > MAX_SCALE(2.2)：**滑条全行程有效**。
 //
 // ⚠ **两个旋钮同时拉满**（intensity = 3 且 scale = 2.2）：**普通包会钳位，morph 包不会**。
@@ -73,10 +76,20 @@ pub const MAX_SCALE: f32 = 2.2;
 //   | surprised | ParamAngleY / ParamBodyAngleY | 33.0 / 13.2 | 30 / 10 |
 //   | thinking（T9，小幅歪头包） | ParamAngleZ / ParamBodyAngleZ | 39.6 / 13.2 | 30 / 10 |
 //   | look_up / look_down（T9，主轴 ×1.0） | ParamAngleY / ParamBodyAngleY | 79.2 / 25.74 | 30 / 10 |
+//   | angry（T2） | MouthForm / BrowLY / BrowRY / EyeLOpen / EyeROpen | 5.28 / 5.94 / 5.94 / 5.28 / 5.28 | 4 |
+//   | sad（T2） | MouthForm / AngleY / BodyAngleY | 6.6 / 39.6 / 13.2 | 4 / 30 / 10 |
+//   | wink（T2） | MouthForm / EyeLSmile / EyeROpen / AngleZ / BodyAngleZ | 5.28 / 5.94 / 6.6 / 33.0 / 10.56 | 4 / 4 / 4 / 30 / 10 |
+//   | confused（T2） | EyeLOpen / EyeROpen / AngleZ / BodyAngleZ | 5.94 / 4.95 / 39.6 / 12.87 | 4 / 4 / 30 / 10 |
+//   | excited（T2） | MouthForm / EyeLSmile / EyeRSmile / EyeLOpen / EyeROpen | 6.6 / 5.28 / 5.28 / 6.6 / 6.6 | 4 |
+//   | calm（T2） | EyeLOpen / EyeROpen | 5.61 / 5.61 | 4 |
+//   | bow（T2，主轴 ×1.0） | ParamAngleY / ParamBodyAngleY | 79.2 / 25.74 | 30 / 10 |
 // **不钳位**（同一口径下的反向读数）：全部手势次轴（shake Z 13.5、look Z 17.8、tilt X 19.8、
 // 身次轴 ≤5.3）；smile 的 Brow（3.3）与 AngleZ（13.2）；surprised 的 MouthForm（1.32）、
 // AngleX（19.8）、BodyAngleX（6.6）；**unhappy 全部通道**（最大 6.6）；T9 的
-// look_up / look_down 次轴 X（17.82 / 5.28）与 thinking 五官（0 / 3.63 / 2.97）。
+// look_up / look_down 次轴 X（17.82 / 5.28）与 thinking 五官（0 / 3.63 / 2.97）；
+// T2 的 **blush / sleepy 全部通道**，以及新表情未列出的通道（angry 的头身、sad 的
+// 次轴、wink 的次轴与 EyeRSmile、confused 的 MouthForm / 双眉 / 次轴、excited 的
+// 双眉、calm 的其余通道）。
 // 同一张表也写在 `assets/actions/presets.json` 的 `_doc`；`docs/architecture/action-packs-v0.md`
 // 的副本由 W1/W8 在动作文档里对齐（本文件是数值真源）。
 
