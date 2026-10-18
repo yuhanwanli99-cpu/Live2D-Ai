@@ -45,6 +45,9 @@
 
 ## 2. 合并表（v2 → v3）
 
+> **0.3.7（2026-10-18）现状**：主 allowlist 已扩到 **21 条**（12 表情 + 9 手势；
+> D1=A 手不做）。本节是 v3（2026-09-23）的合并史，不是现状清单；现清单见 §6 与 CURRENT §4。
+
 v3 把「同一个表情的静态版与动作版」合成一条包，主 allowlist 由 19 条收到 10 条
 （含 `none`）。**v2 的 12 条旧 id 已在 2026-09-23 整体删除**（见 `8`）——不保留别名，
 本文也不再列出它们。
@@ -128,7 +131,7 @@ emotion → 表情，同一槽只保留一条。
 | --- | --- | --- |
 | 包的参数 / morph 两极 | `assets/actions/presets.json` | 渲染面（`/actions/presets.json`）、Rust 回归 |
 | id → 展示名（中/英）/ 通道 | `assets/actions/preset_labels.json` | Flutter 调试面板、导演 Select、Rust include_str |
-| id 契约（主 allowlist） | `live2d-ai-mod-director::presets::PRESET_IDS` | 面板 Select、二路能力集、表演层可见集合 |
+| id 契约（主 allowlist，21 条） | `crates/live2d-ai-runtime/src/performance/rules/presets.rs::PRESET_IDS`（0.3.7 起规则表住核心） | 面板 Select、二路能力集、表演层可见集合 |
 | 运行时校验 / 红线 | `crates/l2d-wasm-demo/src/preset/table.rs` | 加载期（未知通道丢弃 + 告警，幅值分档钳位） |
 
 **不要在 Dart / Rust 再手写一套中文标签，也不要再抄一份 id 列表。**
@@ -138,12 +141,12 @@ emotion → 表情，同一槽只保留一条。
 - **机器**：`cargo test -p l2d-wasm-demo`（预设回归）、
   `cargo test -p live2d-ai-mod-director`（包表 + 双槽规则）、
   `cargo test -p live2d-ai-desktop`（表演层能力集 = accepted_preset_ids）；
-- **表情调试**（开发模式；**只走 Face 槽**）：只列 `smile` / `unhappy` / `surprised`
-  三个表情包，不混手势；滑条「**基础表情强度**」缺省 **1.0**（= 表值本身）。选
+- **表情调试**（开发模式；**只走 Face 槽**）：只列表情包（0.3.7 起 12 条），不混手势；滑条「**基础表情强度**」缺省 **1.0**（= 表值本身）。选
   `unhappy`，把强度分别放 **1 / 2 / 3**：眉从**上挑**变**下压**、眼从**半闭**变
   **瞪大**、头从**低垂**变**略抬**。「**表情扫一遍**」逐条演一遍。
-- **动作调试**（开发模式；**只走 Gesture 槽**）：只列 `nod` / `shake` / `look_left` /
-  `look_right` / `tilt_left` / `tilt_right`；滑条「**动作强度**」缺省 **1.2**；另有
+- **动作调试**（开发模式；**只走 Gesture 槽**）：只列手势包（0.3.7 起 9 条：`nod` /
+  `shake` / `look_left` / `look_right` / `look_up` / `look_down` / `tilt_left` /
+  `tilt_right` / `bow`）；滑条「**动作强度**」缺省 **1.2**；另有
   「**叠加基础表情**」开关——播放手势时先把当前基础表情包 + 基础强度写进 Face 槽，
   再写 Gesture 槽（Face → Gesture，与渲染面同帧写入顺序一致，共享通道由手势赢）。
   「**动作扫一遍**」会带上当前基础表情。

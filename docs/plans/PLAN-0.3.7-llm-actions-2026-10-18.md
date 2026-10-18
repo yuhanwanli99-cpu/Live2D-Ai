@@ -1,6 +1,7 @@
 # 0.3.7 执行计划：LLM 云/本地 + 动作表情扩充
 
-> 状态：**待执行**（2026-10-18 立）· 上游：`PROMPT-3.0-motion-first-2026-10-17.md` 与
+> 状态：**已收口**（2026-10-18；本地 tag `v0.3.7-rc.1`…`v0.3.7-rc.3`，不 push；发布说明
+> `docs/releases/v0.3.7-rc.3.md`）。立档 2026-10-18 · 上游：`PROMPT-3.0-motion-first-2026-10-17.md` 与
 > `docs/architecture/CURRENT.md`。
 >
 > 写法：本块 tag `v0.3.7-rc.1` … `v0.3.7-rc.z`；最后 `v0.3.7-rc.(z+1)` 只清这一块，不新增功能。
