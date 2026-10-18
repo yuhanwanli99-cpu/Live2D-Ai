@@ -109,6 +109,38 @@ impl ModelRendererCore {
         Ok(())
     }
 
+    /// 在**同一个** [`GpuContext`] 上装载一份**新的**渲染核心并返回（0.3.6 热换修法 B）。
+    ///
+    /// # 为什么需要它
+    ///
+    /// 上游 `ModelRenderer::load_model` 是「在**已装模型的 renderer 上原地换**」：
+    /// 新模型的纹理 / 缓冲与旧模型共用同一份 renderer 状态。它一旦中途失败，
+    /// renderer 已经换了一半，旧实现只能再 `load_model` 一次旧模型「回滚」——
+    /// 而那是对**同一个 renderer 的第二次 load**（0.3.5 热换 panic 的栈顶正落在
+    /// 这条路径调用的 `create_buffer_init` 上）。
+    ///
+    /// 本方法把热换改成：**新核心从零装载 → 成功才由调用方 `*core = fresh` 原子
+    /// 替换**。于是失败时旧核心一个字段都没被碰过，也不需要「回滚第二次 load」。
+    ///
+    /// # 复制哪些状态（只复制**外部**状态，不复制模型状态）
+    ///
+    /// - 视口：画布尺寸属于宿主，不属于模型；
+    /// - 待机开关：用户的「待机小动作」设置；`load_model` 会按新模型重建姿态栈，
+    ///   不抄过去会被静默拨回开；
+    /// - colorspace：输出约定，与模型无关。
+    ///
+    /// 逻辑变换与姿态栈**不复制**：`load_model` 按新模型重建，调用方随后用返回值的
+    /// [`transform`](Self::transform) 更新自己的 layout 基准。
+    pub fn load_fresh(&self, loaded: &LoadedModel) -> Result<Self, RenderError> {
+        let mut fresh = Self::new(self.gpu.clone())?;
+        fresh.viewport = self.viewport;
+        fresh.colorspace = self.colorspace;
+        let idle_enabled = self.stack.idle_enabled();
+        fresh.load_model(loaded)?;
+        fresh.stack.set_idle_enabled(idle_enabled);
+        Ok(fresh)
+    }
+
     /// 推进一个固定 dt 步：重算 idle → 物理步进 → 合成最终姿态并驱动渲染器。
     ///
     /// `dt` 必须有限且 > 0（推荐 [`super::FIXED_DT_60HZ`]），否则返回

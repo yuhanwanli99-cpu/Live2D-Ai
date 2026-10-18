@@ -61,6 +61,14 @@ mod stage_bg;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod preset;
 
+/// 舞台热换模型的状态机（**平台无关**：wasm 渲染面与原生 fake loader 单测共用）。
+///
+/// 同 `mouth.rs` / `stage_bg.rs` 的教训：0.3.5 的换模逻辑整份住在 wasm-only 的
+/// `web/swap.rs` 里，原生 `cargo test` 编译不到 = 没有回归；0.3.6 T1 把它抽出来，
+/// 单测覆盖 成功 / 失败 / 旧核心不变 / 连点。
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod swap_core;
+
 fn main() {
     // wasm32：真实入口。
     #[cfg(target_arch = "wasm32")]
@@ -149,8 +157,35 @@ mod web {
         }
     }
 
+    /// 安装 wasm panic hook（0.3.6 T1 取证）：把 panic 文本与位置打到 console。
+    ///
+    /// 为什么自写而不是加依赖：本 crate 的依赖口径是「全 wasm32 常规 web 件」，
+    /// 为一行日志引入 `console_error_panic_hook` 不划算；标准库 `set_hook` 在
+    /// wasm32 的 panic=abort 下**仍会先调用 hook**，随后才是 trap（`unreachable`）。
+    /// 不装它时浏览器只看到 `RuntimeError: unreachable`，拿不到第一行 panic 文本。
+    fn install_panic_hook() {
+        std::panic::set_hook(Box::new(|info| {
+            let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
+                (*s).to_owned()
+            } else if let Some(s) = info.payload().downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "（panic payload 不是字符串）".to_owned()
+            };
+            let loc = info
+                .location()
+                .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+                .unwrap_or_else(|| "<unknown>".to_owned());
+            web_sys::console::error_1(&JsValue::from_str(&format!("[panic] {msg} @ {loc}")));
+        }));
+        web_sys::console::log_1(&JsValue::from_str(
+            "[panic hook] installed (wasm32, panic=abort)",
+        ));
+    }
+
     /// wasm 入口：把异步启动任务挂到微任务循环（不在顶层阻塞）。
     pub fn start() {
+        install_panic_hook();
         wasm_bindgen_futures::spawn_local(async move {
             if let Err(err) = run().await {
                 status(&format!("启动失败：{err}"));
