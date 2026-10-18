@@ -443,6 +443,81 @@ void main() {
     });
   });
 
+  group('2026-10-18（§2）：扩展区隐藏 local-engine 卡', () {
+    testWidgets('真泵 ModsSection：在册 Mod 列表里没有 local-engine 卡', (
+      WidgetTester tester,
+    ) async {
+      final Set<String> ids = registeredModIds();
+      // 先证明这条门禁没有空转：被隐藏的 id 与对照 id 都必须真的在册
+      // （不然「没画出来」可能只是因为列表里本来就没有它）。
+      expect(
+        ids,
+        contains('local-engine'),
+        reason: '在册注册表里没有 local-engine = 这条门禁在空转',
+      );
+      expect(
+        ids,
+        contains('external-input'),
+        reason: '对照项 external-input 不在册 = 这条门禁在空转',
+      );
+      final List<ModInfo> mods = <ModInfo>[
+        for (final String id in ids)
+          ModInfo(
+            id: id,
+            // name 留空 ⇒ 卡片标题回落成 id（开发模式与产品模式同一处过滤）。
+            name: '',
+            version: '0.1.0',
+            apiVersion: 1,
+            enabled: false,
+            status: 'disabled',
+          ),
+      ];
+      await tester.pumpWidget(
+        _wrap(ModsSection(mods: mods, loading: false, onLoadState: _stubState)),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('local-engine'),
+        findsNothing,
+        reason: '设置 → 扩展区不得再画 local-engine 卡',
+      );
+      expect(
+        find.text('external-input'),
+        findsOneWidget,
+        reason: '只隐藏 local-engine；其它在册 Mod 照旧画出来',
+      );
+    });
+
+    testWidgets('接口非空、可见列表为空：不显示「没有注册任何 Mod」空态', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          ModsSection(
+            mods: const <ModInfo>[
+              ModInfo(
+                id: 'local-engine',
+                name: '',
+                version: '0.1.0',
+                apiVersion: 1,
+                enabled: false,
+                status: 'disabled',
+              ),
+            ],
+            loading: false,
+            onLoadState: _stubState,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      // 这句话只在接口**真的**返回空时成立；后端回了 1 条（只是被隐藏），
+      // 说「没有注册任何 Mod」就是谎报。
+      expect(find.text('没有注册任何 Mod'), findsNothing);
+      expect(find.text('local-engine'), findsNothing);
+      expect(find.byType(AdminRow), findsNothing, reason: '可见列表为空 ⇒ 一张卡都不画');
+    });
+  });
+
   group('T2（2026-10-13）：底部「保存并重载」能一起提交未提交的表单配置（通用）', () {
     testWidgets('改了端口但没按卡片保存 → submitPending 写进配置', (
       WidgetTester tester,

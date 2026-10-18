@@ -1,5 +1,13 @@
 part of 'dev_tools_section.dart';
 
+/// 设置 → 扩展区**不画**的 Mod id（2026-10-18 执行单 §2：只隐藏界面，不删除）。
+///
+/// `local-engine` 仍是注册表里的 Mod、`GET /api/v1/mods` 仍会返回它、`mods.json`
+/// 的启停也照旧——这里只决定设置面不再画这张卡（含开发者模式）。
+///
+/// 常量保持 ASCII：过滤键是线上 id，不做任何本地化。
+const Set<String> kModsHiddenFromShell = <String>{'local-engine'};
+
 class ModsSection extends StatelessWidget {
   const ModsSection({
     required this.mods,
@@ -85,6 +93,12 @@ class ModsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 在 `for (final ModInfo m in mods)` 之前先按 id 滤掉不上设置面的 Mod。
+    // 开发者模式走同一处过滤——它只是让卡片**多一行** ID，不是另一份列表。
+    final List<ModInfo> visibleMods = <ModInfo>[
+      for (final ModInfo m in mods)
+        if (!kModsHiddenFromShell.contains(m.id)) m,
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -113,6 +127,8 @@ class ModsSection extends StatelessWidget {
             padding: EdgeInsets.symmetric(vertical: Space.s4),
             child: Center(child: CircularProgressIndicator()),
           )
+        // 空态只在**接口真的返回空**时显示：接口非空、只是可见列表被过滤空时，
+        // 一句提示都不画（否则会谎报「后端没有注册 Mod」）。
         else if (mods.isEmpty)
           const AdminEmpty(
             icon: Icons.extension_outlined,
@@ -120,7 +136,7 @@ class ModsSection extends StatelessWidget {
             hint: 'Mod 通过 live2d-ai-mod-system 的 trait 注册中心接入。',
           )
         else
-          for (final ModInfo m in mods)
+          for (final ModInfo m in visibleMods)
             // 有 spec 的 Mod 展开后按 spec 渲表单；旧 Mod（无 spec）保持
             // 「一行 + 开关」的现状——这是 M2 明确要求的兼容面。
             if (m.settingsSpec == null || m.settingsSpec!.fields.isEmpty)
