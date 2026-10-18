@@ -1,5 +1,8 @@
 # 设置先草稿，保存并重载后才生效
 
+> **0.3.6 T3（2026-10-18）**：设置纪律现行真源是 `docs/architecture/CURRENT.md` §5.1。
+> 与本文件冲突处（动作幅度不再即时预览；本模型覆盖也进草稿）**以 CURRENT 为准**，历史正文不改。
+
 > 立档：2026-10-10。状态：**活**。真源：本文件。配套提示词 `docs/plans/PROMPT-settings-reload-2026-10-10.md`。
 > 不升版本，不打 tag，不提交，不推送。不动 `melo/start.sh`、`.env`、`mods.json`、`live2d-ai.toml`。
 

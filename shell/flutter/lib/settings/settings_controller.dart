@@ -78,6 +78,79 @@ class SettingsDraft {
   double? actionBodyScale;
   double? actionExpressionScale;
 
+  // ── action.models.<id>（本模型覆盖草稿，0.3.6 T3，2026-10-18） ──
+  /// 本模型覆盖的**草稿**（键 = 模型 id）。
+  ///
+  /// - 值对象 = 逐键三态（只含用户真动过的键；`Tri.set(v)` = 覆盖该键）；
+  /// - 值 `null` = **待删除**该模型覆盖（JSON `"<id>": null`，恢复跟随全局）；
+  /// - 键不存在 = 不动该模型。
+  ///
+  /// 与全局三键分开：覆盖开启时三条滑条写这里，关闭时写 [actionHeadScale] 等。
+  /// **T3 起本模型覆盖也走「保存并重载」**——T3 之前它经
+  /// `ModelOverrideCoalescer` 直接 PATCH（每次拖动都写盘 + 热重载），
+  /// 那是「改设置 → 副作用」里唯一绕开草稿的路径。
+  Map<String, ActionModelOverridePatch?> actionModels =
+      <String, ActionModelOverridePatch?>{};
+
+  /// 记一次**单键**本模型覆盖（只记这一键，其余保持「未覆盖」= 逐键回落全局）。
+  ///
+  /// [key] 只接受 `head_scale` / `body_scale` / `expression_scale`（与补丁
+  /// JSON 及渲染面载荷同口径，见 `toOverridePayload`）。
+  void setActionModelKey(String modelId, String key, double value) {
+    if (modelId.isEmpty) return;
+    final ActionModelOverridePatch base =
+        actionModels[modelId] ?? const ActionModelOverridePatch();
+    actionModels[modelId] = ActionModelOverridePatch(
+      headScale: key == 'head_scale' ? Tri.set(value) : base.headScale,
+      bodyScale: key == 'body_scale' ? Tri.set(value) : base.bodyScale,
+      expressionScale: key == 'expression_scale'
+          ? Tri.set(value)
+          : base.expressionScale,
+    );
+  }
+
+  /// 开启本模型覆盖：用**当前有效三键**建初始覆盖（与 T3 之前「开」的语义一致：
+  /// 三键显式，之后逐键独立跟随）。
+  void seedActionModelOverride(
+    String modelId,
+    ActionSettingsView effective,
+  ) {
+    if (modelId.isEmpty) return;
+    actionModels[modelId] = ActionModelOverridePatch(
+      headScale: Tri.set(effective.headScale),
+      bodyScale: Tri.set(effective.bodyScale),
+      expressionScale: Tri.set(effective.expressionScale),
+    );
+  }
+
+  /// 关闭覆盖 / 「恢复跟随全局」：待删除该模型覆盖（JSON 显式 `null`）。
+  void clearActionModelOverride(String modelId) {
+    if (modelId.isEmpty) return;
+    actionModels[modelId] = null;
+  }
+
+  /// 该模型在草稿里是否被改成「删除覆盖」。
+  bool isModelOverridePendingDelete(String modelId) =>
+      actionModels.containsKey(modelId) && actionModels[modelId] == null;
+
+  /// 待发的本模型**单键值**（滑条显示用；删除中 / 没改 → 空表）。
+  ///
+  /// 键名与补丁 JSON 一致（`head_scale` …）；只含 `Tri.set` 的键。
+  Map<String, double> pendingModelKeys(String modelId) {
+    final ActionModelOverridePatch? patch = actionModels[modelId];
+    if (patch == null) return const <String, double>{};
+    final Map<String, double> out = <String, double>{};
+    final Tri<double>? head = patch.headScale;
+    if (head is TriSet<double>) out['head_scale'] = head.value;
+    final Tri<double>? body = patch.bodyScale;
+    if (body is TriSet<double>) out['body_scale'] = body.value;
+    final Tri<double>? expression = patch.expressionScale;
+    if (expression is TriSet<double>) {
+      out['expression_scale'] = expression.value;
+    }
+    return out;
+  }
+
   // ── 顶层 ──
   bool? devMode;
 
@@ -156,6 +229,10 @@ class SettingsDraft {
       expressionScale: actionExpressionScale == null
           ? null
           : Tri.set(actionExpressionScale!),
+      // 本模型覆盖：整张表一起进同一个补丁（空表不发键）。
+      models: actionModels.isEmpty
+          ? null
+          : Map<String, ActionModelOverridePatch?>.of(actionModels),
     );
     return patch.isEmpty ? null : patch;
   }
@@ -183,6 +260,7 @@ class SettingsDraft {
     actionHeadScale = null;
     actionBodyScale = null;
     actionExpressionScale = null;
+    actionModels.clear();
     devMode = null;
   }
 }
@@ -455,6 +533,49 @@ class SettingsController extends ChangeNotifier {
       remote.action.expressionScale,
     )) {
       _draft.actionExpressionScale = null;
+    }
+    // 本模型覆盖（T3）：与远端逐键对账——改回原值就撤回该键；
+    // 整份改回（或本就等于远端）就撤回该模型；「删除」而远端本来没有 ⇒ 撤回。
+    // 不这么做的表现是：用户把滑条拖回去，界面还一直挂着「未保存」。
+    for (final String id in _draft.actionModels.keys.toList()) {
+      final ActionModelOverridePatch? pending = _draft.actionModels[id];
+      if (pending == null) {
+        if (!remote.action.models.containsKey(id)) {
+          _draft.actionModels.remove(id);
+        }
+        continue;
+      }
+      final ActionModelOverrideView? saved = remote.action.models[id];
+      Tri<double>? head = pending.headScale;
+      final double? savedHead = saved?.headScale;
+      if (head is TriSet<double> &&
+          savedHead != null &&
+          _almostEqual(head.value, savedHead)) {
+        head = null;
+      }
+      Tri<double>? body = pending.bodyScale;
+      final double? savedBody = saved?.bodyScale;
+      if (body is TriSet<double> &&
+          savedBody != null &&
+          _almostEqual(body.value, savedBody)) {
+        body = null;
+      }
+      Tri<double>? expression = pending.expressionScale;
+      final double? savedExpression = saved?.expressionScale;
+      if (expression is TriSet<double> &&
+          savedExpression != null &&
+          _almostEqual(expression.value, savedExpression)) {
+        expression = null;
+      }
+      if (head == null && body == null && expression == null) {
+        _draft.actionModels.remove(id);
+      } else {
+        _draft.actionModels[id] = ActionModelOverridePatch(
+          headScale: head,
+          bodyScale: body,
+          expressionScale: expression,
+        );
+      }
     }
     if (_draft.devMode == remote.devMode) _draft.devMode = null;
     if (notify) notifyListeners();

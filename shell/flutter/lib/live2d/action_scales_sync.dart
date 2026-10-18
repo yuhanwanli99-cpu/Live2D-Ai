@@ -1,24 +1,29 @@
-/// 动作幅度即时预览的**唯一防抖下发器**（纯逻辑，无 Flutter widget 依赖）。
+/// 动作幅度的**唯一防抖下发器**（纯逻辑，无 Flutter widget 依赖）。
 ///
 /// # 它解决什么
 ///
-/// 外观三滑条改的是**设置草稿**，而渲染面只在「设置保存后」才收到值——
-/// 用户的原话是「滑条要先保存才生效」。这里把草稿值防抖后直接下发给渲染面。
+/// 三滑条改的是**设置草稿**；渲染面**只吃已保存值**（0.3.6 T3，2026-10-18）。
+/// 宿主把「**已保存**的 `[action]`」经 [scheduleSaved] 送进来，同值不排帧——
+/// 拖动草稿、放弃草稿、保存失败都产不出一帧（`test/settings_discipline_test.dart`
+/// 的计数断言）。只有「保存并重载」成功、服务端回填新值之后才有一帧。
 ///
-/// # 三层优先级（2026-09-23 W7 收口；这份规则的真源就在本类）
+/// # 优先级（2026-09-23 W7 收口；这份规则的真源就在本类）
 ///
-/// **临时覆盖（调试面板，显式、可一键取消） > 草稿（谁在拖谁优先） > 磁盘值**
+/// **临时覆盖（调试面板，显式、可一键取消） > 已保存值**
 ///
-/// - 草稿 / 磁盘值由宿主经 [schedule] / [syncNow] 送进来（`app/shell_prefs.dart`
-///   的 `_effectiveActionScales`：草稿字段压过远端，都没加载就是 `null`）；
-/// - 调试面板的「临时幅度覆盖」经 [pin] 成为本类的**显式状态**；
-/// - [active] 是**给舞台的唯一取值口**：有临时覆盖给临时值，否则给产品/草稿值。
+/// - 已保存值由宿主经 [scheduleSaved] / [syncNow] 送进来（`app/shell_prefs.dart`
+///   的 `_effectiveActionScales`：只读 `_settings.remote`，草稿不参与）；
+/// - 调试面板的「临时幅度覆盖」经 [pin] 成为本类的**显式状态**（唯一例外，
+///   显式开发工具，不落盘）；
+/// - [active] 是**给舞台的唯一取值口**：有临时覆盖给临时值，否则给已保存值。
 ///   `main.dart` 把它交给 `Live2DStage.actionScales`，iframe 重建 / 重挂后
 ///   舞台自己就能补发（RESEARCH §2.3 的死参数由此接上）；
-/// - 所有下发都只经本类：`main.dart` 里那条
+/// - 所有宿主下发都只经本类：`main.dart` 里那条
 ///   `_stageKey.currentState?.sync(actionScales: …)` 直发路径**已删除**——
 ///   过去两个写者各自去重（产品值走本类、临时值直发且不更新 `_sent`），
 ///   同一操作序列的结果依赖历史（RESEARCH §2.4 的确定性缺陷 2）。
+///   舞台自己的 `_attach` / `didUpdateWidget` 补发是**自愈通路**（iframe 重建），
+///   不在「改设置」的触发链上。
 ///
 /// # 第四层：本模型覆盖（阶段5 D40，2026-09-26）
 ///
@@ -80,6 +85,12 @@ class ActionScalesSyncer {
   /// 上次已下发的快照（测试与排障用；`null` = 还没发过）。
   String? get sentSnapshot => _sent;
 
+  /// 是否有一帧排在防抖窗口里（测试 / 排障用）。
+  ///
+  /// T3 的判据之一：**草稿变化不该留下待发帧**（`scheduleSaved` 同值不排帧）。
+  /// 这条比「肉眼看不到下发」更严：定时器被排上就算输，哪怕到点被 `_sent` 去重。
+  bool get hasScheduledFrame => _timer != null;
+
   /// 当前是否有临时覆盖。
   bool get hasPin => _pinned != null;
 
@@ -129,11 +140,40 @@ class ActionScalesSyncer {
   Map<String, double>? active(Map<String, double>? product) =>
       _pinned ?? _withModelOverride(product);
 
-  /// 排一次下发（防抖）。草稿一变就调它——**不必先保存**。
+  /// 排一次下发（防抖）。**已保存值**一变就调它。
+  ///
+  /// 不用于草稿：草稿改动由宿主算出的载荷不变，[scheduleSaved] 因此排不出帧。
   void schedule(Map<String, double>? payload) {
     if (_disposed) return;
     _timer?.cancel();
     _timer = Timer(kActionScalesDebounce, () => syncNow(payload));
+  }
+
+  /// 上次排过帧的**已保存值**指纹（T3：同值不排帧）。
+  String? _lastScheduledKey;
+
+  /// 排一次**已保存值**的下发（0.3.6 T3 的唯一入口）。
+  ///
+  /// 与 [schedule] 的区别只有一条：**同值不排帧**。这条让「改设置 → 舞台」
+  /// 的副作用只可能来自已保存值的真实变化，而不是草稿编辑：
+  /// - 拖滑条 / 切分区 / 关设置放弃 / 保存失败 → 载荷不变 → 不排帧（0 帧）；
+  /// - 「保存并重载」成功、服务端回填新值 → 载荷变 → 排**一帧**；
+  /// - iframe 重建 / 重挂的补发**不走这里**：[active] 是舞台的取值口，
+  ///   `Live2DStage._attach` / `didUpdateWidget` 用那份快照自愈。
+  ///
+  /// `null`（设置还没加载）只清指纹、不排帧：渲染面用自己的出厂默认，
+  /// 前端不谎报成 1.0。
+  void scheduleSaved(Map<String, double>? payload) {
+    if (_disposed) return;
+    final String? key = payload == null ? null : _key(payload);
+    if (key == _lastScheduledKey) return;
+    _lastScheduledKey = key;
+    if (payload == null) {
+      _timer?.cancel();
+      _timer = null;
+      return;
+    }
+    schedule(payload);
   }
 
   /// 立刻下发**当前有效值**（`onReady` / iframe 重建后补发）。

@@ -76,9 +76,9 @@ extension _ShellSectionWiring on _ShellRootState {
     // 同一分区 + 没指定组 = 真的没动（保留旧行为）；指定了组则要重新定位，
     // 否则「人已经停在模型服务页，再点一次去语音合成设置」会毫无反应。
     if (next == _section && group == null) return;
-    // 离开「外观与互动」前把待发的本模型覆盖落下：用户拖完立刻切分区，
-    // 不能把那一次改动留在防抖窗口里丢掉。
-    _modelOverrideCoalescer.flush();
+    // 切分区**没有任何副作用**（0.3.6 T3，2026-10-18）：设置改动只进草稿，
+    // 本模型覆盖也是草稿——以前这里要 flush「覆盖」的防抖 PATCH，那是设置面
+    // 唯一会在切分区时写盘的路，现已随草稿化删除。
     _rebuild(() {
       _section = next;
       // 页内定位（2026-10-09）：只有「模型服务」页有组值。
@@ -123,8 +123,6 @@ extension _ShellSectionWiring on _ShellRootState {
     _adminMessage = null;
     _shellImageMessage = null;
     _shellImageFailed = false;
-    _modelOverrideMessage = null;
-    _modelOverrideFailed = false;
     _copied = false;
     _adminError = null;
   }

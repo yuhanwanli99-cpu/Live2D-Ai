@@ -4,9 +4,11 @@
 ///
 /// 几个「一次性结果」挂在 `MainApp` 的 State 上：
 /// `_llmTest` / `_ttsTest` / `_adminMessage` / `_shellImageMessage`
-/// / `_modelOverrideMessage`（2026-09-13 M5.1：`_importMessage` 随角色卡导入
-/// 迁出主链而删除；2026-10-07：舞台那张图的 `_stageImageMessage` 随舞台图
-/// 收成背景库投影而删除，壳背景库的结果行 `_shellImageMessage` 仍在）。
+/// （2026-09-13 M5.1：`_importMessage` 随角色卡导入迁出主链而删除；
+/// 2026-10-07：舞台那张图的 `_stageImageMessage` 随舞台图收成背景库投影而
+/// 删除，壳背景库的结果行 `_shellImageMessage` 仍在；2026-10-18 0.3.6 T3：
+/// 本模型覆盖不再直接 PATCH，`_modelOverrideMessage/_modelOverrideFailed`
+/// 两个结果位随字段一起删除——覆盖已是纯草稿，没有「保存结果」可显示）。
 /// 它们过去只在**下一次同类操作**时才被覆盖，
 /// 切分区不重置。于是：用户测出「失败：401」→ 修好配置 → 切走 → 切回来，
 /// **那句失效的结论还在**，而它描述的已经是上一套配置了。
@@ -94,7 +96,6 @@ void main() {
         // （`_stageImageMessage` / `_stageImageFailed`）已从 main.dart 删除；
         // 壳背景库那一份仍在清理清单里。
         '_shellImageMessage',
-        '_modelOverrideMessage',
       ]) {
         expect(
           body.contains('$field = null'),
@@ -107,7 +108,6 @@ void main() {
         '_llmTesting',
         '_ttsTesting',
         '_shellImageFailed',
-        '_modelOverrideFailed',
       ]) {
         expect(body.contains('$flag = false'), isTrue, reason: '$flag 没有复位');
       }

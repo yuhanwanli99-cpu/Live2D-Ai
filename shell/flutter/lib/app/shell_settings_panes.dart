@@ -123,22 +123,34 @@ extension _ShellSettingsPanes on _ShellRootState {
         // 权威字段（顶层 active_model_id → action.activeModelId）；覆盖表来自
         // action.models。「有没有覆盖」= 这个模型是否在表里。
         //
-        // 滑条显示草稿和还没回读完的本模型覆盖；磁盘值只作兜底。
-        // 数据仍是 [action] / [action.models.<id>]，仍走既有 PATCH 与
-        // ActionScalesSyncer；**不写进 mods.json、不新增键、不接 action_tx**。
+        // 2026-10-18（0.3.6 T3）：**本模型覆盖也是草稿**——三条滑条 / 开关 /
+        // 「恢复跟随全局」只改 `SettingsDraft.actionModels`，与全局三键一起由
+        // 底部「保存并重载」的同一个 PATCH 提交。切分区 / 关设置 / 取消零写盘；
+        // 不再有直接 PATCH、回读与结果位（那些是 T3 之前的行为）。
+        // 数据仍是 [action] / [action.models.<id>]；**不写进 mods.json、
+        // 不新增键、不接 action_tx**。
         final ActionSettingsView actionView = view.action;
         final String activeModelId = actionView.activeModelId;
+        final SettingsDraft draft = _settings.draft;
         final bool hasModelOverride =
             activeModelId.isNotEmpty &&
             actionView.models[activeModelId] != null;
-        final bool overrideOn = _modelOverrideIntent ?? hasModelOverride;
+        final bool pendingDelete =
+            activeModelId.isNotEmpty &&
+            draft.isModelOverridePendingDelete(activeModelId);
+        final Map<String, double> pendingKeys = activeModelId.isEmpty
+            ? const <String, double>{}
+            : draft.pendingModelKeys(activeModelId);
+        // 开关值 = 服务端已有覆盖 或 草稿里正在编辑；「待删除」优先显示关。
+        final bool overrideOn =
+            !pendingDelete && (hasModelOverride || pendingKeys.isNotEmpty);
         final ActionSettingsView shownAction = displayActionScales(
           remote: actionView,
-          draftHead: _settings.draft.actionHeadScale,
-          draftBody: _settings.draft.actionBodyScale,
-          draftExpression: _settings.draft.actionExpressionScale,
-          pendingModelId: _modelOverrideCoalescer.latchedModelId,
-          pendingKeys: _modelOverrideCoalescer.latchedKeys,
+          draftHead: draft.actionHeadScale,
+          draftBody: draft.actionBodyScale,
+          draftExpression: draft.actionExpressionScale,
+          pendingModelId: pendingDelete ? null : activeModelId,
+          pendingKeys: pendingKeys,
         );
         return DirectorSection(
           devMode: _devMode,
@@ -151,35 +163,38 @@ extension _ShellSettingsPanes on _ShellRootState {
                 _settings.edit((SettingsDraft d) => d.actionBodyScale = v),
             onExpressionScaleChanged: (double v) =>
                 _settings.edit((SettingsDraft d) => d.actionExpressionScale = v),
-            // 开关值 = 是否有覆盖；开 = 用当前有效值建初始覆盖，
-            // 关 = 删除 = 「恢复跟随全局」。三条滑条只在覆盖开启时接管。
+            // 开关值 = 是否有覆盖；开 = 用当前有效值给草稿建初始覆盖，
+            // 关 = 草稿记「删除」= 「恢复跟随全局」。都只进草稿，保存才提交。
             onModelOverrideEnabledChanged: (bool on) {
-              _modelOverrideIntent = on;
-              _refresh();
-              unawaited(
-                on
-                    ? _seedModelOverride(
-                        activeModelId,
-                        shownAction.effectiveForActiveModel,
-                      )
-                    : _clearModelOverride(activeModelId),
-              );
+              _settings.edit((SettingsDraft d) {
+                if (on) {
+                  d.seedActionModelOverride(
+                    activeModelId,
+                    shownAction.effectiveForActiveModel,
+                  );
+                } else {
+                  d.clearActionModelOverride(activeModelId);
+                }
+              });
             },
-            onModelHeadScaleChanged: (double v) =>
-                _patchModelOverride(activeModelId, headScale: v),
-            onModelBodyScaleChanged: (double v) =>
-                _patchModelOverride(activeModelId, bodyScale: v),
-            onModelExpressionScaleChanged: (double v) =>
-                _patchModelOverride(activeModelId, expressionScale: v),
+            onModelHeadScaleChanged: (double v) => _settings.edit(
+              (SettingsDraft d) =>
+                  d.setActionModelKey(activeModelId, 'head_scale', v),
+            ),
+            onModelBodyScaleChanged: (double v) => _settings.edit(
+              (SettingsDraft d) =>
+                  d.setActionModelKey(activeModelId, 'body_scale', v),
+            ),
+            onModelExpressionScaleChanged: (double v) => _settings.edit(
+              (SettingsDraft d) =>
+                  d.setActionModelKey(activeModelId, 'expression_scale', v),
+            ),
             onResetModelOverride: overrideOn
-                ? () {
-                    _modelOverrideIntent = false;
-                    _refresh();
-                    unawaited(_clearModelOverride(activeModelId));
-                  }
+                ? () => _settings.edit(
+                    (SettingsDraft d) =>
+                        d.clearActionModelOverride(activeModelId),
+                  )
                 : null,
-            modelOverrideMessage: _modelOverrideMessage,
-            modelOverrideFailed: _modelOverrideFailed,
           ),
           directorDebug: DirectorDebugWiring(
             // 展示名读共享表（不在 Dart 手写中文）。

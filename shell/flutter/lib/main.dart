@@ -93,6 +93,7 @@ import 'settings/sections/director_section.dart';
 import 'settings/sections/motion_section.dart';
 import 'settings/sections/persona_section.dart';
 import 'settings/sections/service_section.dart';
+import 'settings/save_flow.dart';
 import 'settings/settings_controller.dart';
 import 'settings/settings_sections.dart';
 import 'state/live_region.dart';
@@ -351,11 +352,6 @@ class _ShellRootState extends State<ShellRoot> {
   String? _shellImageMessage;
   bool _shellImageFailed = false;
 
-  /// 「本模型覆盖」直接 PATCH 的结果（阶段5 D40）：与全局草稿那套无关，
-  /// 因为覆盖不经设置草稿（见 shell_settings.dart 的接线）。
-  String? _modelOverrideMessage;
-  bool _modelOverrideFailed = false;
-
   bool _copied = false;
   bool _settingsLoadedOnce = false;
 
@@ -379,25 +375,12 @@ class _ShellRootState extends State<ShellRoot> {
         _stageKey.currentState?.applyActionScales(scales),
   );
 
-  /// 本模型覆盖编辑的**合并防抖**（阶段5 D40 修，2026-09-27）。
-  ///
-  /// 滑条一次拖动会连发几十次 `onChanged`，而每次 PATCH 都要 toml 原子写 +
-  /// GET 回读 + supervisor 热重载；这里把同一模型的连续编辑收成一帧，
-  /// 且只发用户真动过的键（未动的键保持「未覆盖」）。
-  late final ModelOverrideCoalescer _modelOverrideCoalescer =
-      ModelOverrideCoalescer(onFlush: _flushModelOverride);
-
-  /// 本模型覆盖开关的即时意图。`null` = 跟服务端。
-  ///
-  /// 开关是受控的：不记这一下，拨完会弹回旧状态，直到 PATCH 回读结束。
-  bool? _modelOverrideIntent;
-
-  /// 覆盖 PATCH 的**串行**队列。
-  ///
-  /// 防抖只解决「合并」，不解决乱序：先拖 head、再点「恢复跟随全局」时
-  /// 两次 PATCH 仍可能乱序到达服务端（HTTP 不保证完成顺序），结果就
-  /// 变成「点了删除，覆盖又回来了」。串行化后服务端看到的顺序 = 用户操作顺序。
-  Future<void> _modelOverrideChain = Future<void>.value();
+  // ── 本模型覆盖（D40）自 0.3.6 T3 起**只进设置草稿** ──
+  //
+  // 这里原有的 `_modelOverrideCoalescer` / `_modelOverrideIntent` /
+  // `_modelOverrideChain` 已删除：覆盖不再直接 PATCH（拖动即写盘），
+  // 而是写 `SettingsDraft.actionModels`，随「保存并重载」的同一个 PATCH
+  // 一次提交（见 settings_controller.dart / save_flow.dart）。
 
   // ── 动作子系统已于 2026-09-11 移除（用户裁决：LLM 无工具、只做对话）──
   //

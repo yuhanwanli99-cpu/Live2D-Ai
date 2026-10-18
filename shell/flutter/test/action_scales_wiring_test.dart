@@ -10,8 +10,12 @@
 /// 3. `Live2DStage.actionScales` 从未被传过 ⇒ `_attach` / `didUpdateWidget`
 ///    这两条 iframe 重建后的自愈通路永远拿到 `null`。
 ///
-/// 现在**三层优先级**写死在 syncer 里：**临时覆盖 > 草稿 > 磁盘值**，
-/// 且所有下发只经过它一个出口（`active()` / `syncNow()` 发的永远是当前有效值）。
+/// 现在优先级写死在 syncer 里：**临时覆盖 > 宿主给的载荷**，且所有下发只经过
+/// 它一个出口（`active()` / `syncNow()` 发的永远是当前有效值）。
+///
+/// **2026-10-18（0.3.6 T3）**：宿主给的载荷现在是**已保存值**（草稿不进，
+/// 见 `app/shell_prefs.dart`）；本文件里的 syncer 纯逻辑断言仍然成立
+/// （它测的是「同一份载荷」的去重 / 临时覆盖不被冲掉）。
 ///
 /// # 为什么这里同时有「纯逻辑」与「源码扫描」两类断言
 ///
@@ -675,14 +679,19 @@ void main() {
 
       // UI 上「恢复跟随全局」按钮触发该回调（widget 级在
       // test/director_action_scales_test.dart；这里钉住宿主接线）。
+      // 0.3.6 T3：删除也走**设置草稿**（`SettingsDraft.actionModels[id] = null`），
+      // 不再直接 PATCH。
       expect(
-        readLib('lib/app/shell_settings_panes.dart').contains('_clearModelOverride') ||
-            readLib('lib/app/shell_settings.dart').contains('_clearModelOverride'),
+        readLib('lib/app/shell_settings_panes.dart')
+            .contains('clearActionModelOverride('),
         isTrue,
-        reason: '宿主必须把按钮接到「删除该模型覆盖」的 PATCH 上',
+        reason: '宿主必须把按钮接到「草稿里删除该模型覆盖」上（保存时写显式 null）',
       );
     });
 
+    // ⑤ 的纯逻辑部分仍测 `ModelOverrideCoalescer`（辅助类留在 api 层，产品路径
+    // 自 0.3.6 T3 起已不再用它——覆盖改走设置草稿）；源码扫描那半段已改成
+    // 「草稿接线 + 不得直接 PATCH」的守卫（见本 test 末尾）。
     test('⑤ 合并防抖：连续 onChanged 只落 1 次 PATCH，且只发被改过的键', () {
       fakeAsync((FakeAsync async) {
         final List<({String id, ActionModelOverridePatch patch, int epoch})>
@@ -747,28 +756,32 @@ void main() {
         coalescer.dispose();
       });
 
-      // 接线（源码扫描）：滑条回调必须走合并防抖器，而不是每次回调直接 PATCH。
+      // 接线（源码扫描，0.3.6 T3）：本模型覆盖**只进设置草稿**，
+      // 不再直接 PATCH（拖动即写盘 + 热重载 + 回读吞草稿）。
+      final String panes = readLib('lib/app/shell_settings_panes.dart');
+      expect(
+        panes.contains('setActionModelKey('),
+        isTrue,
+        reason:
+            'onChanged → SettingsDraft.actionModels（草稿）；直接 PATCH 会把拖动'
+            '打成几十次写盘，并可能静默吞掉用户其它字段的草稿',
+      );
       final String settings = readLib('lib/app/shell_settings.dart');
       expect(
-        settings.contains('_modelOverrideCoalescer.record('),
-        isTrue,
-        reason: 'onChanged → coalescer.record；直接 PATCH 会把拖动打成几十次写盘',
-      );
-      expect(
-        readLib('lib/app/shell_settings_panes.dart').contains('displayActionScales('),
-        isTrue,
-        reason: '滑条必须显示草稿和还没回读的覆盖，不能只绑磁盘值',
+        settings.contains('_api.patchSettings('),
+        isFalse,
+        reason: '本模型覆盖不得再直接 PATCH；写盘只经「保存并重载」的 SettingsController.save',
       );
       final String main = readLib('lib/main.dart');
       expect(
         main.contains('ModelOverrideCoalescer('),
-        isTrue,
-        reason: '合并防抖器的实体必须建在宿主 State 上（扩展不能声明字段）',
+        isFalse,
+        reason: '合并防抖器已随「直接 PATCH」路径一起删除（0.3.6 T3）',
       );
       expect(
-        main.contains('_modelOverrideCoalescer.flush()'),
+        panes.contains('displayActionScales('),
         isTrue,
-        reason: '离开分区前必须 flush，别把用户最后一次拖动留在窗口里丢掉',
+        reason: '滑条必须显示草稿（全局三键 + 本模型逐键待发值），不能只绑磁盘值',
       );
     });
   });

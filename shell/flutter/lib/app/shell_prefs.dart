@@ -15,45 +15,44 @@ String _mb(int bytes) {
 }
 
 extension _ShellPrefsWiring on _ShellRootState {
-  /// 舞台当前该用的动作幅度（**草稿优先** = 即时预览的真源，2026-09-16 修）。
+  /// 舞台当前该用的动作幅度：**只吃已保存值**（0.3.6 T3，2026-10-18）。
   ///
-  /// 三滑条的即时预览就是这条路：草稿里正在拖的值优先于磁盘值；保存后草稿清空，
-  /// 两者合一（`SettingsController` 用服务端回填的 view 覆盖 remote）。
-  ActionSettingsView? get _effectiveActionScales {
-    final SettingsDraft draft = _settings.draft;
-    return effectiveActionScales(
-      remote: _settings.remote?.action,
-      draftHead: draft.actionHeadScale,
-      draftBody: draft.actionBodyScale,
-      draftExpression: draft.actionExpressionScale,
-    );
-  }
-
-  /// 服务端动作幅度 → 渲染面 `sync.actionScales`（**即时预览**）。
+  /// T3 之前这里草稿优先（拖动即预览）；现在设置面的改动只进草稿，
+  /// 「保存并重载」成功、服务端回填新值之后才轮到舞台。**草稿不参与这里**——
+  /// 这就是「拖滑条 0 次舞台 sync」的判据（`test/settings_discipline_test.dart`
+  /// 的计数断言 + 源码守卫）。
   ///
-  /// 未加载（`remote == null` 且草稿为空）→ `null`：渲染面用自己的出厂默认
+  /// 未加载（`remote == null`）→ `null`：渲染面用自己的出厂默认
   /// （0.75 / 0.80 / 1.0），**不谎报成 1.0**。
+  ActionSettingsView? get _effectiveActionScales => _settings.remote?.action;
+
+  /// 已保存动作幅度 → 渲染面 `sync.actionScales`。
   Map<String, double>? get _actionScalesPayload {
     final ActionSettingsView? action = _effectiveActionScales;
     return action == null ? null : toActionScalesPayload(action);
   }
 
-  /// **给舞台的唯一取值口**：临时覆盖 > 草稿 > 磁盘值（W7，2026-09-23）。
+  /// **给舞台的唯一取值口**：临时覆盖 > 已保存值（W7，2026-09-23）。
   ///
   /// `main.dart` 把它交给 `Live2DStage(actionScales: …)`——iframe 重建 / 重挂后
   /// 舞台自己用这份快照补发，不再退回渲染面出厂默认（RESEARCH §2.3 的死参数接上）。
   Map<String, double>? get _stageActionScales =>
       _actionScalesSyncer.active(_actionScalesPayload);
 
-  /// 动作幅度即时预览的防抖下发（实现见 [ActionScalesSyncer]）。
+  /// 已保存幅度变化后的防抖下发（实现见 [ActionScalesSyncer.scheduleSaved]）。
+  ///
+  /// **同值不排帧**：草稿编辑 / 切分区 / 关设置放弃 / 保存失败都不会改变这里
+  /// 的载荷，因此都产不出一帧。真正会变的是「保存并重载」成功后服务端回填的
+  /// 新值（以及首次加载）。
   void _scheduleActionScalesSync() {
-    _actionScalesSyncer.schedule(_actionScalesPayload);
+    _actionScalesSyncer.scheduleSaved(_actionScalesPayload);
   }
 
-  /// 立刻下发当前幅度（onReady / iframe 重建后补发）。
+  /// 立刻下发**已保存**幅度（保存成功 / 测试注入用）。
   ///
   /// **临时覆盖生效时不发产品值**——由 [ActionScalesSyncer] 保证（它发的永远是
-  /// `active()`）。所以这里的 `force: true` 只表达「新桥要收到当前值」。
+  /// `active()`）。`force` 只在「必须绕过同值去重」的地方用（调试面板恢复），
+  /// 保存路径用去重版。
   void _syncActionScalesNow({bool force = false}) {
     _actionScalesSyncer.syncNow(_actionScalesPayload, force: force);
   }
@@ -130,10 +129,11 @@ extension _ShellPrefsWiring on _ShellRootState {
     // 首帧 / 重建 iframe 后补发幅度（`actionScales` 是 `sync` 的一个字段，
     // 但它的真源是**设置控制器**而不是 `DisplayPrefs`，所以不能在 `sync` 里带）。
     //
-    // `force: true` **不会**冲掉临时覆盖：syncer 发的是它的 `active()`
-    // （临时覆盖 > 产品值）。改主题 / 调音量等任意偏好变更走到这里，
-    // 临时值照样在（W7 的确定性缺陷 1，见 action_scales_sync.dart）。
-    _syncActionScalesNow(force: true);
+    // T3 起**不用 force**：载荷是已保存值，同值已经在舞台上时重发没有意义；
+    // iframe 重建 / 重挂的自愈由舞台自己用 `widget.actionScales`
+    // （`_attach` / `didUpdateWidget`）完成。临时覆盖也不会被冲掉：syncer
+    // 发的永远是 `active()`（W7 的确定性缺陷 1，见 action_scales_sync.dart）。
+    _syncActionScalesNow();
     // 偏好「已生效」的最后一道：背景轮播在这里重新对表。
     //
     // 为什么不放在 `_updatePrefs` 里：那里是**提交**的那一刻，

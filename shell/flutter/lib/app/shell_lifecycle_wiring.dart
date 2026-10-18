@@ -171,9 +171,6 @@ extension _ShellLifecycleWiring on _ShellRootState {
     unawaited(_sentenceCueSubscription?.cancel());
     unawaited(_stageClockSubscription?.cancel());
     _actionScalesSyncer.dispose();
-    // 待发的覆盖编辑直接丢弃（dispose 后 API 客户端也会关，flush 反而会
-    // 在请求发出后立刻被关掉连接）。窗口只有 250ms，代价可忽略。
-    _modelOverrideCoalescer.dispose();
     _settings.removeListener(_onActionScalesModelContextChanged);
     _ui.dispose();
     _slideshow.dispose();

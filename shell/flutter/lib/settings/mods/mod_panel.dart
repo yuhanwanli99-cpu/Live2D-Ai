@@ -35,9 +35,10 @@ import 'director_debug_panels.dart' show DebugClock, PresetApply, PresetScaleApp
 /// # 为什么数据不从 mods.json 走
 ///
 /// 这三条仍是 [action] / [action.models.<id>]（live2d-ai.toml），
-/// 仍走现有 PATCH 与 ActionScalesSyncer，**没有**写进 director 的 Mod 配置，
-/// 也**没有**接回 action_tx。理由是归属：手势 / 表情 / 头部动作不是单 LLM
-/// 主链的资产，强度旋钮跟产出这些动作的导演 Mod 放在一起。
+/// 仍走设置草稿 + 底部「保存并重载」（0.3.6 T3 起本模型覆盖也不再直接 PATCH），
+/// **没有**写进 director 的 Mod 配置，也**没有**接回 action_tx。理由是归属：
+/// 手势 / 表情 / 头部动作不是单 LLM 主链的资产，强度旋钮跟产出这些动作的
+/// 导演 Mod 放在一起。
 ///
 /// # 为什么用「一个对象」而不是十二个字段
 ///
@@ -55,8 +56,6 @@ class ActionScalesWiring {
     this.onModelBodyScaleChanged,
     this.onModelExpressionScaleChanged,
     this.onResetModelOverride,
-    this.modelOverrideMessage,
-    this.modelOverrideFailed = false,
   });
 
   /// 服务端权威的动作幅度视图（含 activeModelId 与逐模型覆盖表）。
@@ -70,18 +69,15 @@ class ActionScalesWiring {
   final ValueChanged<double>? onBodyScaleChanged;
   final ValueChanged<double>? onExpressionScaleChanged;
 
-  /// 本模型覆盖（走直接 PATCH，不需要保存）。
+  /// 本模型覆盖（**走设置草稿**，底部「保存并重载」一次提交；0.3.6 T3 起
+  /// 不再直接 PATCH）。
   final ValueChanged<bool>? onModelOverrideEnabledChanged;
   final ValueChanged<double>? onModelHeadScaleChanged;
   final ValueChanged<double>? onModelBodyScaleChanged;
   final ValueChanged<double>? onModelExpressionScaleChanged;
 
-  /// 「恢复跟随全局」：删掉本模型覆盖（models.id = null）。
+  /// 「恢复跟随全局」：草稿里删掉本模型覆盖（保存时写显式 null）。
   final VoidCallback? onResetModelOverride;
-
-  /// 覆盖 PATCH 的结果（失败时带服务端给的 code：message）。
-  final String? modelOverrideMessage;
-  final bool modelOverrideFailed;
 }
 
 /// 导演一级卡里「表情调试 / 动作调试 / 临时幅度」的接线（2026-10-09；

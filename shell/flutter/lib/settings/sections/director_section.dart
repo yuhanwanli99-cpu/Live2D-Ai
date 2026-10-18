@@ -11,9 +11,9 @@
 /// 1. **常驻状态卡**：标题 = [kDirectorAlwaysOnTitle]，一句说明；
 /// 2. **动作幅度**（[DirectorActionScalesBlock]，2026-10-09 从「外观与互动」搬来，
 ///    本轮只是换了一级卡这个宿主）：头 / 身体 / 表情三键 + 「本模型覆盖」+
-///    「恢复跟随全局」。数据仍是 [action] / [action.models.<id>]，滑条走设置草稿 +
-///    底部「保存并重载」；本模型覆盖仍走既有 PATCH。**不写进 mods.json、不新增键、
-///    不接回 action_tx**；
+///    「恢复跟随全局」。数据仍是 [action] / [action.models.<id>]，**全部走设置
+///    草稿 + 底部「保存并重载」**（本模型覆盖自 0.3.6 T3 起也不再直接 PATCH）。
+///    **不写进 mods.json、不新增键、不接回 action_tx**；
 /// 3. **导演可观测四栏**（本文件 import 的 director_observer_section.dart）：
 ///    只在 [devMode] 为真时渲染；
 /// 4. **表情调试 / 动作调试 / 临时幅度覆盖**（director_debug_panels.dart）：
@@ -31,12 +31,10 @@ import 'package:flutter/material.dart';
 import '../../api/settings_models.dart';
 import '../../design/tokens.dart';
 import '../../live2d/live2d_stage.dart' show isExpressionChannel;
-import '../../ui/emphasized_text.dart';
 import '../../ui/field_row.dart';
 import '../../ui/group_card.dart';
 import '../../ui/inline_notice.dart';
 import '../../ui/section_header.dart';
-import '../../ui/theme.dart';
 import '../mods/director_debug_panels.dart';
 import '../mods/mod_panel.dart';
 import '../preset_labels.dart';
@@ -183,11 +181,12 @@ class DirectorSection extends StatelessWidget {
 /// 一级卡搬到本文件）。
 ///
 /// 三条滑条 + 「本模型覆盖」开关 + 「恢复跟随全局」。数据仍是
-/// [action] / [action.models.<id>]（live2d-ai.toml），仍走既有 PATCH 与
-/// ActionScalesSyncer，**没有**写进 mods.json、**没有**接回 action_tx。
+/// [action] / [action.models.<id>]（live2d-ai.toml），**全部走设置草稿**
+/// （0.3.6 T3：覆盖不再直接 PATCH），由底部「保存并重载」一次提交；
+/// **没有**写进 mods.json、**没有**接回 action_tx。
 ///
-/// 覆盖开启时三条滑条编辑的是「逐键 override[key] ?? global[key]」的有效值，
-/// 回调直接 PATCH；关闭时就是原来的全局值 + 草稿回调（旧语义一字不动）。
+/// 覆盖开启时三条滑条编辑的是「逐键 override[key] ?? global[key]」的有效值
+/// （写进草稿的逐键补丁）；关闭时就是原来的全局值 + 草稿回调。
 class DirectorActionScalesBlock extends StatelessWidget {
   const DirectorActionScalesBlock({required this.wiring, super.key});
 
@@ -209,8 +208,6 @@ class DirectorActionScalesBlock extends StatelessWidget {
           activeModelId: actionView.activeModelId,
           enabled: wiring.modelOverrideEnabled,
           onEnabledChanged: wiring.onModelOverrideEnabledChanged,
-          message: wiring.modelOverrideMessage,
-          failed: wiring.modelOverrideFailed,
         ),
         // 三条滑条：**不是两套**——关闭态的语义与改动前逐字一致。
         SliderField(
@@ -281,27 +278,22 @@ class DirectorActionScalesBlock extends StatelessWidget {
 ///    所以「开 / 关」不会与磁盘分叉；
 /// 2. active_model_id 为空时**如实说「未识别当前模型」并禁用开关**——
 ///    假装能开会在写回时被服务端拒（模型 id 非法）；
-/// 3. 覆盖改走**直接 PATCH**（不需要「保存」），所以这里只上报，不碰草稿。
+/// 3. 覆盖自 0.3.6 T3 起也走**设置草稿**（「保存并重载」一次提交），
+///    这里只上报意图，不碰网络。
 class _ModelOverrideHeader extends StatelessWidget {
   const _ModelOverrideHeader({
     required this.activeModelId,
     required this.enabled,
     required this.onEnabledChanged,
-    required this.message,
-    required this.failed,
   });
 
   final String activeModelId;
   final bool enabled;
   final ValueChanged<bool>? onEnabledChanged;
-  final String? message;
-  final bool failed;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final AppColors colors = appColorsOf(context);
-    final AppPalette palette = appPaletteOf(context);
     final bool known = activeModelId.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -318,16 +310,6 @@ class _ModelOverrideHeader extends StatelessWidget {
           enabled: known && onEnabledChanged != null,
           onChanged: onEnabledChanged ?? (bool _) {},
         ),
-        if (message != null)
-          Padding(
-            padding: const EdgeInsets.only(top: Space.s1),
-            child: EmphasizedText(
-              message!,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: failed ? palette.warning : colors.contentMuted,
-              ),
-            ),
-          ),
       ],
     );
   }
