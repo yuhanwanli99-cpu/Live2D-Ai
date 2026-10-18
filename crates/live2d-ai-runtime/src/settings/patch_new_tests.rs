@@ -19,6 +19,7 @@ fn json_three_state_serialize_round_trip_preserves_three_states() {
     // 拿回 `None`，三态两两不塌缩。
     let src = SettingsPatch {
         llm: Some(Some(LlmPatch {
+            mode: None,                      // 缺省 → skip，不出现
             base_url: Some(None),            // 显式清空 → 序列化为 null
             model: Some(Some("gpt".into())), // 显式设值
             api_key_env: None,               // 缺省 → skip，不出现
@@ -80,6 +81,7 @@ fn max_tokens_patch_tri_state_does_not_collapse_zero_and_absent() {
     with_value.llm.max_tokens = Some(64);
     let untouched = SettingsPatch {
         llm: Some(Some(LlmPatch {
+            mode: None,
             base_url: None,
             model: None,
             api_key_env: None,
@@ -97,6 +99,7 @@ fn max_tokens_patch_tri_state_does_not_collapse_zero_and_absent() {
     for value in [0u32, 1024] {
         let set = SettingsPatch {
             llm: Some(Some(LlmPatch {
+                mode: None,
                 base_url: None,
                 model: None,
                 api_key_env: None,
@@ -114,6 +117,7 @@ fn max_tokens_patch_tri_state_does_not_collapse_zero_and_absent() {
     // 3) 显式 null = 清除 → 回落默认（视图报 512），不是「不限制」。
     let clear = SettingsPatch {
         llm: Some(Some(LlmPatch {
+            mode: None,
             base_url: None,
             model: None,
             api_key_env: None,

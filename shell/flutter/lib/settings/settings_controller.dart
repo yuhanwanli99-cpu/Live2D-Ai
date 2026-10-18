@@ -50,6 +50,12 @@ class SettingsDraft {
   /// 展示思考总闸（三态）。`null` = 没动；服务端缺省 false。
   DraftField<bool>? llmShowReasoning;
 
+  /// 端点形态（`local` / `cloud`，0.3.7 T1）。`null` = 没动。
+  ///
+  /// 服务端这一项是**普通可选值**（不是三态）：给了值就切换；切模式**不动**
+  /// 地址 / 模型 / token / 思考 / 厂商快照（与 TTS 的 `ttsMode` 同款）。
+  String? llmMode;
+
   /// 当前厂商（rc.6，三态）：`Tri.set(id)` = 切换并复制快照；
   /// `Tri.clear()` = 手动填写（只清标签）。
   DraftField<String>? llmVendor;
@@ -183,6 +189,7 @@ class SettingsDraft {
     // P6：不再有 `apiKeyEnv` 实参——变量名编辑入口已从界面移除，前端类型上也
     // 编不出这个键（服务端仍接受它，走 curl / 手改 live2d-ai.toml）。
     final LlmSettingsPatch patch = LlmSettingsPatch(
+      mode: llmMode,
       baseUrl: _tri(llmBaseUrl),
       model: _tri(llmModel),
       maxTokens: llmMaxTokens,
@@ -246,6 +253,7 @@ class SettingsDraft {
     llmModel = null;
     llmMaxTokens = null;
     llmShowReasoning = null;
+    llmMode = null;
     llmVendor = null;
     ttsMode = null;
     ttsBaseUrl = null;
@@ -492,6 +500,8 @@ class SettingsController extends ChangeNotifier {
         when value == remote.llm.showReasoning) {
       _draft.llmShowReasoning = null;
     }
+    // 切回服务端本就使用的模式 → 撤回草稿（「点开又改回去」不该显示未保存）。
+    if (_draft.llmMode == remote.llm.mode) _draft.llmMode = null;
     if (_draft.llmVendor case TriSet<String>(:final value)
         when value == remote.llm.vendor) {
       _draft.llmVendor = null;

@@ -1,18 +1,26 @@
 /// 「模型服务 → 语言模型」组的字段（原「LLM / 对话」分区，规格 §4.1.3）。
 ///
-/// # 2026-10-09 本轮
+/// # 2026-10-18（0.3.7 T1）：云端 / 本地二选一
 ///
-/// 一级「对话」取消，字段**语义一字不改**地搬进「模型服务」页的
-/// **语言模型**组（ServiceSection 提供组标题，本 widget 不再画 SectionHeader）。
-/// 控件下面的功能介绍全删；数字项只留一行 min-max。
+/// - **云端**（缺省）：地址 / 模型名 / 密钥由用户填（可存厂商快照，rc.6 语义不变）。
+/// - **本地**：端点在**用户自己起的**本机 / 局域网 OpenAI-compatible 服务上
+///   （Ollama / llama.cpp / vLLM 等）。**transport 不变**（仍是一条
+///   `/chat/completions`）——本项目不下载模型、不装推理运行时、不预填厂商或 Key；
+///   这里只给 Ollama 地址做示例文案。
+/// - 切模式**只是草稿**（保存并重载才生效）；服务端把 `mode` 当普通可选值：
+///   切模式不动地址 / 模型 / token / 思考 / 厂商快照，也不清密钥绑定。
+///   与 `tts_section.dart` 的 `_switchMode` 逐条对齐（清厂商标签 = 服务端只清
+///   标签，不复制、不删除快照）。
+/// - 连通性自检与 TTS 同一条纪律：`GET {base_url}/models`，404 算可达 + note，
+///   **不真跑一次对话**；本地没配置 / 连不上时服务端回 `llm_local_unreachable`
+///   （明确状态，不显示 ready），且**不会自动切回云端**。
 ///
 /// # 密钥（rc.2 / P2 / P6 的既有边界，未变）
 ///
-/// - **变量名**（api_key_env）界面上没有编辑入口（P6）；
+/// - **变量名**（api_key_env）界面上没有编辑入口（P6）——所以切模式**不清**它，
+///   否则切回云端就再也绑不回来；
 /// - **变量值**仍在这里填：EnvKeyField 经 PUT /api/v1/env 写进 .env，写完热重载；
-/// - 密钥那一行**只留一句指引**（2026-10-09，0.2.3-rc.1）：
-///   「到 DeepSeek 申请自己的 Key，填到下面。」——仓库不提供、不提交任何 Key；
-///   变量名由 EnvKeyField 自己显示（GET /api/v1/env），值只往上走。
+/// - 仓库不提供、不提交任何 Key；变量名由 EnvKeyField 自己显示（GET /api/v1/env）。
 library;
 
 import 'package:flutter/material.dart';
@@ -24,12 +32,34 @@ import '../settings_controller.dart';
 import 'env_key_field.dart';
 import 'pane_helpers.dart';
 
+/// 云端模式的说明（一句，挂在服务地址下；与 tts_section 的写法同款）。
+const String kLlmCloudNotice =
+    '云端：地址、模型名与密钥变量名都由配置决定；自检只打 /models，不跑对话。';
+
+/// 本地模式的说明：**示例文案**（不硬编码下拉、不预填）。
+const String kLlmLocalNotice =
+    '本地：你自己起的 OpenAI-compatible 端点（Ollama / llama.cpp / vLLM 等）；'
+    '本项目不下载模型、不预填厂商与 Key。示例 $kLlmLocalExampleBaseUrl；自检只打 /models。';
+
+/// 云端模式的密钥行（2026-10-09 原句，逐字保留）。
+const String kLlmCloudKeyHint = '到 DeepSeek 申请自己的 Key，填到下面。';
+
+/// 本地模式的密钥行：本地端点通常不鉴权，但**不清理**已绑定的变量名。
+const String kLlmLocalKeyHint = '本地通常不需要密钥；要鉴权时仍填在下面（变量名不变）。';
+
 /// 草稿优先的当前厂商（空串 = 手动填写 / 没有标签）。
 String llmVendorOf(SettingsDraft draft, LlmSettingsView llm) {
   final Tri<String>? drafted = draft.llmVendor;
   if (drafted is TriSet<String>) return drafted.value;
   if (drafted is TriClear<String>) return '';
   return llm.vendor ?? '';
+}
+
+/// 当前该显示的模式：草稿优先，再回落服务端；两边都没有 = 云端（缺省）。
+String llmModeOf(SettingsDraft draft, LlmSettingsView llm) {
+  final String? drafted = draft.llmMode;
+  if (drafted != null && drafted.isNotEmpty) return drafted;
+  return llm.mode.isEmpty ? kLlmModeCloud : llm.mode;
 }
 
 class LlmSection extends StatelessWidget {
@@ -69,11 +99,27 @@ class LlmSection extends StatelessWidget {
   final FieldTestResult? testResult;
   final bool testing;
 
+  /// 切换端点形态（0.3.7 T1）：**只记草稿**，保存并重载才生效。
+  ///
+  /// 与 TTS 的 `_switchMode` 逐条对齐：
+  /// ① 清厂商标签（三态 `Tri.clear`；服务端只清标签，不复制/不删除快照）；
+  /// ② **不预填、也不清空**地址 / 模型 / token / 思考：LLM 的本地形态没有
+  ///    冻结地址（不像 TTS 的 melo 固定端口），这些字段仍归用户自己填；
+  ///    清掉它们反而会让「切回云端」丢配置。
+  void switchMode(String next) {
+    controller.edit((SettingsDraft draft) {
+      draft.llmMode = next;
+      draft.llmVendor = Tri.clear<String>();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final SettingsDraft d = controller.draft;
     final LlmSettingsView llm = view.llm;
     final String vendor = llmVendorOf(d, llm);
+    final String mode = llmModeOf(d, llm);
+    final bool isLocal = mode == kLlmModeLocal;
     final List<FieldOption<String>> vendorOptions = <FieldOption<String>>[
       const FieldOption<String>(value: '', label: '手动填写（不绑定厂商）'),
       for (final String id in llm.vendors.keys)
@@ -84,6 +130,7 @@ class LlmSection extends StatelessWidget {
 
     // rc.6：切换厂商 = 一次「快照→当前」复制；清空本卡草稿，避免把旧厂商的
     // 地址 / 模型名混进新快照。服务端在空闲后换 engine，失败不回退。
+    // 0.3.7 T1：厂商快照语义**不变**（模式切换不复制、不删除它）。
     void switchVendor(String id) {
       controller.edit((SettingsDraft draft) {
         draft.llmVendor = id.isEmpty ? Tri.clear<String>() : Tri.set(id);
@@ -91,6 +138,7 @@ class LlmSection extends StatelessWidget {
         draft.llmModel = null;
         draft.llmMaxTokens = null;
         draft.llmShowReasoning = null;
+        draft.llmMode = null;
       });
     }
 
@@ -107,11 +155,22 @@ class LlmSection extends StatelessWidget {
               : '切换后仍需「保存并重载」；空闲后 / 下一轮生效。',
           onChanged: switchVendor,
         ),
+        SegmentedField<String>(
+          label: '模型来源',
+          icon: Icons.cloud_outlined,
+          value: mode,
+          options: const <FieldOption<String>>[
+            FieldOption<String>(value: kLlmModeCloud, label: '云端'),
+            FieldOption<String>(value: kLlmModeLocal, label: '本地'),
+          ],
+          onChanged: switchMode,
+        ),
         TextFieldRow(
           label: '服务地址',
           icon: Icons.link,
           value: effString(d.llmBaseUrl, llm.baseUrl),
-          hint: 'https://api.deepseek.com/v1',
+          hint: isLocal ? kLlmLocalExampleBaseUrl : 'https://api.deepseek.com/v1',
+          description: isLocal ? kLlmLocalNotice : kLlmCloudNotice,
           onChanged: (String v) => controller.edit((SettingsDraft draft) {
             draft.llmBaseUrl = v;
           }),
@@ -120,7 +179,7 @@ class LlmSection extends StatelessWidget {
           label: '模型名',
           icon: Icons.memory,
           value: effString(d.llmModel, llm.model),
-          hint: 'deepseek-flash',
+          hint: isLocal ? 'qwen2.5:7b' : 'deepseek-flash',
           onChanged: (String v) => controller.edit((SettingsDraft draft) {
             draft.llmModel = v;
           }),
@@ -148,9 +207,9 @@ class LlmSection extends StatelessWidget {
         ReadonlyField(
           label: '密钥',
           icon: Icons.key_outlined,
-          // 2026-10-09（0.2.3-rc.1）：这里只留**这一句**。出厂不带任何 Key，
-          // 用户自己去申请；键名与「已设置/未设置」由下面的 EnvKeyField 如实显示。
-          text: '到 DeepSeek 申请自己的 Key，填到下面。',
+          // 云端保留 2026-10-09 的原句；本地只换这一句说明——**变量名与绑定都不动**
+          //（界面上没有变量名编辑入口，清了就再也绑不回去）。
+          text: isLocal ? kLlmLocalKeyHint : kLlmCloudKeyHint,
         ),
         if (envKey != null)
           EnvKeyField(

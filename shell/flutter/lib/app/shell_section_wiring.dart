@@ -14,8 +14,11 @@ extension _ShellSectionWiring on _ShellRootState {
         _llmTest = FieldTestResult(
           ok: o.ok,
           message: o.ok
+              // 成功时把服务端的 note 也带上（例如「上游可达但未提供 /models」——
+              // 与 TTS 同款；否则用户会把「探针通过」误读成「对话一定通」）。
               ? 'ok · ${o.latencyMs ?? '?'} ms'
                     '${o.modelEcho == null || o.modelEcho!.isEmpty ? '' : ' · 模型：${o.modelEcho}'}'
+                    '${o.note == null ? '' : ' · ${o.note}'}'
               : '失败：${o.errorMessage ?? o.errorCode ?? '未知原因'}',
         );
       });

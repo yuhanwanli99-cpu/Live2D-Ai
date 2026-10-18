@@ -26,6 +26,14 @@ model = "deepseek-flash"
 # 没有 Key 时链路照旧按上游 401 报错（错误码不变）。删掉本行 = 该端点不鉴权。
 # 到 DeepSeek 申请自己的 Key，填到 设置 → 模型服务 → 语言模型 → 密钥。
 api_key_env = "DEEPSEEK_API_KEY"
+# 端点形态二选一（2026-10-18，0.3.7 T1）：cloud（缺省，上面的云端地址 / 模型 / 密钥）
+# 或 local（你在本机 / 局域网**自己起**的 OpenAI-compatible 端点，如 Ollama / llama.cpp /
+# vLLM）。local 只是标签：transport 仍是 <base_url>/chat/completions；本项目不下载模型、
+# 不装推理运行时、不预填厂商与 Key。切模式不动别的字段与厂商快照。
+# 缺省 cloud **不写这个键**（省略 = cloud；旧配置逐字 round-trip）。
+# mode = "local"
+# 本地示例（Ollama）：base_url = "http://127.0.0.1:11434/v1"、model = "qwen2.5:7b"；
+# 本地连不上时自检报 llm_local_unreachable（不显示 ready），不会自动切回云端。
 # 输出 token 上限。省略 = 服务端默认（当前 4096）；显式 0 = 不限制（省略请求体字段）。
 # 2026-09-13 实测：推理模型（如 deepseek-flash）的**思考与正文共用这份预算**。
 # 上限太小时，长思考的提问会把正文挤成空或半句——而半句切不出完整句，

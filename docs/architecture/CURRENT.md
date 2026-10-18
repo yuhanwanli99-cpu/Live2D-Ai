@@ -90,6 +90,13 @@
   每厂商只存 `api_key_env`（变量名），值仍只住 `.env`；GET 只给 `has_api_key`。
   本版只选不建厂商（TOML 手配）；旧 toml 无 vendor 字段时逐字 round-trip。
   **旧二进制读新 toml 可能因 `deny_unknown_fields` 失败**——rc 线接受。
+- **LLM 云 / 本地（0.3.7）**：`[llm].mode = cloud | local`，缺省 **cloud**，省略不写
+  （旧 toml 无此键**逐字 round-trip**）。transport 不变（同一条 OpenAI-compatible
+  `/chat/completions`）；local 只表示「端点在用户本机 / 局域网、通常不需要云 key」，
+  **不嵌模型、不下载权重、不加依赖、不预填厂商或 Key**。切模式只是标签：不动地址 /
+  模型 / 密钥绑定 / 厂商快照，也**不自动回退**另一个模式。连通性自检沿用 TTS 纪律：
+  `GET {base_url}/models`，404 算可达 + note，401/403 `auth_failed`，其余 `protocol_error`，
+  **不真跑对话**；本地没配置 / 连不上回 `llm_local_unreachable`（不显示 ready）。
 
 ## 8. Mod（在册六个）
 

@@ -3,12 +3,20 @@ part of 'settings_models.dart';
 /// LLM 段补丁（字段级三态）。
 class LlmSettingsPatch {
   const LlmSettingsPatch({
+    this.mode,
     this.baseUrl,
     this.model,
     this.maxTokens,
     this.showReasoning,
     this.vendor,
   });
+
+  /// 端点形态（`"cloud"` / `"local"`，0.3.7 T1）。
+  ///
+  /// 服务端这一项是**普通可选值**（不是三态）：键不出现 = 不改；给了值就切换。
+  /// 切模式**不动**同一次补丁里的其它字段与厂商快照（服务端逐条如此实现），
+  /// 也不清密钥绑定（变量名在界面上不可编辑）。
+  final String? mode;
 
   final Tri<String>? baseUrl;
   final Tri<String>? model;
@@ -33,6 +41,7 @@ class LlmSettingsPatch {
 
   Map<String, Object?> toJson() {
     final Map<String, Object?> out = <String, Object?>{};
+    if (mode != null) out['mode'] = mode;
     putTri<String>(out, 'base_url', baseUrl);
     putTri<String>(out, 'model', model);
     putTri<int>(out, 'max_tokens', maxTokens);

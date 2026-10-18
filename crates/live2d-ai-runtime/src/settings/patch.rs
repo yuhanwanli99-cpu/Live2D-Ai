@@ -69,8 +69,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ActionModelOverride, ActionSettings, AppSettings, LlmSettings, MELO_VENDOR_ID, TtsMode,
-    TtsSettings, apply_local_tts_defaults, clamp_action_scale, is_valid_model_id,
+    ActionModelOverride, ActionSettings, AppSettings, LlmMode, LlmSettings, MELO_VENDOR_ID,
+    TtsMode, TtsSettings, apply_local_tts_defaults, clamp_action_scale, is_valid_model_id,
     is_valid_vendor_id,
 };
 use url::Url;
@@ -135,6 +135,15 @@ pub struct SettingsPatch {
 /// LLM 段字段级三态补丁。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LlmPatch {
+    /// 端点形态（2026-10-18 0.3.7 T1）：**普通可选值**（不是三态）——
+    /// 缺键 / `null` = 不改；`"cloud"` / `"local"` = 切换。
+    /// 未知取值由 serde 直接拒绝（→ 路由层 400 `invalid_payload`），不会静默忽略。
+    ///
+    /// 切模式**不动**同一次补丁里的地址 / 模型 / token 上限 / 思考开关 /
+    /// 厂商快照，也**不清** `api_key_env`（变量名在界面上不可编辑，
+    /// 清掉就再也绑不回去）。与 TTS 的 `mode` 三态外形状一致。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<LlmMode>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -542,6 +551,11 @@ pub fn apply_patch(
                     next.llm.show_reasoning = None; // 回落默认（不展示）
                     changed = true;
                 }
+                // 0.3.7 T1：整段清空也把模式退回缺省 cloud（整段回出厂形态）。
+                if next.llm.mode != LlmMode::Cloud {
+                    next.llm.mode = LlmMode::Cloud;
+                    changed = true;
+                }
                 // rc.6：段级清空连标签与快照表一起清（整段回到出厂形态）。
                 if next.llm.vendor.is_some() {
                     next.llm.vendor = None;
@@ -591,6 +605,15 @@ pub fn apply_patch(
                         next.llm.show_reasoning = new;
                         changed = true;
                     }
+                }
+                // 0.3.7 T1：切模式排在 vendor 之前——模式只是标签，不动地址 /
+                // 模型 / 密钥绑定 / 快照；同一次补丁里的 vendor 选择仍按自己的
+                // 语义（清标签或快照→当前）执行。
+                if let Some(mode) = fields.mode
+                    && next.llm.mode != mode
+                {
+                    next.llm.mode = mode;
+                    changed = true;
                 }
                 // rc.6：厂商选择排在显式字段之后——它是一次**原子复制**，
                 // 同一次补丁里的其它字段不会与快照混成半新半旧。

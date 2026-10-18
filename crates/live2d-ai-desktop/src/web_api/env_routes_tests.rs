@@ -18,6 +18,7 @@ mod tests {
             // 2026-09-22：表演层默认关（[performance] 段，客户端在 host 侧构造）。
             performance: Default::default(),
             llm: LlmSettings {
+                mode: live2d_ai_runtime::settings::LlmMode::Cloud,
                 base_url: "http://127.0.0.1:1/v1".into(),
                 model: "m".into(),
                 api_key_env: keys.0.map(str::to_string),

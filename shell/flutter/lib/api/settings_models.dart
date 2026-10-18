@@ -87,9 +87,24 @@ void putTri<T>(Map<String, Object?> out, String key, Tri<T>? field) {
   }
 }
 
+/// LLM 端点形态的稳定值（与 Rust `LlmMode::as_str` 逐字一致，0.3.7 T1）。
+///
+/// **缺省 = cloud**：旧服务端 / 旧配置没有这个字段时按云端理解——那是 0.3.7
+/// 之前唯一的形态，不能因为缺字段把界面拨到本地那套配置上。
+const String kLlmModeCloud = 'cloud';
+
+/// 见 [kLlmModeCloud]。
+const String kLlmModeLocal = 'local';
+
+/// 本地模式的**示例**地址（只是提示文案，**不预填**）：用户自己起的
+/// OpenAI-compatible 端点（Ollama / llama.cpp / vLLM 等）。
+/// 本项目不下载模型、不装推理运行时、不预填厂商或 Key。
+const String kLlmLocalExampleBaseUrl = 'http://127.0.0.1:11434/v1';
+
 /// `GET /api/v1/settings` 的 LLM 段。
 ///
-/// 注意 `api_key_env` **不在响应里**（`view.rs::LlmView` 只有三个字段）——
+/// 注意 `api_key_env` **不在响应里**（`view.rs::LlmView` 的密钥位只有
+/// 派生布尔 `has_api_key`）——
 /// 绑定名不从这里下发。[hasApiKey] 只回一个布尔（「声明了键名且值真读得到」，
 /// P2 单一语义）。界面要在「密钥绑定」一行显示名字时，走**另一条已验证的路**：
 /// `GET /api/v1/env` 的 `EnvKey.key`（见 `api/env_api.dart`）。P6 起变量名
@@ -101,10 +116,20 @@ class LlmSettingsView {
     required this.hasApiKey,
     required this.maxTokens,
     required this.showReasoning,
+    this.mode = kLlmModeCloud,
     this.vendor,
     this.vendorModified = false,
     this.vendors = const <String, LlmVendorView>{},
   });
+
+  /// 端点形态（`"cloud"` 缺省 / `"local"`，0.3.7 T1）。
+  ///
+  /// 服务端字段缺失 → 按 [kLlmModeCloud] 理解（老服务端 / 老配置只有云端）。
+  /// 它只是标签：transport、鉴权、厂商快照语义都不因它改变。
+  final String mode;
+
+  /// 是否本地模式。
+  bool get isLocal => mode == kLlmModeLocal;
 
   final String baseUrl;
   final String model;
@@ -150,7 +175,10 @@ class LlmSettingsView {
 
   factory LlmSettingsView.fromJson(Map<String, Object?>? json) {
     final Map<String, Object?> j = json ?? const <String, Object?>{};
+    final String rawMode = _str(j['mode']);
     return LlmSettingsView(
+      // 缺字段（老服务端）→ cloud；不回落成本地（那是另一套配置）。
+      mode: rawMode.isEmpty ? kLlmModeCloud : rawMode,
       baseUrl: _str(j['base_url']),
       model: _str(j['model']),
       hasApiKey: j['has_api_key'] == true,

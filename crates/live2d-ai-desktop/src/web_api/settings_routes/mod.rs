@@ -10,8 +10,9 @@
 //! - `PATCH /api/v1/settings`：body 解析为 [`PatchBody`] → 内部归并为
 //!   [`SettingsPatch`] → [`apply_patch`] → 若 [`PatchOutcome::Updated`] 再经
 //!   [`plan_atomic_write`] 写盘 + rename。
-//! - `POST /api/v1/settings/test/llm` / `test/tts`：用「暂存配置」发一次
-//!   最小请求，**不**落盘——失败分类按 D1 错误码。
+//! - `POST /api/v1/settings/test/llm` / `test/tts`：用**暂存配置**做一次
+//!   **连通性探针**（`GET {base_url}/models`，2026-10-18 起两者同一纪律：
+//!   **不真跑一次对话 / 不合成**），**不**落盘——失败分类按 D1 错误码。
 //!
 //! 安全：
 //! - P0-1：响应中**永不出密钥**——脱敏视图保证。
@@ -365,5 +366,7 @@ fn error_response_from(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_llm_mode;
 #[cfg(test)]
 mod tests_vendor;

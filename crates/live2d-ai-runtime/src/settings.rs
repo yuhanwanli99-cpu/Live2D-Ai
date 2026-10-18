@@ -30,7 +30,13 @@
 //! system_prompt = "你是桌宠，用简短口语回答。"
 //! ```
 //! 全部字段与默认值见 [`AppSettings::example_toml`]。视图/补丁/原子写回规划见子模块 [`view`] / [`patch`]（`patch_tests` 仅测试构建，避免 patch.rs 撞 500 行硬上限）。
+/// 0.3.7 T1：`[llm].mode` 类型（从本文件拆出，保持 ≤1000 行）。
+mod llm_mode;
 pub mod patch;
+/// 2026-10-18（0.3.7 T1）：`[llm].mode` 云 / 本地二选一的回归（缺省 cloud、
+/// 旧 toml 逐字 round-trip、未知 mode 拒绝、切模式不动厂商快照）。
+#[cfg(test)]
+mod patch_llm_mode_tests;
 /// 2026-10-17：max_tokens / `[action]` 回归（patch_tests 拆分为两片）。
 #[cfg(test)]
 mod patch_new_tests;
@@ -49,6 +55,7 @@ mod settings_tests;
 /// 2026-10-17：写回 / round-trip / merge 回归（settings_tests 拆分为两片）。
 #[cfg(test)]
 mod settings_tests_roundtrip;
+pub use llm_mode::LlmMode;
 /// 0.3.4 厂商快照类型（从本文件拆出，保持 ≤1000 行）。
 mod vendor;
 /// 0.3.4 多厂商选择（vendor / vendors）回归。
@@ -156,6 +163,12 @@ pub struct DeclaredKeyEnv {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LlmSettings {
+    /// LLM 端点形态（`cloud` 缺省 / `local`，0.3.7 T1）。
+    ///
+    /// **省略即 `cloud`**：旧 toml（无此键）逐字 round-trip，语义不变。
+    /// `local` 只是标签——transport / 鉴权 / 回退行为都不变（见 [`LlmMode`]）。
+    #[serde(default, skip_serializing_if = "LlmMode::is_cloud")]
+    pub mode: LlmMode,
     /// 服务基址（如 `http://127.0.0.1:11434/v1`）。
     #[serde(default)]
     pub base_url: String,

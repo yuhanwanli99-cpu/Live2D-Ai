@@ -16,6 +16,7 @@ pub(super) fn sample() -> AppSettings {
         // 2026-09-22：表演层默认关（[performance] 段，客户端在 host 侧构造）。
         performance: Default::default(),
         llm: live2d_ai_runtime::settings::LlmSettings {
+            mode: live2d_ai_runtime::settings::LlmMode::Cloud,
             base_url: "http://127.0.0.1:11434/v1".into(),
             model: "qwen2.5:7b".into(),
             api_key_env: Some("LIVE2D_AI_LLM_API_KEY".into()),

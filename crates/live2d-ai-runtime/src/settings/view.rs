@@ -61,6 +61,9 @@ pub struct SettingsView {
 /// 视图中的 LLM 段。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LlmView {
+    /// 端点形态（`"cloud"` / `"local"`，0.3.7 T1）。前端据此选中二选一；
+    /// 缺省 `"cloud"`（旧服务端缺此字段时前端也按 cloud 理解）。
+    pub mode: String,
     pub base_url: String,
     pub model: String,
     pub has_api_key: bool,
@@ -187,6 +190,7 @@ impl From<&ActionSettings> for ActionView {
 impl From<&LlmSettings> for LlmView {
     fn from(s: &LlmSettings) -> Self {
         Self {
+            mode: s.mode.as_str().to_string(),
             base_url: s.base_url.clone(),
             model: s.model.clone(),
             has_api_key: s.api_key_env.as_deref().is_some_and(|n| !n.is_empty()),

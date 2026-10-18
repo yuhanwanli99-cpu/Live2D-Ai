@@ -152,56 +152,71 @@ fn resolve_api_key(env_name: Option<&str>) -> Option<String> {
     env_name.and_then(live2d_ai_runtime::secrets::lookup)
 }
 
-/// 同步 LLM 测试：用 `current.llm` 直接打 `/chat/completions`。
+/// 同步 LLM 自检：**只探连通**（`GET {base_url}/models`），**不真跑对话**。
 ///
-/// 不复用 [`OpenAiClient`]（`from_parts` 不可见；新构造默认无 timeout）。
-/// 失败分类按 D1 错误码（§1.2）。
+/// 2026-10-18（0.3.7 T1）起与 TTS 同一条纪律（2026-09-13 的教训）：
+/// 一次 chat/completion 既有延迟、又会与真实链路抢资源，链路繁忙时还会报假失败；
+/// `/models` 是毫秒级探针，足以判「端点可达 / 鉴权对不对」。合成/对话快慢与
+/// 质量**不在这里测**——那件事的证据是「发一条消息，回得上来」。
+///
+/// 失败分类（按 D1 错误码）：
+/// - 401 / 403 → `auth_failed`（可达，但 key 不对/缺失——自检最该抓的一类）；
+/// - 404 → **算通过** + `note`（上游回话了就是可达；`/models` 并非所有
+///   OpenAI-compatible 实现都提供）；
+/// - 其余 4xx / 5xx → `protocol_error`（可达但坏了，带响应片段）；
+/// - 网络不可达 / 超时：cloud → `network_failed` / `timeout`；
+///   **local → `llm_local_unreachable`**（明确状态，不显示 ready）。
+///
+/// **不自动回退**：local 失败就是失败——本函数不会再用 cloud 端点发第二次请求
+/// （链路里也没有第二份 llm 配置）。
 pub fn run_llm_test(current: &AppSettings, timeout_ms: Option<u32>) -> TestOutcome {
     let timeout = timeout_to_duration(timeout_ms);
-    if current.llm.base_url.is_empty() {
-        return TestOutcome::failure("llm_unreachable", "llm.base_url 未配置");
+    let local = current.llm.mode == live2d_ai_runtime::settings::LlmMode::Local;
+    if current.llm.base_url.trim().is_empty() {
+        return if local {
+            TestOutcome::failure(
+                "llm_local_unreachable",
+                "本地模式：llm.base_url 未配置（Ollama 示例 http://127.0.0.1:11434/v1）；自检不会切回云端",
+            )
+        } else {
+            TestOutcome::failure("llm_unreachable", "llm.base_url 未配置")
+        };
     }
     let http = match build_http(timeout) {
         Ok(c) => c,
         Err(e) => return e,
     };
     let started = std::time::Instant::now();
-    let result: Result<(), HttpTestError> = (|| -> Result<(), HttpTestError> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(HttpTestError::Runtime)?;
-        // base_url 拼接的唯一实现走 runtime（本文件原先自带一份私有拷贝）。
-        let url = live2d_ai_runtime::join_endpoint(&current.llm.base_url, "/chat/completions")
-            .map_err(|_| HttpTestError::BadUrl)?;
-        let body = serde_json::json!({
-            "model": current.llm.model,
-            "stream": true,
-            "messages": [{"role":"user","content":"hi"}],
-        });
-        let mut req = http.post(url).json(&body);
-        if let Some(k) = resolve_api_key(current.llm.api_key_env.as_deref()) {
-            req = req.bearer_auth(&k);
-        }
-        let fut = async move {
-            let mut resp = req.send().await.map_err(HttpTestError::Http)?;
-            let status = resp.status();
-            if !status.is_success() {
-                let body = resp.text().await.unwrap_or_default();
-                return Err(HttpTestError::Upstream { status, body });
+    let result: Result<(u16, String), HttpTestError> =
+        (|| -> Result<(u16, String), HttpTestError> {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(HttpTestError::Runtime)?;
+            // base_url 拼接的唯一实现走 runtime（本文件原先自带一份私有拷贝）。
+            let url = live2d_ai_runtime::join_endpoint(&current.llm.base_url, "/models")
+                .map_err(|_| HttpTestError::BadUrl)?;
+            let mut req = http.get(url);
+            if let Some(k) = resolve_api_key(current.llm.api_key_env.as_deref()) {
+                req = req.bearer_auth(&k);
             }
-            // 真读一片流（D4：不再为这一行引入 `futures-util`）——reqwest 自带的
-            // `Response::chunk()` 就是「取下一片」，与旧的 `StreamExt::next()`
-            // 同语义；结果同样忽略（本端点只判「流是否开得起来」，不做校验）。
-            let _ = resp.chunk().await;
-            Ok(())
-        };
-        rt.block_on(fut)
-    })();
+            let fut = async move {
+                let resp = req.send().await.map_err(HttpTestError::Http)?;
+                let status = resp.status().as_u16();
+                // 只在失败时读 body（成功时没必要，/models 也可能很大）。
+                let body = if (200..300).contains(&status) {
+                    String::new()
+                } else {
+                    resp.text().await.unwrap_or_default()
+                };
+                Ok((status, body))
+            };
+            rt.block_on(fut)
+        })();
     let latency_ms = started.elapsed().as_millis();
     match result {
-        Ok(()) => TestOutcome::success(latency_ms, current.llm.model.clone()),
-        Err(e) => classify_http_error(e),
+        Ok((status, body)) => probe_outcome(status, &body, latency_ms, &current.llm.model),
+        Err(e) => classify_llm_probe_error(e, local),
     }
 }
 
@@ -256,18 +271,18 @@ fn run_tts_test(current: &AppSettings, timeout_ms: Option<u32>) -> TestOutcome {
                 timeout.as_millis()
             ),
         ),
-        Err(e) => classify_http_error(e),
+        Err(e) => classify_probe_error(e),
     }
 }
 
-/// `GET {base}/models` 探针的结果分类（**纯函数**，可单测）。
+/// `GET {base}/models` 探针的结果分类（**纯函数**，可单测；TTS / LLM 共用）。
 ///
 /// 口径（每条都有理由，别随手改）：
 /// - `2xx` → 通；
 /// - `401`/`403` → `auth_failed`：**可达**，但 key 不对/缺失——这是自检最该抓的一类；
 /// - `404` → **算通过**，附一句说明：上游回了响应就证明「可达」，而 `/models`
-///   并非所有语音实现都提供（只实现 `/audio/speech` 的也合法）。这里若判失败，
-///   就是又造一个「自检说没通、实际能用」的假失败——正是本次要消灭的东西；
+///   并非所有实现都提供（只实现 `/audio/speech` 或 `/chat/completions` 的也合法）。
+///   这里若判失败，就是又造一个「自检说没通、实际能用」的假失败；
 /// - 其余 `4xx`/`5xx` → `protocol_error`（可达但坏了），带上响应片段。
 fn probe_outcome(status: u16, body: &str, latency_ms: u128, echo: &str) -> TestOutcome {
     if (200..300).contains(&status) {
@@ -285,33 +300,31 @@ fn probe_outcome(status: u16, body: &str, latency_ms: u128, echo: &str) -> TestO
     }
 }
 
-/// 测试端点专用错误：reqwest + tokio runtime + 上游状态。
+/// 测试端点专用错误：reqwest + tokio runtime + URL。
+///
+/// 探针是 `GET /models`：非 2xx 是**结果**（交给 [probe_outcome] 分类），
+/// 不是 transport 错误——所以这里没有 `Upstream` 变体。
 #[derive(Debug)]
 enum HttpTestError {
     /// tokio runtime 启动失败。
     Runtime(std::io::Error),
     /// reqwest 传输层错误。
     Http(reqwest::Error),
-    /// 上游返回非 2xx 状态码。
-    Upstream {
-        status: reqwest::StatusCode,
-        body: String,
-    },
     /// URL 解析失败。
     BadUrl,
 }
 
-/// 把 [`HttpTestError`] 按 D1 错误码分类。
+/// 把「探针请求本身失败」（transport / runtime / URL）按 D1 错误码分类。
 ///
-/// 分类口径：
-/// - 401/403 → `auth_failed`；
-/// - 404 → `model_not_found`；
+/// 口径（TTS / LLM 共用）：
 /// - reqwest `is_timeout` → `timeout`；
 /// - reqwest `is_connect` → `network_failed`；
-/// - 其余 HTTP → `network_failed`；
-/// - URL 解析失败 → `url_invalid`；
-/// - 上游 5xx → `protocol_error`。
-fn classify_http_error(e: HttpTestError) -> TestOutcome {
+/// - 其余 transport → `network_failed`；
+/// - URL 解析失败 → `url_invalid`。
+///
+/// 非 2xx 状态**不**走这里：[probe_outcome] 会把它们分成「可达但鉴权失败 /
+/// 可达但协议错 / 404 算可达」。这里若也分类状态码，就会两处口径漂移。
+fn classify_probe_error(e: HttpTestError) -> TestOutcome {
     match e {
         HttpTestError::Http(inner) => {
             if inner.is_timeout() {
@@ -322,22 +335,41 @@ fn classify_http_error(e: HttpTestError) -> TestOutcome {
                 TestOutcome::failure("network_failed", format!("HTTP 错误: {inner}"))
             }
         }
-        HttpTestError::Upstream { status, body } => {
-            let s = status.as_u16();
-            // 响应体截断（≤512 字符）防日志/错误体爆体积。
-            let snippet: String = body.chars().take(512).collect();
-            if s == 401 || s == 403 {
-                TestOutcome::failure("auth_failed", format!("鉴权失败 ({s})"))
-            } else if s == 404 {
-                TestOutcome::failure("model_not_found", "模型/资源未找到")
-            } else {
-                TestOutcome::failure("protocol_error", format!("上游 {s}: {snippet}"))
-            }
-        }
         HttpTestError::Runtime(e) => {
             TestOutcome::failure("network_failed", format!("runtime: {e}"))
         }
         HttpTestError::BadUrl => TestOutcome::failure("url_invalid", "base_url 非法"),
+    }
+}
+
+/// LLM 探针失败的分类：**本地模式**把「连不上 / 超时」收敛成
+/// `llm_local_unreachable`——状态必须明确（「没配好 / 没起来」不能显示成 ready），
+/// 且**不会自动切回 cloud**（本函数不会发第二次请求；链路也只有一个 llm 端点）。
+///
+/// cloud 沿用 [classify_probe_error] 的旧分类（`network_failed` / `timeout`），
+/// 云端的既有 401 报错路径不受影响。
+fn classify_llm_probe_error(e: HttpTestError, local: bool) -> TestOutcome {
+    if !local {
+        return classify_probe_error(e);
+    }
+    match e {
+        HttpTestError::BadUrl => TestOutcome::failure("url_invalid", "base_url 非法"),
+        HttpTestError::Runtime(err) => TestOutcome::failure(
+            "llm_local_unreachable",
+            format!("本地端点自检失败（runtime: {err}）；自检不会切回云端"),
+        ),
+        HttpTestError::Http(inner) if inner.is_timeout() => TestOutcome::failure(
+            "llm_local_unreachable",
+            format!(
+                "本地端点在自检超时内没有响应（{inner}）；自检不会切回云端——请确认本地服务已启动或改地址"
+            ),
+        ),
+        HttpTestError::Http(inner) => TestOutcome::failure(
+            "llm_local_unreachable",
+            format!(
+                "连不上本地端点（{inner}）；自检不会切回云端——请确认本地服务已启动（Ollama 示例 http://127.0.0.1:11434/v1）"
+            ),
+        ),
     }
 }
 

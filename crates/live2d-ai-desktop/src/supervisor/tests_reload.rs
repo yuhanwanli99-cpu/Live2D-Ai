@@ -82,6 +82,7 @@ fn write_settings_with_tts(path: &std::path::Path, llm_base_url: &str, tts_base_
         // 2026-09-16：action 段默认（幅度倍率）。
         action: Default::default(),
         llm: live2d_ai_runtime::settings::LlmSettings {
+            mode: live2d_ai_runtime::settings::LlmMode::Cloud,
             base_url: llm_base_url.to_string(),
             model: "test-model".to_string(),
             api_key_env: None,

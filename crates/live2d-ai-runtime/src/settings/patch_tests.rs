@@ -8,7 +8,7 @@ use crate::settings::patch::{
     LlmPatch, PatchOutcome, PersonaPatch, SettingsPatch, TtsPatch, apply_patch, plan_atomic_write,
 };
 use crate::settings::view::{settings_to_view, settings_to_view_with_keys};
-use crate::settings::{AppSettings, LlmSettings, PersonaSettings, TtsSettings};
+use crate::settings::{AppSettings, LlmMode, LlmSettings, PersonaSettings, TtsSettings};
 
 pub(super) fn sample() -> AppSettings {
     AppSettings {
@@ -17,6 +17,7 @@ pub(super) fn sample() -> AppSettings {
         // 2026-09-22：表演层默认关（[performance] 段，客户端在 host 侧构造）。
         performance: Default::default(),
         llm: LlmSettings {
+            mode: LlmMode::Cloud,
             base_url: "http://127.0.0.1:11434/v1".into(),
             model: "qwen2.5:7b".into(),
             api_key_env: Some("LLM_KEY".into()),
@@ -144,6 +145,7 @@ fn patch_none_keeps_old_base_url() {
     // 字段级 None = 也不动。
     let patch2 = SettingsPatch {
         llm: Some(Some(LlmPatch {
+            mode: None,
             base_url: None,
             model: Some(Some("gpt-4o-mini".into())),
             api_key_env: None,
