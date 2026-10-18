@@ -80,6 +80,9 @@ pub mod conversation;
 pub mod dialogue;
 pub mod error;
 pub mod llm;
+/// A2A 上游的正文收集（0.3.8 rc.1）：一路 `chat_stream` → 一段正文，
+/// 思考（`ReasoningDelta`）丢弃。与句子装配/TTS/口型无关。
+pub mod llm_collect;
 /// 表演层（导演 / 大脑）：每轮一份合法化 JSON → speak（TTS/上屏真源）+ cues。
 pub mod performance;
 pub mod secret;
@@ -102,6 +105,7 @@ pub use conversation::{
 pub use dialogue::{DialogueAssembler, DialogueEvent, SentenceAssembler, clean_for_tts};
 pub use error::{Error, Result};
 pub use llm::{ChatMessage, LlmEvent, Role};
+pub use llm_collect::collect_chat_text;
 pub use performance::{
     DisabledPerformance, FallbackReason, PerformanceClient, PerformanceCue, PerformancePlan,
     PerformanceRuntime, PerformanceSetup, PlanError, Resolution, StructuredMode, assemble,

@@ -141,7 +141,7 @@ impl ThinkingField {
 }
 
 #[derive(Serialize)]
-struct ChatRequestBody<'a> {
+pub(crate) struct ChatRequestBody<'a> {
     model: &'a str,
     messages: Vec<WireMessage<'a>>,
     stream: bool,
@@ -165,7 +165,7 @@ fn is_zero_u32(value: &u32) -> bool {
 ///
 /// `thinking_enabled` 来自 `llm.show_reasoning`（`LlmConfig::thinking`）：
 /// **缺省 false → 线上发 `thinking.type = "disabled"`**（2026-10-08）。
-fn chat_request_body<'a>(
+pub(crate) fn chat_request_body<'a>(
     model: &'a str,
     messages: &'a [ChatMessage],
     max_tokens: u32,

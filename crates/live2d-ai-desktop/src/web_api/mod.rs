@@ -30,6 +30,8 @@
 //! - `POST /api/v1/chat/stop` → `chat.stop`（W2：停止当前轮）
 //! - `POST /api/v1/voice/transcript` → 前置静态路由（语音转写 → 清洗 → say；
 //!   Wave 2 A 轨 2026-09-14，见 [`voice_routes`]）
+//! - `GET /.well-known/agent-card.json` / `POST /api/v1/a2a` → 0.3.8 A2A
+//!   前置路由（agent card + JSON-RPC 2.0；见 [`a2a_routes`]）
 //! - `GET /api/v1/logs`（dev_mode=true） → `logs.get`
 //! - `GET /api/v1/logs/levels`（dev_mode=true） → `logs.levels`
 //! - `GET / POST / PATCH / DELETE /api/v1/models*` → `models`（D3 落地，2026-08-28）
@@ -52,6 +54,10 @@ use live2d_ai_runtime::AppSettings;
 use crate::supervisor::SupervisorHandle;
 use crate::web_api::app_routes::{CapabilitiesContext, StatusContext};
 
+/// A2A（Agent2Agent）对外接口（0.3.8）：`GET /.well-known/agent-card.json` +
+/// `POST /api/v1/a2a`（JSON-RPC 2.0，只收 `message/send`/`tasks/get`）。
+/// 前置路由；与皮套主链（supervisor/say/TTS）零耦合。
+pub mod a2a_routes;
 /// Web API 子模块。
 pub mod app_routes;
 pub mod chat_routes;
@@ -601,6 +607,36 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             .find(|h| h.field.equiv("Authorization"))
             .map(|h| h.value.as_str().to_string());
         let body_str = read_body_from_request(&mut request);
+        // 0.3.8：A2A 前置路由（agent card + JSON-RPC 端点）。与 external_routes
+        // 同款：自身完成 loopback + Origin + Content-Type 校验。message/send 要
+        // 等上游 LLM，因此 POST 派生工作线程（不能冻住整个 HTTP 循环）。
+        if crate::web_api::a2a_routes::is_a2a_path(&path) {
+            if method == Method::Get {
+                let resp = crate::web_api::a2a_routes::handle_a2a(
+                    &ctx,
+                    crate::web_api::a2a_routes::A2aRequest {
+                        method: &method,
+                        path: &path,
+                        body: &body_str,
+                        origin: origin.as_deref(),
+                        content_type: content_type.as_deref(),
+                    },
+                );
+                respond_and_log(request, &method, &path, "a2a", resp);
+            } else {
+                let (log_method, log_path) = (method.clone(), path.clone());
+                crate::web_api::a2a_routes::spawn_a2a(
+                    ctx.clone(),
+                    method,
+                    path,
+                    body_str,
+                    origin,
+                    content_type,
+                    move |resp| respond_and_log(request, &log_method, &log_path, "a2a", resp),
+                );
+            }
+            continue;
+        }
         // L1 基座（2026-09-15）：会话 id 宿主能力
         // （GET|POST /api/v1/chat/session）。前置于 dispatch，自身完成
         // loopback + json 校验（详见 chat_routes 头注）。
