@@ -9,7 +9,7 @@
 ///
 /// 修法不是把名单从 Dart 抄一份到 Dart，而是把判据接回**唯一真源**：
 /// `crates/live2d-ai-desktop/src/main.rs` 的 `AVAILABLE_MOD_FACTORIES`
-///（那也正是 Rust 侧 `mod_count_is_six` 守着的表）。crate 删了 / 改名了 /
+///（那也正是 Rust 侧 `mod_count_is_seven` 守着的表）。crate 删了 / 改名了 /
 /// 工厂 id 变了 ⇒ 引用它的夹具立刻红，而不是继续绿着骗人。
 ///
 /// # 已知边界（诚实记录）

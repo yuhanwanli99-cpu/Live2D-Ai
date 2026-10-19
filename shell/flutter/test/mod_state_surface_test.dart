@@ -175,10 +175,11 @@ void main() {
       expect(ids, isNotEmpty, reason: '真源一个 id 都没解出来 —— 门禁在空转（不是「后端没有 Mod」）');
       // 2026-10-17（rc4）：导演退役成核心常驻 → 工厂表 6 → **5**；
       // rc.6 新增 spawn-only `local-engine`（缺省停用）→ **6**。
+      // 0.3.9 rc.3：A2A 从主仓 `web_api` 迁出成第二仓 Mod `a2a`（缺省停用）→ **7**。
       expect(
         ids,
-        hasLength(6),
-        reason: 'rc.6 起工厂表恰为 6 个（director 已退役；+ local-engine）',
+        hasLength(7),
+        reason: '0.3.9 rc.3 起工厂表恰为 7 个（rc.6 的 6 个 + A2A 的 `a2a`）',
       );
       expect(
         ids,
@@ -194,6 +195,9 @@ void main() {
           'local-tts-melo',
           // rc.6：spawn-only 本地引擎（只注册、缺省停用）。
           'local-engine',
+          // 0.3.9 rc.3：A2A 协议核迁进第二仓 Mod（只注册、缺省停用；
+          // 宿主只留 `web_api/a2a_gate` 的门）。
+          'a2a',
         ]),
         reason: '`AVAILABLE_MOD_FACTORIES` 变了（删 / 改 Mod）就必须在这里看见',
       );
