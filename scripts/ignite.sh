@@ -184,12 +184,27 @@ TTS_BASE="${ENDPOINTS[1]}"
 TTS_MODE="${ENDPOINTS[2]}"
 TTS_HOST_LOCAL="${ENDPOINTS[3]}"
 # 只有「本地」模式才由本次点火拉起并等待本机 TTS 进程。
+#
+# 2026-10-19 修（rc.4 验证抓到）：这里原来把两句话写成
+# `echo "...（$([ ... ] && echo 甲 || echo 乙））"`——用**全角** `）` 去收
+# `$( ... )`，而命令替换只认 ASCII `)`，于是 `$(` 一直不闭合，bash 读到
+# EOF 报 `unexpected EOF while looking for matching "`（**整脚本跑不起来**）。
+# 现在先算成两个变量再插值：既避开全角/半角陷阱，也不再在双引号里嵌套双引号。
 TTS_LOCAL=0
-[ "$TTS_MODE" = "local" ] && TTS_LOCAL=1
+TTS_WAIT_TEXT="云端端点，不等本机进程"
+if [ "$TTS_MODE" = "local" ]; then
+  TTS_LOCAL=1
+  TTS_WAIT_TEXT="本机进程随点火拉起并等待"
+fi
+if [ "$TTS_HOST_LOCAL" = "1" ]; then
+  TTS_HOST_TEXT="本机 / 局域网"
+else
+  TTS_HOST_TEXT="远程"
+fi
 echo "    配置 LLM base : $LLM_BASE"
 echo "    配置 TTS base : ${TTS_BASE:-（未配置，选型待定）}"
-echo "    配置 TTS mode : $TTS_MODE（$([ "$TTS_LOCAL" = "1" ] && echo 本机进程随点火拉起并等待 || echo 云端端点，不等本机进程））"
-echo "    TTS 地址主机  : $([ "$TTS_HOST_LOCAL" = "1" ] && echo 本机 / 局域网 || echo 远程)"
+echo "    配置 TTS mode : $TTS_MODE（$TTS_WAIT_TEXT）"
+echo "    TTS 地址主机  : $TTS_HOST_TEXT"
 
 probe() {
   local name="$1" base="$2"
