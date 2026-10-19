@@ -95,6 +95,12 @@ pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &
     // 它按用户给的 program/args/workdir 拉起**任意**本地进程，没有 base_url，
     // 不写 [tts]/[llm]、不探活、不换地址、不重启。5 → 6。
     &live2d_ai_mod_local_engine::FACTORY,
+    // 0.3.9 rc.3（核心边界）：A2A 从主仓 `web_api/a2a_routes` 迁出，协议核住
+    // 第二仓 Mod —— id `a2a`，crate `live2d-ai-mod-a2a`，**只注册、缺省停用**。
+    // 宿主只留门（`web_api/a2a_gate`：loopback / Origin / Content-Type +
+    // 「停用则不调用」）；启用时才服务 `GET /.well-known/agent-card.json` 与
+    // `POST /api/v1/a2a`。**6 → 7**，断言守住。
+    &live2d_ai_mod_a2a::FACTORY,
     // 同轮的封存：CosyVoice3（id `local-tts`，界面名 `本地tts_CosyVoice3-0.5B`）
     // **已移出本表**——crate 与 engine/ 留在树上（可编译可测），头注写明「封存，
     // 还要适配，未适配前不要挂回」。数字 7 → **6**，断言守住
@@ -296,11 +302,11 @@ mod tests {
     /// 2026-10-17（rc4）：**director Mod 退役**——按句清洗与 cue 收归核心第二路
     /// （单一 cue 写者）→ 6 → **5**。断言继续守住「别再挂回来」。
     #[test]
-    fn mod_count_is_six() {
+    fn mod_count_is_seven() {
         assert_eq!(
             super::AVAILABLE_MOD_FACTORIES.len(),
-            6,
-            "AVAILABLE_MOD_FACTORIES must contain exactly 6 Mod factories (external-input, persona, voice-input, memory, local-tts-melo, local-engine)"
+            7,
+            "AVAILABLE_MOD_FACTORIES must contain exactly 7 Mod factories (external-input, persona, voice-input, memory, local-tts-melo, local-engine, a2a)"
         );
     }
 
@@ -319,7 +325,9 @@ mod tests {
         // 出厂出声的那一个是 `local-tts-melo`（MeloTTS 中文）。
         // 2026-10-17（rc4）：director 已退役（按句 cue 收归核心第二路）。
         // rc.6：+ local-engine（spawn-only 本地引擎，缺省停用）。
+        // 0.3.9 rc.3：+ a2a（A2A 协议核迁出主仓，**缺省停用**；宿主只留门）。
         let mut expected = vec![
+            "a2a",
             "external-input",
             "local-engine",
             "local-tts-melo",

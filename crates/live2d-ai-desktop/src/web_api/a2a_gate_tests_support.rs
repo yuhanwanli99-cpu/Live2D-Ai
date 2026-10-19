@@ -1,7 +1,7 @@
-//! a2a_routes 测试共享脚手架（0.3.8）。
+//! a2a_gate 测试共享脚手架（0.3.9 rc.3）。
 //!
-//! 只给同目录 a2a_routes_tests_*.rs 用：最小 ServerContext、请求构造、假上游、
-//! 本机 mock LLM HTTP、响应读取。pub(super) 只为兄弟测试模块可见，不进产品 API。
+//! 只给同目录 a2a_gate_tests_*.rs 用：最小 ServerContext（含 **a2a 已启用 / 停用**
+//! 两种注册表）、请求构造、假上游、本机 mock LLM、响应读取。
 #![allow(dead_code)]
 
 use std::io::{Read, Write};
@@ -10,12 +10,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use live2d_ai_mod_system::ModFactory;
 use live2d_ai_runtime::AppSettings;
 use live2d_ai_runtime::settings::LlmMode;
 use serde_json::{Value, json};
 use tiny_http::{Method, Response};
 
-use super::a2a_tasks::TaskStore;
 use super::*;
 use crate::web_api::ServerContext;
 use crate::web_api::security::SecurityContext;
@@ -23,30 +23,37 @@ use crate::web_api::security::SecurityContext;
 pub(super) const PORT: u16 = 18080;
 pub(super) const ORIGIN: &str = "http://127.0.0.1:18080";
 
-/// 严格模式（无 Origin 拒绝）的最小上下文；端口固定 18080。
-pub(super) fn strict_ctx() -> ServerContext {
-    ctx_with_settings(AppSettings::default())
+/// 测试注册表里的唯一工厂：第二仓的 a2a Mod。
+static A2A_FACTORIES: &[&dyn ModFactory] = &[&live2d_ai_mod_a2a::FACTORY];
+
+/// 严格模式（无 Origin 拒绝）+ a2a **已启用** 的上下文。
+pub(super) fn enabled_ctx() -> ServerContext {
+    ctx_enabled(AppSettings::default(), SecurityContext::new(PORT, false))
 }
 
-/// 工具客户端模式（allow_no_origin=true）。
-pub(super) fn dev_ctx() -> ServerContext {
-    ctx_with_settings_and_security(AppSettings::default(), SecurityContext::new(PORT, true))
+/// 严格模式 + a2a **停用**（在册但 enabled=false）的上下文。
+pub(super) fn disabled_ctx() -> ServerContext {
+    let mut registry = crate::mod_registry::ModRegistry::new(A2A_FACTORIES, &json!({}));
+    // 在册但显式停用（缺省就是停用；这里写出来是为了让测试意图可读）。
+    registry.disable("a2a").expect("a2a 在册");
+    ctx_with_registry(
+        AppSettings::default(),
+        SecurityContext::new(PORT, false),
+        registry,
+    )
 }
 
-/// 用给定 settings 造严格模式上下文。
+/// 工具客户端模式（allow_no_origin=true）+ a2a 已启用。
+pub(super) fn enabled_dev_ctx() -> ServerContext {
+    ctx_enabled(AppSettings::default(), SecurityContext::new(PORT, true))
+}
+
+/// 用给定 settings 造「a2a 已启用」的严格模式上下文。
 pub(super) fn ctx_with_settings(settings: AppSettings) -> ServerContext {
-    ctx_with_settings_and_security(settings, SecurityContext::new(PORT, false))
+    ctx_enabled(settings, SecurityContext::new(PORT, false))
 }
 
-fn ctx_with_settings_and_security(
-    settings: AppSettings,
-    security: SecurityContext,
-) -> ServerContext {
-    ServerContext::new(settings, "/tmp/live2d-ai-a2a-test.toml".into(), None)
-        .with_security(security)
-}
-
-/// 配置了 [llm] 的上下文（mock HTTP / 真实上游回归用）。
+/// 配置了 \`[llm]\` 的上下文（mock HTTP / 真实上游回归用；a2a 已启用）。
 pub(super) fn ctx_with_llm(
     base_url: &str,
     api_key_env: Option<&str>,
@@ -60,9 +67,25 @@ pub(super) fn ctx_with_llm(
     ctx_with_settings(settings)
 }
 
-/// 一次测试用的空任务表（任务表注入点；tasks/get 回归要跨两次调用共享）。
-pub(super) fn store() -> Mutex<TaskStore> {
-    Mutex::new(TaskStore::new(32))
+/// a2a 已启用的上下文（真实 run_request_loop e2e 用；端口由调用方给）。
+pub(super) fn ctx_enabled_with_port(settings: AppSettings, port: u16) -> ServerContext {
+    ctx_enabled(settings, SecurityContext::new(port, false))
+}
+
+fn ctx_enabled(settings: AppSettings, security: SecurityContext) -> ServerContext {
+    let mut registry = crate::mod_registry::ModRegistry::new(A2A_FACTORIES, &json!({}));
+    registry.enable("a2a").expect("a2a 在册");
+    ctx_with_registry(settings, security, registry)
+}
+
+fn ctx_with_registry(
+    settings: AppSettings,
+    security: SecurityContext,
+    registry: crate::mod_registry::ModRegistry,
+) -> ServerContext {
+    ServerContext::new(settings, "/tmp/live2d-ai-a2a-gate-test.toml".into(), None)
+        .with_security(security)
+        .with_mod_registry(registry)
 }
 
 /// 读一条响应：状态码 + JSON body（非 JSON 回 Value::Null）。
@@ -78,7 +101,8 @@ pub(super) fn read_json(resp: Response<std::io::Cursor<Vec<u8>>>) -> (u16, Value
 /// GET agent card。
 pub(super) fn get_card(ctx: &ServerContext) -> (u16, Value) {
     let method = Method::Get;
-    let resp = handle_a2a(
+    let (chat, _) = counting_chat("不会用到");
+    let resp = handle_a2a_with(
         ctx,
         A2aRequest {
             method: &method,
@@ -87,6 +111,7 @@ pub(super) fn get_card(ctx: &ServerContext) -> (u16, Value) {
             origin: None,
             content_type: None,
         },
+        &chat,
     );
     read_json(resp)
 }
@@ -108,22 +133,10 @@ pub(super) fn send_params(text: &str) -> Value {
     })
 }
 
-/// 以「同源 Origin + application/json」调用 JSON-RPC 端点（内部自建任务表）。
+/// 以「同源 Origin + application/json」调用 JSON-RPC 端点。
 pub(super) fn call(ctx: &ServerContext, body: &str, chat: &ChatFn<'_>) -> (u16, Value) {
-    let tasks = store();
-    call_in(ctx, &tasks, body, chat)
-}
-
-/// 指定任务表的调用（tasks/get 回归：send 与 get 必须共享同一张表）。
-pub(super) fn call_in(
-    ctx: &ServerContext,
-    tasks: &Mutex<TaskStore>,
-    body: &str,
-    chat: &ChatFn<'_>,
-) -> (u16, Value) {
     call_with(
         ctx,
-        tasks,
         Method::Post,
         body,
         Some(ORIGIN),
@@ -135,7 +148,6 @@ pub(super) fn call_in(
 /// 指定 method / Origin / Content-Type 的原始调用（安全边界回归用）。
 pub(super) fn call_with(
     ctx: &ServerContext,
-    tasks: &Mutex<TaskStore>,
     method: Method,
     body: &str,
     origin: Option<&str>,
@@ -151,8 +163,24 @@ pub(super) fn call_with(
             origin,
             content_type,
         },
-        tasks,
         chat,
+    );
+    read_json(resp)
+}
+
+/// GET card 的原始调用（非 GET → 405 回归用）。
+pub(super) fn call_card(ctx: &ServerContext, method: Method) -> (u16, Value) {
+    let (chat, _) = counting_chat("不会用到");
+    let resp = handle_a2a_with(
+        ctx,
+        A2aRequest {
+            method: &method,
+            path: AGENT_CARD_PATH,
+            body: "",
+            origin: None,
+            content_type: None,
+        },
+        &chat,
     );
     read_json(resp)
 }
@@ -160,28 +188,25 @@ pub(super) fn call_with(
 /// 注入点假上游：回复固定文本 + 调用计数。
 pub(super) fn counting_chat(
     reply: &'static str,
-) -> (
-    impl Fn(&ServerContext, &str) -> Result<String, String>,
-    Arc<AtomicUsize>,
-) {
+) -> (impl Fn(&str) -> Result<String, String>, Arc<AtomicUsize>) {
     let hits = Arc::new(AtomicUsize::new(0));
     let hits_for_chat = Arc::clone(&hits);
-    let chat = move |_ctx: &ServerContext, _text: &str| -> Result<String, String> {
+    let chat = move |_text: &str| -> Result<String, String> {
         hits_for_chat.fetch_add(1, Ordering::Relaxed);
         Ok(reply.to_string())
     };
     (chat, hits)
 }
 
-/// 注入点假上游：记录收到的文本（证明 A2A 把请求原文交给了 LLM）。
+/// 注入点假上游：记录收到的文本。
 #[allow(clippy::type_complexity)]
 pub(super) fn recording_chat() -> (
-    impl Fn(&ServerContext, &str) -> Result<String, String>,
+    impl Fn(&str) -> Result<String, String>,
     Arc<Mutex<Vec<String>>>,
 ) {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let seen_for_chat = Arc::clone(&seen);
-    let chat = move |_ctx: &ServerContext, text: &str| -> Result<String, String> {
+    let chat = move |text: &str| -> Result<String, String> {
         seen_for_chat
             .lock()
             .expect("seen lock")
@@ -194,13 +219,10 @@ pub(super) fn recording_chat() -> (
 /// 注入点假上游：恒失败（错误描述按生产路径的脱敏口径）。
 pub(super) fn failing_chat(
     message: &'static str,
-) -> (
-    impl Fn(&ServerContext, &str) -> Result<String, String>,
-    Arc<AtomicUsize>,
-) {
+) -> (impl Fn(&str) -> Result<String, String>, Arc<AtomicUsize>) {
     let hits = Arc::new(AtomicUsize::new(0));
     let hits_for_chat = Arc::clone(&hits);
-    let chat = move |_ctx: &ServerContext, _text: &str| -> Result<String, String> {
+    let chat = move |_text: &str| -> Result<String, String> {
         hits_for_chat.fetch_add(1, Ordering::Relaxed);
         Err(message.to_string())
     };

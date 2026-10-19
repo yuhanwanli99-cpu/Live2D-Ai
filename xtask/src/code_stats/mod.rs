@@ -191,7 +191,14 @@ const RATCHET_DART_800: u64 = 0;
 /// `live2d-ai-mod-local-engine`（id `local-engine`，缺省停用，spawn-only）。
 /// 同样不是放宽棘轮：这是实测的直接依赖数 24；`PLAN_DESKTOP_DEPS` 仍保持 22。
 /// 复算：`cargo run -q -p xtask -- code-stats --check --only deps`（24 ≤ 24 = PASS）。
-const RATCHET_DESKTOP_DEPS: u64 = 24;
+///
+/// **已调到 25**（2026-10-19 0.3.9 rc.3）：+1 条真实新增的产品依赖边——
+/// `live2d-ai-mod-a2a`（id `a2a`，缺省停用）。宿主门 `web_api/a2a_gate` 要调
+/// 第二仓协议核并注册工厂，所以这是一条直边；同一改动把 A2A 路由从主仓
+/// `web_api/a2a_routes` 删掉（净减代码、净增 1 条依赖声明）。`PLAN_DESKTOP_DEPS`
+/// 仍保持 22（如实红，不涂绿）。
+/// 复算：`cargo run -q -p xtask -- code-stats --check --only deps`（25 ≤ 25 = PASS）。
+const RATCHET_DESKTOP_DEPS: u64 = 25;
 
 /// PLAN §5 量化目标（`--strict-plan`）。
 const PLAN_SRC_RS_500: u64 = 15;

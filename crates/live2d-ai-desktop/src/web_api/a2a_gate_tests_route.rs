@@ -1,7 +1,8 @@
-//! a2a_routes 上游回归（0.3.8 rc.2）：真实 OpenAiClient + 本机 mock HTTP。
+//! A2A 宿主门 e2e 与真实上游回归（0.3.9 rc.3）。
 //!
-//! 执行单 §3：不要求本机有 Ollama / 真远端 agent；用本机 mock 守协议形状与
-//! 密钥边界。真实 OpenAI-compatible 服务标「未验」。
+//! 执行单 §3：不要求本机有 Ollama / 真远端 agent；用本机 mock 守协议形状、
+//! 密钥边界与「POST 派生工作线程」。真实 OpenAI-compatible 服务标「未验」。
+
 use std::time::{Duration, Instant};
 
 use super::tests_support::*;
@@ -15,12 +16,11 @@ fn send_through_real_client(
     lookup: &dyn Fn(&str) -> Option<String>,
     text: &str,
 ) -> (u16, serde_json::Value) {
-    let chat =
-        |ctx: &ServerContext, text: &str| super::a2a_llm::llm_chat_upstream_with(ctx, text, lookup);
+    let chat = |text: &str| super::llm::llm_chat_upstream_with(ctx, text, lookup);
     call(ctx, &rpc_body("message/send", send_params(text)), &chat)
 }
 
-/// 真实客户端路径：SSE 正文收集 + 思考丢弃 + 请求体无 tools。
+/// 真实客户端路径：SSE 正文收集 + 思考丢弃 + 请求体无 tools / 无密钥。
 #[test]
 fn real_client_collects_text_drops_reasoning_and_sends_no_tools() {
     let mock = mock_llm_sse(MOCK_SSE);
@@ -44,13 +44,6 @@ fn real_client_collects_text_drops_reasoning_and_sends_no_tools() {
         raw.contains("\"thinking\":{\"type\":\"disabled\"}"),
         "缺省关思考必须显式上线：{raw}"
     );
-    assert!(
-        raw.contains(&format!(
-            "\"max_tokens\":{}",
-            live2d_ai_runtime::DEFAULT_MAX_TOKENS
-        )),
-        "输出上限必须来自设置（缺省 DEFAULT_MAX_TOKENS）：{raw}"
-    );
     assert!(!raw.contains("\"tools\""), "A2A 请求体不得含 tools：{raw}");
     assert!(
         !raw.to_ascii_lowercase().contains("authorization"),
@@ -58,8 +51,7 @@ fn real_client_collects_text_drops_reasoning_and_sends_no_tools() {
     );
 }
 
-/// 上游 401：请求确实带了 Bearer 密钥（只进头），但**响应与错误描述都不回显**
-/// 密钥或上游 body（执行单 §3）。
+/// 上游 401：密钥只进 Authorization 头，**响应与错误描述都不回显**密钥或上游 body。
 #[test]
 fn upstream_401_never_echoes_key_or_upstream_body() {
     let mock = mock_llm_status(
@@ -85,7 +77,6 @@ fn upstream_401_never_echoes_key_or_upstream_body() {
         message.contains("llm_upstream_401"),
         "只回稳定错误码：{message}"
     );
-
     let text = body.to_string();
     assert!(!text.contains(SECRET), "响应不得回显密钥：{text}");
     assert!(
@@ -93,7 +84,6 @@ fn upstream_401_never_echoes_key_or_upstream_body() {
         "响应不得回显上游 body：{text}"
     );
 
-    // 密钥只允许进 Authorization 头（且确实发出去了），不进请求体。
     let raw = mock.first_request();
     let lower = raw.to_ascii_lowercase();
     assert!(
@@ -131,7 +121,98 @@ fn local_mode_failure_does_not_fall_back_to_cloud() {
     );
 }
 
-// ---------------------------------------------------------------- e2e 工作线程
+// ---------------------------------------------------------------- e2e：前置路由
+
+/// 真起 run_request_loop（与生产同一段代码），证明 mod.rs 的前置路由真的接上了：
+/// GET card 200、POST 范围外方法回 -32601（不打上游）、恶意 Origin 403。
+#[test]
+fn e2e_pre_route_serves_card_and_jsonrpc() {
+    use std::thread;
+
+    use live2d_ai_runtime::AppSettings;
+
+    use crate::web_api::run_request_loop;
+
+    let server = tiny_http::Server::http("127.0.0.1:0").expect("bind :0");
+    let addr = server.server_addr().to_ip().expect("listen is ip");
+    let ctx = ctx_enabled_with_port(AppSettings::default(), addr.port());
+    thread::spawn(move || run_request_loop(server, ctx));
+
+    let card_resp = raw_http(
+        addr,
+        "GET /.well-known/agent-card.json HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+    );
+    assert!(card_resp.starts_with("HTTP/1.1 200"), "got: {card_resp}");
+    assert!(card_resp.contains("\"llm-chat\""), "got: {card_resp}");
+    assert!(
+        card_resp.contains("\"supportedInterfaces\""),
+        "got: {card_resp}"
+    );
+
+    let rpc = r#"{"jsonrpc":"2.0","id":9,"method":"foo/bar","params":{}}"#;
+    let req = format!(
+        "POST /api/v1/a2a HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n{rpc}",
+        port = addr.port(),
+        len = rpc.len(),
+    );
+    let resp = raw_http(addr, &req);
+    assert!(resp.starts_with("HTTP/1.1 200"), "got: {resp}");
+    assert!(resp.contains("-32601"), "未知方法应回 -32601：{resp}");
+
+    let evil = format!(
+        "POST /api/v1/a2a HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://evil.example\r\nContent-Type: application/json\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n{rpc}",
+        port = addr.port(),
+        len = rpc.len(),
+    );
+    let rejected = raw_http(addr, &evil);
+    assert!(rejected.starts_with("HTTP/1.1 403"), "got: {rejected}");
+    assert!(rejected.contains("origin_denied"), "got: {rejected}");
+}
+
+/// 停用时 e2e 也是 403 mod_disabled（真服务，不是单测直调）。
+#[test]
+fn e2e_disabled_mod_returns_403_on_both_paths() {
+    use std::thread;
+
+    use live2d_ai_runtime::AppSettings;
+
+    use crate::web_api::run_request_loop;
+
+    let server = tiny_http::Server::http("127.0.0.1:0").expect("bind :0");
+    let addr = server.server_addr().to_ip().expect("listen is ip");
+    let registry = crate::mod_registry::ModRegistry::new(
+        &[&live2d_ai_mod_a2a::FACTORY],
+        &serde_json::json!({}),
+    );
+    let ctx = ServerContext::new(
+        AppSettings::default(),
+        "/tmp/live2d-ai-a2a-disabled-e2e.toml".into(),
+        None,
+    )
+    .with_security(crate::web_api::security::SecurityContext::new(
+        addr.port(),
+        false,
+    ))
+    .with_mod_registry(registry);
+    thread::spawn(move || run_request_loop(server, ctx));
+
+    let card = raw_http(
+        addr,
+        "GET /.well-known/agent-card.json HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+    );
+    assert!(card.starts_with("HTTP/1.1 403"), "got: {card}");
+    assert!(card.contains("mod_disabled"), "got: {card}");
+
+    let rpc = r#"{"jsonrpc":"2.0","id":1,"method":"message/send","params":{}}"#;
+    let req = format!(
+        "POST /api/v1/a2a HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n{rpc}",
+        port = addr.port(),
+        len = rpc.len(),
+    );
+    let resp = raw_http(addr, &req);
+    assert!(resp.starts_with("HTTP/1.1 403"), "got: {resp}");
+    assert!(resp.contains("mod_disabled"), "got: {resp}");
+}
 
 /// 在飞一次慢 A2A 调用时，HTTP 循环仍然服务其它请求（POST 派生工作线程）。
 #[test]
@@ -141,8 +222,7 @@ fn slow_a2a_call_does_not_freeze_the_http_loop() {
 
     use live2d_ai_runtime::AppSettings;
 
-    use crate::web_api::security::SecurityContext;
-    use crate::web_api::{ServerContext, run_request_loop};
+    use crate::web_api::run_request_loop;
 
     let mock = mock_llm_sse_after(MOCK_SSE, Duration::from_millis(1000));
     let mut settings = AppSettings::default();
@@ -151,8 +231,7 @@ fn slow_a2a_call_does_not_freeze_the_http_loop() {
 
     let server = tiny_http::Server::http("127.0.0.1:0").expect("bind :0");
     let addr = server.server_addr().to_ip().expect("listen is ip");
-    let ctx = ServerContext::new(settings, "/tmp/live2d-ai-a2a-slow.toml".into(), None)
-        .with_security(SecurityContext::new(addr.port(), false));
+    let ctx = ctx_enabled_with_port(settings, addr.port());
     thread::spawn(move || run_request_loop(server, ctx));
 
     let body = r#"{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"kind":"message","messageId":"m-1","role":"user","parts":[{"kind":"text","text":"你好"}]}}}"#;

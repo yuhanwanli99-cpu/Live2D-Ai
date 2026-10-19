@@ -30,6 +30,9 @@ live2d-ai-mod-memory = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-memory" 
 live2d-ai-mod-local-tts = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-local-tts" }
 # rc.6（2026-10-17）：spawn-only 本地引擎 Mod（缺省停用，不进缺省 manifest）。
 live2d-ai-mod-local-engine = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-local-engine" }
+# 0.3.9 rc.3：A2A 从主仓 web_api/a2a_routes 迁出，协议核住第二仓（id `a2a`，
+# **缺省停用**）。主仓只留宿主门 web_api/a2a_gate；工厂数 6 → 7。
+live2d-ai-mod-a2a = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-a2a" }
 
 # 第一批基础元数据，各成员可覆盖（如 crates/l2d 的 license 覆盖为 MIT OR Apache-2.0）
 [workspace.package]

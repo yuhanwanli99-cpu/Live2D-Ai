@@ -71,6 +71,9 @@ live2d-ai-mod-local-tts = { workspace = true }
 # rc.6（2026-10-17）：spawn-only 本地引擎（只注册、**缺省停用**；不进缺省 manifest）。
 # 它只按 argv spawn 用户给的 program，不写 [tts]/[llm]、不探活、不换地址。
 live2d-ai-mod-local-engine = { workspace = true }
+# 0.3.9 rc.3：A2A 宿主门要调第二仓协议核（`A2aCore`）并注册工厂（缺省停用）。
+# 同一次改动把 xtask 的 `RATCHET_DESKTOP_DEPS` 23 → 24（`PLAN_DESKTOP_DEPS` 不动）。
+live2d-ai-mod-a2a = { workspace = true }
 ringbuf = "0.5"
 # supervisor 的异步设施。
 # - current_thread runtime 跑在独立 OS 线程；

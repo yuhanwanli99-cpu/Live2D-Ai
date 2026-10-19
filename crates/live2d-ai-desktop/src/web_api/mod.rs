@@ -30,8 +30,9 @@
 //! - `POST /api/v1/chat/stop` → `chat.stop`（W2：停止当前轮）
 //! - `POST /api/v1/voice/transcript` → 前置静态路由（语音转写 → 清洗 → say；
 //!   Wave 2 A 轨 2026-09-14，见 [`voice_routes`]）
-//! - `GET /.well-known/agent-card.json` / `POST /api/v1/a2a` → 0.3.8 A2A
-//!   前置路由（agent card + JSON-RPC 2.0；见 [`a2a_routes`]）
+//! - `GET /.well-known/agent-card.json` / `POST /api/v1/a2a` → A2A
+//!   前置路由（宿主门：loopback/Origin/CT + 停用门禁；协议核在第二仓 Mod
+//!   `live2d-ai-mod-a2a`，见 [`a2a_gate`]）
 //! - `GET /api/v1/logs`（dev_mode=true） → `logs.get`
 //! - `GET /api/v1/logs/levels`（dev_mode=true） → `logs.levels`
 //! - `GET / POST / PATCH / DELETE /api/v1/models*` → `models`（D3 落地，2026-08-28）
@@ -54,10 +55,11 @@ use live2d_ai_runtime::AppSettings;
 use crate::supervisor::SupervisorHandle;
 use crate::web_api::app_routes::{CapabilitiesContext, StatusContext};
 
-/// A2A（Agent2Agent）对外接口（0.3.8）：`GET /.well-known/agent-card.json` +
-/// `POST /api/v1/a2a`（JSON-RPC 2.0，只收 `message/send`/`tasks/get`）。
-/// 前置路由；与皮套主链（supervisor/say/TTS）零耦合。
-pub mod a2a_routes;
+/// A2A（Agent2Agent）**宿主门**（0.3.9，从 0.3.8 `a2a_routes` 收窄）：
+/// `GET /.well-known/agent-card.json` + `POST /api/v1/a2a` 的 loopback / Origin /
+/// Content-Type 校验、`a2a` Mod 停用门禁、上游闭包注入、POST 派生工作线程。
+/// 协议（card / JSON-RPC / 任务表）已迁到第二仓 Mod `live2d-ai-mod-a2a`。
+pub mod a2a_gate;
 /// Web API 子模块。
 pub mod app_routes;
 pub mod chat_routes;
@@ -607,14 +609,15 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             .find(|h| h.field.equiv("Authorization"))
             .map(|h| h.value.as_str().to_string());
         let body_str = read_body_from_request(&mut request);
-        // 0.3.8：A2A 前置路由（agent card + JSON-RPC 端点）。与 external_routes
-        // 同款：自身完成 loopback + Origin + Content-Type 校验。message/send 要
-        // 等上游 LLM，因此 POST 派生工作线程（不能冻住整个 HTTP 循环）。
-        if crate::web_api::a2a_routes::is_a2a_path(&path) {
+        // 0.3.9 rc.3：A2A 前置路由 = **宿主门**（协议核已迁进第二仓 Mod）。
+        // 与 external_routes 同款：自身完成 loopback + Origin + Content-Type 校验，
+        // 以及「Mod 停用则不调用」。message/send 要等上游 LLM，因此 POST 派生
+        // 工作线程（不能冻住整个 HTTP 循环）。
+        if crate::web_api::a2a_gate::is_a2a_path(&path) {
             if method == Method::Get {
-                let resp = crate::web_api::a2a_routes::handle_a2a(
+                let resp = crate::web_api::a2a_gate::handle_a2a(
                     &ctx,
-                    crate::web_api::a2a_routes::A2aRequest {
+                    crate::web_api::a2a_gate::A2aRequest {
                         method: &method,
                         path: &path,
                         body: &body_str,
@@ -625,7 +628,7 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
                 respond_and_log(request, &method, &path, "a2a", resp);
             } else {
                 let (log_method, log_path) = (method.clone(), path.clone());
-                crate::web_api::a2a_routes::spawn_a2a(
+                crate::web_api::a2a_gate::spawn_a2a(
                     ctx.clone(),
                     method,
                     path,

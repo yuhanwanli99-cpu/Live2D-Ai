@@ -1879,6 +1879,7 @@ dependencies = [
  "cpal",
  "l2d",
  "live2d-ai-core",
+ "live2d-ai-mod-a2a",
  "live2d-ai-mod-director",
  "live2d-ai-mod-external-input",
  "live2d-ai-mod-local-engine",
@@ -1900,6 +1901,14 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "tungstenite",
+]
+
+[[package]]
+name = "live2d-ai-mod-a2a"
+version = "0.3.1"
+dependencies = [
+ "live2d-ai-mod-system",
+ "serde_json",
 ]
 
 [[package]]
