@@ -11,7 +11,7 @@ Live2D-Ai/
 ├── AGENTS.md                 # Agent/开发者导航
 ├── CHANGELOG.md              # 版本变更
 ├── LICENSE / NOTICE / CREDITS.md
-├── Cargo.toml                # 主仓 workspace 清单（9 members；五个 Mod 在 sibling 仓）
+├── Cargo.toml                # 主仓 workspace 清单（Mod 实现不在本仓，各自本地仓库）
 ├── Cargo.lock                # 依赖锁定
 ├── rustfmt.toml / .editorconfig
 ├── crates/                   # Rust 源码（核心链路）
@@ -41,7 +41,7 @@ Live2D-Ai/
 
 | 目录 | 放什么 | 不放什么 |
 |---|---|---|
-| `crates/` | Rust 源码（主仓库核心链路 + Mod） | 任何非 Rust 实现 |
+| `crates/` | Rust 源码（核心链路 + Mod 协议/模板） | 具体 Mod 实现（各自本地仓库） |
 | `crates/live2d-ai-core` | 纯 reducer 状态机 | IO/async/GUI |
 | `crates/live2d-ai-runtime` | LLM/TTS/settings/conversation | 窗口/GUI |
 | `crates/live2d-ai-desktop` | supervisor + Web API + 窗口 + 音频 | 核心状态机 |
@@ -54,17 +54,22 @@ Live2D-Ai/
 | `scripts/` | 可复用脚本 | 一次性草稿 |
 | `tests/` | 根级无 Key Python 测试 | crate 专测（放各自 crate）|
 
-## Mod 目录约定（两仓，0.3.1-rc.5 起）
+## Mod 目录约定（一 Mod 一本地仓库，2026-10-19 起）
 
-五个 Mod 实现住 **sibling 仓** `../Live2D-Ai-mods/crates/`，不在主仓 members 里：
+主仓**不依赖**任何 Mod 实现；七个实现各自一个**本机仓库**（均无远端、未 push），
+不在主仓 workspace：
 
-```
-../Live2D-Ai-mods/crates/live2d-ai-mod-external-input/  外部事件接入（POST /api/v1/external/chat）
-../Live2D-Ai-mods/crates/live2d-ai-mod-persona/         酒馆角色卡
-../Live2D-Ai-mods/crates/live2d-ai-mod-voice-input/     语音输入（ASR 在 sidecar）
-../Live2D-Ai-mods/crates/live2d-ai-mod-memory/          本地记忆
-../Live2D-Ai-mods/crates/live2d-ai-mod-local-tts/       本地 TTS 拉起（melo/ + 已封存 engine/）
-```
+| 本机仓库（相对主仓的 sibling） | crate | id |
+|---|---|---|
+| `../live2d-ai-mod-external-input` | `live2d-ai-mod-external-input` | `external-input` |
+| `../live2d-ai-mod-persona` | `live2d-ai-mod-persona` | `persona` |
+| `../live2d-ai-mod-voice-input` | `live2d-ai-mod-voice-input` | `voice-input` |
+| `../live2d-ai-mod-memory` | `live2d-ai-mod-memory` | `memory` |
+| `../live2d-ai-mod-local-tts` | `live2d-ai-mod-local-tts` | `local-tts-melo`（`melo/` + 已封存 `engine/`） |
+| `../live2d-ai-mod-local-engine` | `live2d-ai-mod-local-engine` | `local-engine` |
+| `../live2d-ai-mod-a2a` | `live2d-ai-mod-a2a` | `a2a` |
+
+旧目录 `/home/skystar/Live2D-Ai-mods` 只作历史来源，已不被主仓引用。
 
 主仓保留三条 Mod 边界相关目录：
 
@@ -73,14 +78,13 @@ Live2D-Ai/
   `director::motion_bias`，故 crate 留主仓。规则表已迁入核心。
 - `crates/live2d-ai-mod-template/`：新 Mod 模板（脚手架，不注册）。
 
-接线方式：主仓根 `[workspace.dependencies]` 用
-`path = "../Live2D-Ai-mods/crates/..."` 指五个 crate，`live2d-ai-desktop` 用
-`workspace = true`；第二仓反过来 path 指主仓 `mod-system` / `runtime`。
-**无包级循环**，但主仓**不再 standalone**：缺 sibling 目录 `cargo metadata` 即失败。
-公开前切换计划见 [two-repo-mods.md](two-repo-mods.md)。
+依赖方向只允许 **Mod → 主仓**：各 Mod 仓库根 `Cargo.toml` 用 `path` 指
+`../Live2D-Ai/crates/live2d-ai-mod-system`（与用到的 `runtime`）。主仓根清单与 desktop
+都**没有**指向 Mod 仓库的依赖，克隆主仓 + 填 `[llm]` / `[tts]` 即可构建运行。
+挂载方式（维护者手动，无动态加载器）见 [two-repo-mods.md](two-repo-mods.md)。
 
-工厂数由 `crates/live2d-ai-desktop/src/main.rs::mod_count_is_five` 守住（现行 **5**：
-external-input / persona / voice-input / memory / local-tts-melo）。
+工厂数由 `crates/live2d-ai-desktop/src/main.rs::mod_count_is_zero` 守住（现行 **0**；
+`default_mods_manifest` 的 `mods` 为空对象）。
 `wallpaper` / `pet-desktop` / `local-llm` 三个 crate 已于 2026-10-01 物理删除，
 **禁止挂回**，见 [ARCHIVED-mods.md](ARCHIVED-mods.md)。
 

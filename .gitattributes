@@ -29,6 +29,6 @@
 *.moc3 binary
 *.jsonl binary
 
-# 2026-10-17（rc.5 分仓库）：local-tts 整 crate（含 melo/ 与 engine/）已移到
-# ../Live2D-Ai-mods；MeloTTS checkpoint.pth 的 LFS 规则随 crate 迁到第二仓
-# 的 .gitattributes。主仓不再有 LFS 文件。
+# 2026-10-19（一 Mod 一本地仓库）：local-tts 整 crate（含 melo/ 与 engine/）住自己的
+# 本地仓库 ../live2d-ai-mod-local-tts；MeloTTS checkpoint.pth 的 LFS 规则由该仓库的
+# .gitattributes 负责。主仓不再有 LFS 文件。

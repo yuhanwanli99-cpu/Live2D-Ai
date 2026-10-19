@@ -416,13 +416,16 @@ void main() {
       expect(modPanelFor('director'), isNull);
     });
 
-    testWidgets('真泵 ModsSection：在册 Mod 列表里没有「导演」卡', (
+    testWidgets('真泵 ModsSection：喂含 director 的合成列表也不画「导演」卡', (
       WidgetTester tester,
     ) async {
-      final Set<String> ids = registeredModIds();
-      expect(ids, isNotEmpty, reason: '在册注册表没解出来 = 这条门禁在空转');
+      // 2026-10-19（一 Mod 一本地仓库）：主仓工厂表为 0，没有「在册 id」可喂；
+      // 这里用**显式合成列表**证明行为本身：即使后端回了一个 director
+      // （旧配置 / 手写 mods.json），扩展区也不得为它长出导演卡——
+      // 导演已升为一级设置分区（settings/sections/director_section.dart）。
+      const List<String> syntheticIds = <String>['director', 'persona'];
       final List<ModInfo> mods = <ModInfo>[
-        for (final String id in ids)
+        for (final String id in syntheticIds)
           ModInfo(
             id: id,
             name: '',
@@ -436,32 +439,51 @@ void main() {
         _wrap(ModsSection(mods: mods, loading: false, onLoadState: _stubState)),
       );
       await tester.pumpAndSettle();
+      // name 留空 ⇒ 卡片标题回落成 id：画出来的是**通用**卡片，
+      // 不是「导演」那张一级设置面。
+      expect(
+        find.text('director'),
+        findsOneWidget,
+        reason: '合成列表里的 director 会作为普通卡片画出来（不是被整条丢掉）',
+      );
       expect(find.text('导演'), findsNothing, reason: '扩展区不得再有导演卡');
       // 不因「旧后端多回了一个 director」就长出第二套设置面：
       // 面板注册表已经明确不认它。
       expect(modPanelFor('director'), isNull);
     });
+
+    test('真源注册表解析成功且为空集（工厂 0 是缺省正确状态）', () {
+      final Set<String>? ids = registeredModIds();
+      expect(ids, isNotNull, reason: '解析失败 = 门禁坏了（文件 / 锚点 / 数组体）');
+      expect(ids, isEmpty, reason: '一 Mod 一本地仓库：主仓缺省不编入任何 Mod');
+    });
   });
 
   group('2026-10-18（§2）：扩展区隐藏 local-engine 卡', () {
-    testWidgets('真泵 ModsSection：在册 Mod 列表里没有 local-engine 卡', (
+    testWidgets('真泵 ModsSection：喂含 local-engine 的合成列表也不画 local-engine 卡', (
       WidgetTester tester,
     ) async {
-      final Set<String> ids = registeredModIds();
-      // 先证明这条门禁没有空转：被隐藏的 id 与对照 id 都必须真的在册
-      // （不然「没画出来」可能只是因为列表里本来就没有它）。
+      // 2026-10-19（一 Mod 一本地仓库）：主仓工厂表为 0，没有「在册 id」可喂；
+      // 这里用**显式合成列表**（被隐藏 id + 对照 id）证明行为本身。
+      const List<String> syntheticIds = <String>[
+        'local-engine',
+        'external-input',
+      ];
+      const String hiddenId = 'local-engine';
+      const String controlId = 'external-input';
+      // 隐藏判据仍来自 lib 里那份单一真源常量（测试不另抄名单）。
       expect(
-        ids,
-        contains('local-engine'),
-        reason: '在册注册表里没有 local-engine = 这条门禁在空转',
+        kModsHiddenFromShell,
+        contains(hiddenId),
+        reason: 'kModsHiddenFromShell 必须仍隐藏 local-engine',
       );
       expect(
-        ids,
-        contains('external-input'),
-        reason: '对照项 external-input 不在册 = 这条门禁在空转',
+        kModsHiddenFromShell,
+        isNot(contains(controlId)),
+        reason: '对照项 external-input 不该被隐藏',
       );
       final List<ModInfo> mods = <ModInfo>[
-        for (final String id in ids)
+        for (final String id in syntheticIds)
           ModInfo(
             id: id,
             // name 留空 ⇒ 卡片标题回落成 id（开发模式与产品模式同一处过滤）。
@@ -477,14 +499,14 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(
-        find.text('local-engine'),
+        find.text(hiddenId),
         findsNothing,
         reason: '设置 → 扩展区不得再画 local-engine 卡',
       );
       expect(
-        find.text('external-input'),
+        find.text(controlId),
         findsOneWidget,
-        reason: '只隐藏 local-engine；其它在册 Mod 照旧画出来',
+        reason: '只隐藏 local-engine；其它 Mod 照旧画出来（对照）',
       );
     });
 

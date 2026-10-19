@@ -107,7 +107,14 @@ const SKIPPED_DIR_NAMES: [&str; 5] = ["target", "build", "dist", "node_modules",
 /// `web_api/env_routes.rs` 381 → 218 + `env_routes_tests.rs` 298。
 /// `supervisor/tests_reload.rs` 仍是 486，相对 HEAD 无 diff。分句 / TTS / 口型未改行为。
 /// 复算证据：`cargo run -q -p xtask -- code-stats --check --only lines`（42 ≤ 42 = PASS）。
-const RATCHET_SRC_RS_500: u64 = 42;
+///
+/// **已收紧到 22**（2026-10-19「一 Mod 一本地仓库」，同 commit）：42 → **22**。
+/// 实测证据：本 commit 前一轮 `code-stats` 报 **23**（2026-10-16 D5 立档的 42
+/// 早已高于实测；按棘轮纪律第 1 条本轮一并收紧）；本轮删除已随 Mod 移出主仓的
+/// 测试文件 `web_api/voice_routes_tests.rs`（794 行 >500）等之后实测 **22**。
+/// 此前从 42 → 23 的下降跨了多个 commit 才收紧，本轮把交接栏补齐。
+/// 复算证据：`cargo run -q -p xtask -- code-stats --check --only lines`（22 ≤ 22 = PASS）。
+const RATCHET_SRC_RS_500: u64 = 22;
 /// **已收紧到 0**（2026-10-05 债轮 R4-T1，同批）：4 → 0，PLAN §5 目标达成
 /// （`--strict-plan` 这一项从此不再是「合规欠账」）。四个文件的去向：
 /// `mod_registry/{registry,events,tests_*}.rs`、
@@ -180,25 +187,32 @@ const RATCHET_DART_800: u64 = 0;
 /// 复算：`cargo run -q -p xtask -- code-stats --check --only deps`（22 ≤ 22 = PASS）。
 ///
 /// **已调到 23**（2026-10-09「两类 TTS」）：+1 条**新的产品 Mod 直边**——
-/// `live2d-ai-mod-local-tts`（id `local-tts`，缺省停用，只按用户 argv spawn
-/// 外部进程、不写 `[tts]`）。**这不是放宽棘轮**：棘轮纪律第 2 条禁的是
-/// 「为了让门禁变绿而抬高阈值」，而这里是一条真实新增的依赖边（22 → 23 是
-/// 实测值，不是把红的门禁涂绿）。`PLAN_DESKTOP_DEPS` **保持 22**——PLAN §5
-/// 的目标口径不动，`--strict-plan` 在 deps 上继续是红的（如实打印，不涂绿）。
+/// id `local-tts`（缺省停用，只按用户 argv spawn 外部进程、不写 `[tts]`；
+/// 该实现已于 2026-10-19 移出主仓，见下一条）。**这不是放宽棘轮**：棘轮纪律
+/// 第 2 条禁的是「为了让门禁变绿而抬高阈值」，而这里是一条真实新增的依赖边
+/// （22 → 23 是实测值，不是把红的门禁涂绿）。`PLAN_DESKTOP_DEPS` **保持 22**
+/// ——PLAN §5 的目标口径不动，`--strict-plan` 在 deps 上继续是红的（如实打印，不涂绿）。
 /// 复算：`cargo run -q -p xtask -- code-stats --check --only deps`（23 ≤ 23 = PASS）。
 ///
-/// **已调到 24**（2026-10-17 rc.6）：+1 条真实新增的产品依赖边——
-/// `live2d-ai-mod-local-engine`（id `local-engine`，缺省停用，spawn-only）。
-/// 同样不是放宽棘轮：这是实测的直接依赖数 24；`PLAN_DESKTOP_DEPS` 仍保持 22。
+/// **已调到 24**（2026-10-17 rc.6）：+1 条真实新增的产品依赖边——id `local-engine`
+/// （缺省停用，spawn-only）。同样不是放宽棘轮：这是实测的直接依赖数 24；
+/// `PLAN_DESKTOP_DEPS` 仍保持 22。
 /// 复算：`cargo run -q -p xtask -- code-stats --check --only deps`（24 ≤ 24 = PASS）。
 ///
-/// **已调到 25**（2026-10-19 0.3.9 rc.3）：+1 条真实新增的产品依赖边——
-/// `live2d-ai-mod-a2a`（id `a2a`，缺省停用）。宿主门 `web_api/a2a_gate` 要调
-/// 第二仓协议核并注册工厂，所以这是一条直边；同一改动把 A2A 路由从主仓
-/// `web_api/a2a_routes` 删掉（净减代码、净增 1 条依赖声明）。`PLAN_DESKTOP_DEPS`
-/// 仍保持 22（如实红，不涂绿）。
+/// **已调到 25**（2026-10-19 0.3.9 rc.3）：+1 条真实新增的产品依赖边——id `a2a`
+/// （缺省停用）。宿主门 `web_api/a2a_gate` 要调第二仓协议核并注册工厂，所以这是
+/// 一条直边；同一改动把 A2A 路由从主仓 `web_api/a2a_routes` 删掉（净减代码、
+/// 净增 1 条依赖声明）。`PLAN_DESKTOP_DEPS` 仍保持 22（如实红，不涂绿）。
 /// 复算：`cargo run -q -p xtask -- code-stats --check --only deps`（25 ≤ 25 = PASS）。
-const RATCHET_DESKTOP_DEPS: u64 = 25;
+///
+/// **已收紧到 18**（2026-10-19「一 Mod 一本地仓库」，同 commit）：25 → **18**。
+/// 七个 Mod 实现的 7 条 `workspace = true` 直边全部删除（id：external-input /
+/// persona / voice-input / memory / local-tts / local-engine / a2a；实现已各自迁到
+/// 一个本地仓库，主仓缺省不引用任何 Mod）。按 F-V0-9 棘轮纪律第 1 条**同 commit
+/// 收紧**到实测值——降了不收紧，回头涨回去就拦不住。`PLAN_DESKTOP_DEPS` 仍保持 22
+/// （目标口径不动）。
+/// 复算证据：`cargo run -q -p xtask -- code-stats --check --only deps`（18 ≤ 18 = PASS）。
+const RATCHET_DESKTOP_DEPS: u64 = 18;
 
 /// PLAN §5 量化目标（`--strict-plan`）。
 const PLAN_SRC_RS_500: u64 = 15;

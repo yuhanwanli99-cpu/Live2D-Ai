@@ -8,15 +8,13 @@ import importlib.util
 import os
 import unittest
 
-# serve.py 已随 crate 搬到第二仓「Live2D-Ai-mods」：两仓放在同一父目录，
-# 所以从主仓根再往上一级找。不要退回主仓内的 crates/ 路径——那里已经没有它。
+# serve.py 已随 crate 搬到独立本地仓库 live2d-ai-mod-local-tts：该仓库与主仓
+# 放在同一父目录，所以从主仓根再往上一级找。不要退回主仓内的 crates/ 路径——那里已经没有它。
 MAIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVE_PY = os.path.normpath(
     os.path.join(
         MAIN_ROOT,
         os.pardir,
-        "Live2D-Ai-mods",
-        "crates",
         "live2d-ai-mod-local-tts",
         "melo",
         "serve.py",
@@ -29,7 +27,7 @@ def _load_serve():
     if not os.path.isfile(SERVE_PY):
         raise FileNotFoundError(
             f"找不到 MeloTTS 垫片 serve.py：{SERVE_PY}"
-            "（它属第二仓 Live2D-Ai-mods；请把 Live2D-Ai-mods 与主仓放在同一父目录）"
+            "（它属本机仓库 live2d-ai-mod-local-tts；请把该仓库与主仓放在同一父目录）"
         )
     spec = importlib.util.spec_from_file_location("melo_serve_for_test", SERVE_PY)
     module = importlib.util.module_from_spec(spec)

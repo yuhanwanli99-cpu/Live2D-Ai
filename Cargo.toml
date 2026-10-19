@@ -19,20 +19,18 @@ members = [
     "xtask",
 ]
 
-# 0.3.1-rc.5 分仓库（2026-10-17）：五个 Mod 实现搬到 sibling checkout
-# ../Live2D-Ai-mods；主仓不再 standalone（缺这个目录 cargo metadata 即失败）。
-# 公开前切换成 git 依赖或 CI 双 checkout，见 docs/architecture/two-repo-mods.md。
+# 2026-10-19（一 Mod 一本地仓库）：**主仓缺省不引用任何 Mod 实现**。
+# 七个 Mod（external-input / persona / voice-input / memory / local-tts-melo /
+# local-engine / a2a）各自一个本地仓库（本机路径 /home/skystar/live2d-ai-mod-<id>，
+# 远端未建），主仓只保留共享契约 crate（live2d-ai-mod-system / template）与
+# 导演 Mod 的 motion_bias。只克隆主仓、填好 [llm] / [tts] 即可构建核心。
+# 要挂某个 Mod：由维护者手动把该 crate 加回本段 + crates/live2d-ai-desktop/Cargo.toml
+# + AVAILABLE_MOD_FACTORIES 工厂表 + 缺省 manifest 一行——**缺省提交里不要加**
+# （见 docs/architecture/two-repo-mods.md）。
+# 历史（已退役，勿恢复）：2026-10-17 曾把七个实现挂在主仓之外的 sibling
+# checkout（Mod 合集目录）的 path 依赖上，主仓因此不 standalone（缺那个目录
+# cargo metadata 即失败）；2026-10-19 起该形态取消。
 [workspace.dependencies]
-live2d-ai-mod-external-input = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-external-input" }
-live2d-ai-mod-persona = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-persona" }
-live2d-ai-mod-voice-input = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-voice-input" }
-live2d-ai-mod-memory = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-memory" }
-live2d-ai-mod-local-tts = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-local-tts" }
-# rc.6（2026-10-17）：spawn-only 本地引擎 Mod（缺省停用，不进缺省 manifest）。
-live2d-ai-mod-local-engine = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-local-engine" }
-# 0.3.9 rc.3：A2A 从主仓 web_api/a2a_routes 迁出，协议核住第二仓（id `a2a`，
-# **缺省停用**）。主仓只留宿主门 web_api/a2a_gate；工厂数 6 → 7。
-live2d-ai-mod-a2a = { path = "../Live2D-Ai-mods/crates/live2d-ai-mod-a2a" }
 
 # 第一批基础元数据，各成员可覆盖（如 crates/l2d 的 license 覆盖为 MIT OR Apache-2.0）
 [workspace.package]

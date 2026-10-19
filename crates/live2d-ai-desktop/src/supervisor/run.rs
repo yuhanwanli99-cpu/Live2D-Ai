@@ -137,9 +137,10 @@ pub(super) async fn run_forever(
             request = say_rx.recv() => match request {
                 Some(request) => {
                     let SayRequest { text, session } = request;
-                    // 3.0 队首第一片（2026-10-17）：从这一刻到本轮收口，外部文本
-                    // 端点会把新到的文本收进合并窗口、先不注入（等这一轮结束再
-                    // 把整窗合成一条推一次）。置位点在本轮任何事件之前。
+                    // 3.0 队首第一片（2026-10-17）：一轮在飞标志。2026-10-19 起
+                    // 消费者（外部文本端点的忙时合并窗口）已随 `external-input`
+                    // Mod 移出主仓，标志暂时无人读；仍按原语义在本轮任何事件之前
+                    // 置位（保留给挂回外部输入时的忙闲判定，见 supervisor.rs 字段注释）。
                     turn_in_flight.store(true, Ordering::Release);
                     next_turn_id += 1;
                     let cur_epoch = root.epoch;
@@ -204,9 +205,9 @@ pub(super) async fn run_forever(
                         &mut quitting, &emit,
                     )
                     .await;
-                    // 本轮收口：忙时合并窗口现在可以推出（在 TurnEnded /
-                    // AssistantReplied 之前置位，因为那些是「轮末准备下一轮」，
-                    // 合并线程只需要知道「上一条处理完了」）。
+                    // 本轮收口：清零「一轮在飞」标志（在 TurnEnded /
+                    // AssistantReplied 之前置位，因为那些是「轮末准备下一轮」）。
+                    // 消费者已随 `external-input` Mod 移出主仓，见上方置位处注释。
                     turn_in_flight.store(false, Ordering::Release);
                     // **Wave 3（2026-09-21）**：助手侧正文 → AssistantReplied。
                     //

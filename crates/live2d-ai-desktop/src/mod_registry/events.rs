@@ -168,8 +168,8 @@ pub(super) fn parse_mod_config(manifest: &serde_json::Value, id: &'static str) -
 ///    前端从脱敏配置出发只渲染 spec 字段，spec 之外的既有键同样不该被顺手抹掉。
 /// 2. **secret 字段显式空串 = 清除**：`secret_keys`（= 该 Mod
 ///    `settings_spec` 里 `secret=true` 的字段名）中的键若提交为 `""` / 纯空白，
-///    则从配置里**删除该键**（「空 = 没配」，与
-///    `live2d_ai_mod_external_input::token_from_config` 对空串的判定同口径）。
+///    则从配置里**删除该键**（「空 = 没配」，与已移出主仓的 token 类 Mod
+///    对空串的判定同口径；2026-10-19 一 Mod 一本地仓库后主仓不再引用它们）。
 ///    这是**唯一**的删除语法：前端留空 = 不提交 = 保留；要清除就得显式发空串。
 /// 3. 非 secret 字段的空串**照存**：它只是这个字段的值，不是删除语法。
 ///    ——与 `PUT /api/v1/env` 的「空值 = 清除该键」**刻意区分**：那条是密钥文件

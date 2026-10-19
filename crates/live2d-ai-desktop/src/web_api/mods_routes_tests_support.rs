@@ -2,7 +2,7 @@
 //!
 //! 仅供同目录 `mods_routes_tests` 使用：最小 `ServerContext`、带 schema /
 //! 带运行态的测试 Mod、取 body 的小工具。`pub(super)` 只为兄弟测试模块可见性，
-//! 不进产品 API（先例见 `external_routes_tests_support.rs`）。
+//! 不进产品 API（与 `mod_registry::tests_support` 同一条拆分先例）。
 
 use super::*;
 use crate::web_api::models_routes;
@@ -27,7 +27,6 @@ pub(super) fn dummy_ctx(sec: SecurityContext) -> ServerContext {
         mod_registry: std::sync::Arc::new(std::sync::Mutex::new(
             crate::mod_registry::ModRegistry::new(&[], &serde_json::json!({})),
         )),
-        external_coalescer: Default::default(),
     }
 }
 

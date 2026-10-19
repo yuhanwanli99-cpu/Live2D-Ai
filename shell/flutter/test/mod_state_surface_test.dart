@@ -11,13 +11,20 @@
 ///（「不得当覆盖证据」）。
 ///
 /// 改法：不再声称校验已删的生产者，把这批断言放回它们真正的对象——
-/// **前端仍在产品路径上的通用运行态面**。夹具的 Mod id 换成**在册**的
-/// `persona`，并由 [registeredModIds]（读 `main.rs` 的
-/// `AVAILABLE_MOD_FACTORIES`，唯一真源）交叉核对：**crate 被删就红**，
-/// 而不是继续绿着骗人。
+/// **前端仍在产品路径上的通用运行态面**。
 ///
-/// 2026-10-17（rc4）：原夹具 id 是 `director`；导演退役成核心常驻后移出注册表
-/// （工厂 6→5），夹具随之换成仍在册的 `persona`。
+/// # 2026-10-19（一 Mod 一本地仓库）：契约夹具的 id 是**合成字符串**
+///
+/// 主仓 `AVAILABLE_MOD_FACTORIES` 现为**空切片**：七个 Mod 实现各自一个本地
+/// 仓库，缺省主仓不编入任何 Mod。`ModsApi.state` 本身不查在册表——它只拼
+/// `/api/v1/mods/{id}/state` 并解析回包——所以 [modStateBodyId] 只是**合成**
+/// id，**不声称**后端在册。
+///
+/// 门禁相应换成两条（旧的是「非空 + 长度 7 + containsAll」）：
+/// 1. [registeredModIds] **解析成功**（返回 null = 文件/锚点/数组体坏了，必须红）；
+/// 2. 解出来的就是**空集**——工厂 0 是缺省正确状态，不是空转。
+/// 另外单独覆盖解析器本身「null ≠ 空集」的区分，避免它退化成「永远空集」的
+/// 假绿灯（那时 main.rs 指错了也没人知道）。
 ///
 /// state_json 的键仍是**通用协议键**（`kModStateLabels` 的兜底表：
 /// `window` / `opened` / `reason` 等）——前端对**任意** Mod 的 state 都按这套
@@ -53,17 +60,18 @@ http.Response jsonResponse(String body, int status) => http.Response.bytes(
   },
 );
 
-/// `ModsApi.state` 那条**真端点契约**用的 id：必须是**在册** Mod
-/// （`AVAILABLE_MOD_FACTORIES` 里真的有它）。crate 被删掉而这里还写着它 ⇒
-/// 「夹具的 Mod id 必须在册」那组会红（D6）。
-const String modStateBodyId = 'persona';
+/// `ModsApi.state` 那条**真端点契约**用的 id：**合成字符串**，不是后端契约。
+///
+/// `ModsApi.state` 不查在册表（只拼 `/api/v1/mods/{id}/state` 并解析回包）；
+/// 2026-10-19 起主仓工厂表为空（一 Mod 一本地仓库），没有任何「在册 id」可引用。
+const String modStateBodyId = 'demo-mod-state';
 
 /// `GET /api/v1/mods/{id}/state` 的响应夹具：`{id, enabled, state}` +
 /// **通用** `state_json` 键（前端对任意 Mod 的 state 都按 `kModStateLabels`
 /// 这套渲染）。
 ///
 /// **不是在抄某个 Mod 的真实产出**：键是通用兜底表的键；id 只用 [modStateBodyId]
-/// 这个在册值，交叉核对在下面那组。
+/// 这个**合成**值，不声称任何后端注册（2026-10-19 起主仓缺省 0 个工厂）。
 String modStateBody({
   bool enabled = true,
   bool alwaysOnTop = true,
@@ -169,52 +177,112 @@ String _stateValue(WidgetTester tester, String label) {
 }
 
 void main() {
-  group('夹具的 Mod id 必须**在册**（D6：crate 被删就该红）', () {
-    test('registeredModIds 从 Rust 静态注册表解出全部在册 Mod', () {
-      final Set<String> ids = registeredModIds();
-      expect(ids, isNotEmpty, reason: '真源一个 id 都没解出来 —— 门禁在空转（不是「后端没有 Mod」）');
-      // 2026-10-17（rc4）：导演退役成核心常驻 → 工厂表 6 → **5**；
-      // rc.6 新增 spawn-only `local-engine`（缺省停用）→ **6**。
-      // 0.3.9 rc.3：A2A 从主仓 `web_api` 迁出成第二仓 Mod `a2a`（缺省停用）→ **7**。
+  group('真源注册表：解析成功且为**空集**（工厂 0 = 缺省正确状态）', () {
+    test('registeredModIds 从 main.rs 解析成功，且工厂表恰为 0 个', () {
+      final Set<String>? ids = registeredModIds();
       expect(
         ids,
-        hasLength(7),
-        reason: '0.3.9 rc.3 起工厂表恰为 7 个（rc.6 的 6 个 + A2A 的 `a2a`）',
+        isNotNull,
+        reason:
+            '解析失败（文件没了 / 找不到 AVAILABLE_MOD_FACTORIES 锚点 /'
+            ' 数组体解析不出来）= 门禁坏了，必须红；'
+            '「0 个工厂」才是现行正确状态，不是空转',
       );
+      // 2026-10-19（一 Mod 一本地仓库）：七个实现各自一个本地仓库，缺省主仓
+      // 不编入任何 Mod。要挂回某个 Mod，才由维护者改 main.rs 的工厂表。
       expect(
         ids,
-        containsAll(<String>[
-          'external-input',
-          'persona',
-          'voice-input',
-          'memory',
-          // 2026-10-09（0.2.3-rc.1）：工厂面回到 6 个——CosyVoice3 的 `local-tts`
-          // **已封存移出**（不再断言它在册；挂回会在这里露出来）。
-          // 出厂出声的是同一个 crate 的第二个引擎 `local-tts-melo`；
-          // 它的 id 推不出来（见 kExtraFactoryIds）——所以这里必须点名断言。
-          'local-tts-melo',
-          // rc.6：spawn-only 本地引擎（只注册、缺省停用）。
-          'local-engine',
-          // 0.3.9 rc.3：A2A 协议核迁进第二仓 Mod（只注册、缺省停用；
-          // 宿主只留 `web_api/a2a_gate` 的门）。
-          'a2a',
-        ]),
-        reason: '`AVAILABLE_MOD_FACTORIES` 变了（删 / 改 Mod）就必须在这里看见',
+        isEmpty,
+        reason: '主仓缺省工厂表必须为空；非空 = 有 Mod 被编回了主仓（缺省提交不允许）',
       );
     });
+  });
 
-    test('**契约夹具**指向的 id 在册（pet-desktop / local-llm 那种已删 crate 的夹具会红）', () {
-      final Set<String> ids = registeredModIds();
-      expect(ids, isNotEmpty, reason: '空集 = 上面那条已经在空转');
-      // `modStateBody()` 是 `ModsApi.state` 那条**真端点契约**的夹具：
-      // 它声称「后端会回这个形状」，所以它的 id 必须真的在册。
-      expect(
-        ids,
-        contains(modStateBodyId),
-        reason:
-            '契约夹具 $modStateBodyId 不在 `AVAILABLE_MOD_FACTORIES` 里 ——'
-            '这正是 D6 说的「删 Rust 后仍绿」的假绿灯，必须红',
+  group('registeredModIds 解析器：null（失败）与空集（真源 0 个）必须分开', () {
+    late Directory dir;
+    setUp(() => dir = Directory.systemTemp.createTempSync('registered_mods_'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    String sourceFile(String name, String body) {
+      final File f = File('${dir.path}/$name');
+      f.writeAsStringSync(body);
+      return f.path;
+    }
+
+    test('文件不存在 → null', () {
+      expect(registeredModIds(source: '${dir.path}/missing.rs'), isNull);
+    });
+
+    test('找不到 AVAILABLE_MOD_FACTORIES 锚点 → null', () {
+      final String path = sourceFile(
+        'no_anchor.rs',
+        'pub static OTHER: &[&dyn X] = &[live2d_ai_mod_foo::FACTORY];',
       );
+      expect(registeredModIds(source: path), isNull);
+    });
+
+    test('锚点只在注释里（剥注释后消失）→ null', () {
+      final String path = sourceFile(
+        'comment_only.rs',
+        '// pub static AVAILABLE_MOD_FACTORIES: &[&dyn X] = &[];',
+      );
+      expect(registeredModIds(source: path), isNull);
+    });
+
+    test('声明在、但没有 = &[ 数组体 → null', () {
+      final String path = sourceFile(
+        'no_body.rs',
+        'pub static AVAILABLE_MOD_FACTORIES: &[&dyn X];',
+      );
+      expect(registeredModIds(source: path), isNull);
+    });
+
+    test('数组体括号不平衡 → null', () {
+      final String path = sourceFile(
+        'unbalanced.rs',
+        'pub static AVAILABLE_MOD_FACTORIES: &[&dyn X] = &[live2d_ai_mod_foo::FACTORY;',
+      );
+      expect(registeredModIds(source: path), isNull);
+    });
+
+    test('表非空却解不出任何 id → null（空集不许冒充「缺省 0」）', () {
+      final String path = sourceFile(
+        'unparsable.rs',
+        'pub static AVAILABLE_MOD_FACTORIES: &[&dyn X] = &[some_factory()];',
+      );
+      expect(registeredModIds(source: path), isNull);
+    });
+
+    test('工厂形态认得、但推不出 id 且没显式登记 → null（不漏 id）', () {
+      final String path = sourceFile(
+        'unknown_factory.rs',
+        'pub static AVAILABLE_MOD_FACTORIES: &[&dyn X] = &[live2d_ai_mod_foo::BAR];',
+      );
+      expect(registeredModIds(source: path), isNull);
+    });
+
+    test('空切片 → 空集（解析成功、真源就是 0 个）', () {
+      final String path = sourceFile(
+        'empty.rs',
+        'pub static AVAILABLE_MOD_FACTORIES: &[&dyn X] = &[];',
+      );
+      expect(registeredModIds(source: path), isEmpty);
+    });
+
+    test('非空表 → 解出 id（::FACTORY 按 crate 名推导）', () {
+      final String path = sourceFile(
+        'one.rs',
+        'pub static AVAILABLE_MOD_FACTORIES: &[&dyn X] = &[live2d_ai_mod_voice_input::FACTORY];',
+      );
+      expect(registeredModIds(source: path), <String>{'voice-input'});
+    });
+
+    test('显式登记的第二个工厂 id 仍能解出（kExtraFactoryIds 保留给挂回用）', () {
+      final String path = sourceFile(
+        'melo.rs',
+        'pub static AVAILABLE_MOD_FACTORIES: &[&dyn X] = &[live2d_ai_mod_local_tts::MELO_FACTORY];',
+      );
+      expect(registeredModIds(source: path), <String>{'local-tts-melo'});
     });
   });
 
@@ -471,8 +539,10 @@ void main() {
 
   group('通用运行态兜底面：有专用面板就不渲染（2026-10-06 裁决，R4-T2 / T2-B2）', () {
     // 契约：那块「运行态（只读）」是**没有专用面板**的 Mod 的兜底面；
-    // 在册 5 个 Mod 里 4 个有专用面板（local-tts-melo 没有面板），
-    // 有面板的运行态（含 `stateError`）由面板自己承担。
+    // 面板注册表仍保留 4 张产品面板（external-input / persona / voice-input /
+    // memory），有面板的运行态（含 `stateError`）由面板自己承担。
+    // 2026-10-19（一 Mod 一本地仓库）：主仓缺省工厂表为 0，后端缺省不回任何
+    // Mod 卡；这些面板只在对应 Mod 被挂回主仓后才有卡片可挂。
     // 上面三条 widget 用例打的是**无面板**的合成 Mod（`demo-mod`）——
     // 所以它们断言「块在」，与本组契约不矛盾。
     test('宿主判据改成「没有专用面板才渲染」', () {

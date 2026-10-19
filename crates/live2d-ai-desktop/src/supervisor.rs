@@ -227,9 +227,10 @@ pub struct SupervisorHandle {
     reload_ack: Arc<std::sync::Mutex<Option<ReloadAck>>>,
     /// 「一轮是否在飞」（3.0 队首第一片，2026-10-17）。
     ///
-    /// 外部文本端点用它判断「上一条还没处理完」：在飞时把文本收进忙时合并
-    /// 窗口、先不注入；本轮收口后再把整窗合并成一条注入一次。supervisor 线程
-    /// 在 `run_one_turn` 前后置位 / 清零，HTTP 线程只读（Release / Acquire）。
+    /// 2026-10-19：唯一的消费者——外部文本端点的忙时合并窗口——已随
+    /// `external-input` Mod 移出主仓删除。标志仍在 supervisor 线程里按轮置位 /
+    /// 清零（行为不变，成本一个原子写），但当前**没有调用者**；保留它是为了
+    /// 挂回外部输入时不必重新接线（届时一并恢复合并窗口与端点 handler）。
     turn_in_flight: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -359,8 +360,10 @@ impl SupervisorHandle {
 
     /// 主链是否正在处理一轮（`true` = 上一条还没结束）。
     ///
-    /// 外部文本端点（`POST /api/v1/external/chat`）在忙时把文本收进合并窗口、
-    /// 先不注入；常驻合并线程在本方法返回 `false` 后才把整窗注入一次。
+    /// 2026-10-19：忙时合并窗口已随 `external-input` Mod 移出主仓删除，本方法
+    /// 目前**没有调用者**（标志仍按轮置位 / 清零）；保留给挂回外部输入时的忙闲
+    /// 判定——因此显式放行 dead_code，而不是删掉这条本该存在的能力查询。
+    #[allow(dead_code)]
     pub fn turn_in_flight(&self) -> bool {
         self.turn_in_flight
             .load(std::sync::atomic::Ordering::Acquire)

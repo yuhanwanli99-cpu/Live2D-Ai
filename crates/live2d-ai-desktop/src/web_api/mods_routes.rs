@@ -382,7 +382,7 @@ fn accepted_response() -> Response<Cursor<Vec<u8>>> {
 
 /// 取 `mod_registry` 锁：**锁毒化不 panic**。
 ///
-/// 口径与 `external_routes` / `voice_routes` 的门禁读完全一致（F-0006-03）：
+/// 口径与既有前置路由的门禁读完全一致（F-0006-03）：
 /// Mod 侧一次 panic 只应把这把锁降级成「拿到旧快照」，**不应**在
 /// `run_request_loop`（裸 for 循环，无 catch_unwind）上再 panic 一次 ——
 /// 那会把整个 HTTP 面**永久**打死，而不是退化成一次失败响应。

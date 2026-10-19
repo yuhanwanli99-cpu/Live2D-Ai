@@ -280,11 +280,14 @@ pub fn dispatch_with_security(
 ///
 /// # 为什么是 pub(super) 且收字符串路由
 ///
-/// F-0001-01：四条**前置路由**（chat session / external chat / voice transcript /
+/// F-0001-01：**前置路由**（a2a / chat session / external chat / voice transcript /
 /// mods，见 mod.rs 的 run_request_loop）在 dispatch **之前**就返回，从前自己
 /// respond 且**一行日志都不留**。现在它们与 WS 前门一起走 mod.rs 的
 /// respond_and_log，而分级判据**只有这一份**（同一件事不允许两套解释）。
 /// 前置路由没有 RouteId，故路由标签收成 &str；dispatch 侧传 route.as_str()。
+///
+/// 2026-10-19：external chat / voice transcript / a2a 三条已是「未挂载即 404
+/// mod_disabled」存根，仍走同一条日志出口（404 落 warn，与真实拒绝同一档）。
 pub(super) fn log_request_outcome(
     method: &Method,
     path: &str,

@@ -26,18 +26,19 @@ import 'support/registered_mods.dart';
 /// 2026-10-05 修订（D6）：夹具里那个 `local-llm` **已废除启动且 crate 已被
 /// 物理删除**（`ARCHIVED-mods.md` §3.1，W2-A）——留着它，这个文件在删 crate
 /// 之后**照样绿**（前端只解析 JSON），是 D6 点名的「已删 crate 硬编码夹具
-/// 假绿灯」。现在换成在册的 `persona`，并由 `registeredModIds()`（读
-/// `main.rs` 的 `AVAILABLE_MOD_FACTORIES`，唯一真源）交叉核对：
-/// **crate 被删 / 改名就红**。
+/// 假绿灯」。
 ///
-/// 2026-10-17（rc4）：导演退役成核心常驻（工厂 6→5），夹具随之换成仍在册的
-/// `persona`——夹具 id 必须始终是**当前**注册表里的一个。
+/// 2026-10-09「两类 TTS」：`local-tts` 当时是**只拉起外部进程**的 Mod（缺省停用），
+/// 它**不写** `[tts]`：出声端点仍只由「语音合成」设置页（`PATCH /api/v1/settings`，
+/// `live2d-ai.toml` 的 `[tts]`）决定。
 ///
-/// 2026-10-09「两类 TTS」：本轮重新注册进 `AVAILABLE_MOD_FACTORIES` 的是 `local-tts`
-/// ——一个**只拉起外部进程**的 Mod（缺省停用），它**不写** `[tts]`：出声端点仍
-/// 只由「语音合成」设置页（`PATCH /api/v1/settings`，`live2d-ai.toml` 的 `[tts]`）
-/// 决定。夹具 JSON **不为此扩成全量名单**（本文件的判据是「夹具 id 在册」，不是
-/// 「列出全部在册 Mod」；全量那份在 `mod_state_surface_test.dart`）。
+/// # 2026-10-19（一 Mod 一本地仓库）：夹具 id 是**合成字符串**
+///
+/// 主仓 `AVAILABLE_MOD_FACTORIES` 现为**空切片**——七个 Mod 实现各自一个本地
+/// 仓库，缺省主仓不编入任何 Mod。`ModsApi.list()` 只解析 JSON、不认识注册表，
+/// 所以夹具里的 `external-input` / `persona` 只是**合成 id**（不是后端契约，
+/// 不声称在册）。本文件的门禁相应改成：真源**解析成功**（null = 门禁坏了）
+/// 且解出**空集**（工厂 0 = 缺省正确状态）；「夹具 id 必须在册」那条已删除。
 const String kRealModelsJson = '{"models":[]}';
 
 const String kRealModsJson = '''
@@ -174,7 +175,7 @@ void main() {
   });
 
   group('ModsApi', () {
-    test('夹具列表（两个**在册** Mod）：状态文字两两可辨', () async {
+    test('夹具列表（两个**合成 id**）：状态文字两两可辨', () async {
       final ModsApi api = ModsApi(
         base: 'http://x',
         client: MockClient((_) async => jsonResponse(kRealModsJson, 200)),
@@ -189,16 +190,22 @@ void main() {
       expect(mods[1].statusLabel, '运行中');
     });
 
-    test('夹具里的 Mod id 都在册（删 crate 就红，不是硬编码假绿灯）', () {
-      // D6：这个文件原先拿 `local-llm` 当夹具——那个 crate 被物理删除之后
-      // 它**照样绿**（前端只解析 JSON）。判据接回唯一真源：
-      // `crates/live2d-ai-desktop/src/main.rs` 的 `AVAILABLE_MOD_FACTORIES`。
-      final Set<String> ids = registeredModIds();
-      expect(ids, isNotEmpty, reason: '真源一个 id 都没解出来 —— 这条门禁在空转（不是「后端没有 Mod」）');
+    test('真源注册表解析成功且为**空集**（工厂 0 是缺省正确状态）', () {
+      // 2026-10-19（一 Mod 一本地仓库）：主仓缺省不编入任何 Mod。
+      // 本文件的夹具 JSON 只是**前端解析形状**的输入：`external-input` /
+      // `persona` 在这里是**合成字符串**（前端不认识注册表），不声称后端在册。
+      // 门禁只剩一条：解析必须**成功**（null = 文件/锚点/数组体坏了，必须红），
+      // 且真源就是 0 个工厂（非空 = 有 Mod 被编回了主仓，缺省不允许）。
+      final Set<String>? ids = registeredModIds();
       expect(
         ids,
-        containsAll(<String>['external-input', 'persona']),
-        reason: '夹具指向了不在 `AVAILABLE_MOD_FACTORIES` 里的 Mod（已删 / 改名）',
+        isNotNull,
+        reason: '解析失败 = 门禁坏了；「0 个工厂」才是现行正确状态',
+      );
+      expect(
+        ids,
+        isEmpty,
+        reason: '主仓缺省工厂表必须为空（一 Mod 一本地仓库）',
       );
     });
 

@@ -29,7 +29,7 @@
 - [**底座一致性索引（已有测试点名）**](architecture/base-conformance.md)
   ——索引，非契约真源：只列已存在的测试名与其钉住的事实（口型 dB 映射、姿态分层、cue 不写口型、句界归引擎）；协议仍以 `performance-protocol-v1.md` 与 `core-chain-baseline.md` 为准
 - [**Mod 产品链路**](architecture/mod-product-chain.md)
-- [**核心与 Mod 两仓结构（2026-10-17 rc5 起：主仓 + 本地 Mod 仓）**](architecture/two-repo-mods.md)
+- [**一 Mod 一本地仓库（2026-10-19 起：主仓 standalone + 七个本机 Mod 仓库）**](architecture/two-repo-mods.md)
 - [**已封存 Mod 台账（ARCHIVED：wallpaper / pet-desktop）**](architecture/ARCHIVED-mods.md)
   ——与 `local-llm` 的 DEPRECATED 同口径：**不再注册、不再编译进 binary**；crate 已于 2026-10-01 物理删除，
   只在 tag `checkpoint/pre-d1-dormant`，**禁止挂回**；含恢复条件与理由
@@ -150,6 +150,8 @@
 - [**0.3.10 执行单：标红、声明、皮套分发**](plans/PLAN-0.3.10-red-docs-statement-2026-10-19.md)
   ——**已收口（2026-10-19，本地 tag `v0.3.10-rc.1` = `3a7f6c0`、`rc.2` = `cab3996`、`rc.3` 只清理，未 push；发布说明 [v0.3.10-rc.3](releases/v0.3.10-rc.3.md)）**：
   `live2d_stage.dart` 844 → 785（`dart-800` 归零）、pytest Melo 路径指第二仓；项目声明收成单一 AGPL-3.0（商业付费 = 单独书面协议）；皮套入库 ≠ 仓库分发；README 工厂 6 → 7、A2A 旧句对齐
+- [**主仓只留核心 / 一 Mod 一本地仓库（2026-10-19 执行单）**](plans/PLAN-main-core-mod-repos-2026-10-19.md)
+  ——主仓工厂 0、`default_mods_manifest` 空、七个本机仓库（远端未建）；旧 `Live2D-Ai-mods` 只作历史来源
 - **0.2 时代收口（2026-10-13，已收口）**：执行单、范围计划与身份收口两单已随 rc2 移出工作树，
   逐字取回见 [已移出工作树的文档索引](REMOVED-docs-index-2026-10-06.md) §8
 

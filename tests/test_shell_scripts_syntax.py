@@ -11,8 +11,12 @@
 判据两条：
 1. `scripts/*.sh` 每个都能被 `bash -n` 解析；
 2. `ignite.sh` 的就绪等待只认 `[tts].mode`——真跑那段读配置 / 打印的代码，
-   cloud 必须打印「云端端点，不等本机进程」，local 必须打印「本机进程随点火
-   拉起并等待」（不是按 base_url 主机名猜）。
+   cloud 必须打印「云端端点，不等本机进程」，local 必须打印「等待本机 TTS
+   就绪（缺省不自动拉起）」（不是按 base_url 主机名猜）。
+
+注（2026-10-19「一 Mod 一本地仓库」）：缺省构建不挂 `local-tts` Mod，Melo 不再
+由主链自动拉起，故 local 档的文案改为「等待就绪（缺省不自动拉起）」；判据本身
+（等待只看 `[tts].mode`，不看 base_url 主机名）不变。
 """
 
 from __future__ import annotations
@@ -78,7 +82,9 @@ def test_ignite_readiness_follows_tts_mode_not_host(tmp_path: Path) -> None:
         tmp_path,
         '[tts]\nmode = "local"\nbase_url = "http://127.0.0.1:8091/v1"\n',
     )
-    assert "配置 TTS mode : local（本机进程随点火拉起并等待）" in local, local
+    # 2026-10-19 起缺省不挂 local-tts Mod：文案改为「缺省不自动拉起」，
+    # 但「local 就等本机 TTS」这条判据不变。
+    assert "配置 TTS mode : local（等待本机 TTS 就绪（缺省不自动拉起））" in local, local
 
     # 关键反差：**云端地址写成本机**时仍按 mode 判「不等」——旧口径会去等一个
     # 永远不会起的 Melo（这正是 0.3.9 要修的那条）。

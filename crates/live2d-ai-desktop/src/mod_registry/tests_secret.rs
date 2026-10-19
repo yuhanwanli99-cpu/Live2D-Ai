@@ -9,9 +9,80 @@
 //! 旧的整份替换（`e.config = config`）会在保存任意普通字段时把它一并抹掉，注入
 //! 端点的鉴权随之**静默失效**。修复在 `super::merge_mod_config`（规则）与
 //! `super::reload_config`（入口）。
+//!
+//! 2026-10-19（一 Mod 一本地仓库）：本文件**不再引用任何已移出主仓的 Mod crate**，
+//! 也不依赖 `AVAILABLE_MOD_FACTORIES` 非空——用**测试专用 ModFactory** 覆盖两条
+//! 语义：① 保存非 secret 字段不抹 secret；② 显式空串清 secret。
+//! 原先那条「循环全部在册 Mod、断言 covered >= 2」的测试已删除：缺省工厂表为 0，
+//! 那个循环必然空转（假绿灯），规则改由下面这两个用例直接钉住。
 
 use super::*;
 use live2d_ai_mod_system::ModSettingField;
+
+/// 测试专用工厂：`settings_spec` 含一个 secret String（`token`）+ 一个普通
+/// String（`path`）。**不进产品** `AVAILABLE_MOD_FACTORIES`。
+struct SecretSpecMod;
+
+impl ModFactory for SecretSpecMod {
+    fn descriptor(&self) -> &'static ModDescriptor {
+        static D: ModDescriptor = ModDescriptor {
+            id: "secretmod",
+            name: "SecretMod",
+            version: "0.1.0",
+            api_version: 1,
+        };
+        &D
+    }
+
+    fn settings_spec(&self) -> Option<ModSettingsSpec> {
+        Some(ModSettingsSpec {
+            mod_id: "secretmod".to_string(),
+            title: "密钥回归".to_string(),
+            version: 1,
+            fields: vec![
+                ModSettingField::String {
+                    key: "token".to_string(),
+                    label: "密钥".to_string(),
+                    secret: true,
+                    default: None,
+                },
+                ModSettingField::String {
+                    key: "path".to_string(),
+                    label: "路径".to_string(),
+                    secret: false,
+                    default: None,
+                },
+            ],
+        })
+    }
+
+    fn create(
+        &self,
+        _: ModServices,
+        _: serde_json::Value,
+    ) -> Result<Box<dyn ModRuntime>, ModError> {
+        Ok(Box::new(NoopRuntime))
+    }
+}
+
+/// 本回归不启用 Mod，runtime 只为满足工厂契约。
+struct NoopRuntime;
+
+impl ModRuntime for NoopRuntime {
+    fn start(&mut self, _: &mut dyn ModRegistrar) -> Result<(), ModError> {
+        Ok(())
+    }
+}
+
+/// 测试工厂表（仅本文件用；缺省产品工厂表为空）。
+static FACTORIES: &[&dyn ModFactory] = &[&SecretSpecMod];
+
+fn registry_with(config: serde_json::Value) -> ModRegistry {
+    ModRegistry::new(
+        FACTORIES,
+        &serde_json::json!({"mods": {"secretmod": {"enabled": false, "config": config}}}),
+    )
+}
 
 /// 纯函数：合并是**按键**的——提交里没有的键保留（secret 保护的地基）。
 #[test]
@@ -53,81 +124,43 @@ fn merge_mod_config_blank_secret_clears_only_secret_keys() {
     assert_eq!(merged["token"], serde_json::json!("new"));
 }
 
-/// **覆盖全部在册 Mod**：保存一个非 secret 字段（前端从 GET 的**脱敏**配置出发，
-/// 提交里本来就没有密钥）后，settings_spec 声明的每个 secret 都必须仍在。
+/// **保存非 secret 字段不抹 secret**（F-0062-01 的行为级回归）。
 ///
-/// 循环遍历 `crate::AVAILABLE_MOD_FACTORIES`：将来新增带 secret 的 Mod **自动**
-/// 纳入本回归，不需要有人记得来补一行。
+/// 模拟前端：GET 的脱敏配置里没有密钥，用户只改普通字段后提交。旧实现整份替换
+/// 会把 `token` 抹掉 ⇒ 注入端点鉴权**静默失效**（这正是 F-0062-01）。
 #[test]
-fn every_registered_mod_keeps_its_secret_on_config_save() {
-    let mut mods = serde_json::Map::new();
-    let mut covered: Vec<(&'static str, String)> = Vec::new();
-    for factory in crate::AVAILABLE_MOD_FACTORIES {
-        let id = factory.descriptor().id;
-        let mut cfg = serde_json::Map::new();
-        if let Some(spec) = factory.settings_spec() {
-            for field in &spec.fields {
-                if let ModSettingField::String {
-                    key, secret: true, ..
-                } = field
-                {
-                    cfg.insert(key.clone(), serde_json::json!(format!("secret-of-{id}")));
-                    covered.push((id, key.clone()));
-                }
-            }
-        }
-        // 本次保存只动这个普通字段。
-        cfg.insert("probe_non_secret".to_string(), serde_json::json!("v1"));
-        mods.insert(
-            id.to_string(),
-            serde_json::json!({"enabled": false, "config": cfg}),
-        );
-    }
-    assert!(
-        covered.len() >= 2,
-        "在册 Mod 至少要有两个 secret 字段（external-input / voice-input），否则本测试空转；当前 {covered:?}"
+fn saving_non_secret_field_keeps_secret() {
+    let mut reg = registry_with(serde_json::json!({"token": "s3cret", "path": "/old"}));
+    reg.reload_config("secretmod", serde_json::json!({"path": "/new"}))
+        .expect("在册 Mod 的配置保存必须成功");
+    let cfg = reg.config("secretmod").expect("secretmod 在册");
+    assert_eq!(
+        cfg["token"],
+        serde_json::json!("s3cret"),
+        "secret 被一次普通保存抹掉了：{cfg}"
     );
-    let mut reg = ModRegistry::new(
-        crate::AVAILABLE_MOD_FACTORIES,
-        &serde_json::json!({"mods": mods}),
-    );
-    for (id, key) in &covered {
-        reg.reload_config(id, serde_json::json!({"probe_non_secret": "v2"}))
-            .expect("在册 Mod 的配置保存必须成功");
-        let cfg = reg.config(id).expect("在册");
-        let expected = format!("secret-of-{id}");
-        assert_eq!(
-            cfg.get(key.as_str()).and_then(|v| v.as_str()),
-            Some(expected.as_str()),
-            "Mod {id} 的 secret `{key}` 被一次配置保存抹掉了：{cfg}"
-        );
-        assert_eq!(cfg["probe_non_secret"], serde_json::json!("v2"));
-    }
+    assert_eq!(cfg["path"], serde_json::json!("/new"), "普通字段应更新");
 }
 
-/// 显式空串（工具客户端 / curl 的清除语法）真的删掉密钥；清除后
-/// `token_from_config` 回 `None`（= 空 = 没配）。
+/// **显式空串清 secret**（工具客户端 / curl 的清除语法）。
+///
+/// 清除后键被删除（= 未配置）；未提交的普通字段保留；普通字段的空串只是值，
+/// **不是**删除语法（与 `PUT /api/v1/env` 的「空 = 清除」刻意区分）。
 #[test]
 fn explicit_blank_secret_clears_stored_token() {
-    let mut reg = ModRegistry::new(
-        crate::AVAILABLE_MOD_FACTORIES,
-        &serde_json::json!({"mods": {"external-input": {
-            "enabled": false,
-            "config": {"token": "cfg-secret", "text_template": "[T]{text}"}
-        }}}),
-    );
-    reg.reload_config("external-input", serde_json::json!({"token": ""}))
-        .unwrap();
-    let cfg = reg.config("external-input").expect("在册").clone();
+    let mut reg = registry_with(serde_json::json!({"token": "cfg-secret", "path": "/p"}));
+    reg.reload_config("secretmod", serde_json::json!({"token": "   "}))
+        .expect("显式空串清除必须成功");
+    let cfg = reg.config("secretmod").expect("secretmod 在册").clone();
     assert!(cfg.get("token").is_none(), "显式空串应删键：{cfg}");
-    assert_eq!(
-        live2d_ai_mod_external_input::token_from_config(&cfg),
-        None,
-        "清除后不得再有 config token：{cfg}"
-    );
-    assert_eq!(
-        cfg["text_template"],
-        serde_json::json!("[T]{text}"),
-        "未提交的键保留"
+    assert_eq!(cfg["path"], serde_json::json!("/p"), "未提交的键保留");
+
+    reg.reload_config("secretmod", serde_json::json!({"path": ""}))
+        .expect("非 secret 空串保存必须成功");
+    let cfg = reg.config("secretmod").expect("secretmod 在册").clone();
+    assert_eq!(cfg["path"], serde_json::json!(""), "非 secret 空串照存");
+    assert!(
+        cfg.get("token").is_none(),
+        "已清除的 secret 不该被一次空串保存复活：{cfg}"
     );
 }

@@ -638,8 +638,8 @@ pub(crate) fn build_web_supervisor(
 /// 这条路径不只是「打开哪个 toml」：它是所有**同目录派生物**的锚点——
 /// `mods.json`、memory 的 `memory.jsonl`、persona 的导入卡。
 /// 返回裸文件名（`live2d-ai.toml`）时 `Path::parent()` 是**空路径**，
-/// `live2d-ai-mod-memory::strategy::resolve_store_path` 会把空目录过滤掉 →
-/// 存储路径 `None` → **Mod 显示「运行中」却一条也记不住**
+/// Mod 侧（如 memory，已随「一 Mod 一本地仓库」移出主仓）的存储路径解析会把
+/// 空目录过滤掉 → 存储路径 `None` → **Mod 显示「运行中」却一条也记不住**
 ///（`state.records=null`、`errors` 增长）。点火实测复现后统一绝对化。
 pub fn config_path_for_web() -> String {
     let cwd_candidate = std::path::Path::new("live2d-ai.toml");
@@ -702,18 +702,18 @@ pub fn mods_path_for_web() -> std::path::PathBuf {
 
 /// 内建缺省 Mod manifest（`mods.json` 缺失时使用；M1 修复）。
 ///
-/// 0.2.0-rc.1：**缺省启用 `external-input`**（直播弹幕 / 礼物经 Windows sidecar
-/// 清洗后 `POST /api/v1/external/chat` 注入主链路）。端点 loopback-only，
-/// token 可选（env `EXTERNAL_INPUT_TOKEN` 或 Mod config `token`）；无 token 时
-/// 任何**本机**进程都能注入——介意者可在 Mod 设置里填 token，或在「Mod 管理」停用。
+/// **2026-10-19（一 Mod 一本地仓库）：缺省不挂任何 Mod**——返回 `{"mods": {}}`。
+/// 七个 Mod 实现各自一个本地仓库，主仓不再编译进任何工厂，所以没有 `mods.json`
+/// 时注册表就是空表：`GET /api/v1/mods` 返回空列表、扩展区没有 Mod 卡，
+/// `external/chat` / `voice/transcript` / `a2a` 两条路径因此始终 `404 mod_disabled`。
+/// 要挂某个 Mod：维护者**手动**加回 Cargo 依赖 + `AVAILABLE_MOD_FACTORIES` 工厂 +
+/// 这里的一行 manifest（`enabled` / `config`），见 `docs/architecture/two-repo-mods.md`。
 ///
-/// 同版**废除 `local-llm` 启动**：本地推理进程管理/探活不再是产品路径，
-/// LLM 端点由 `live2d-ai.toml` 的 `[llm]` 显式配置（`base_url` 缺省
-/// 指向 OpenAI 兼容服务）。crate 暂留仓库但不再注册、不再编译进 binary。
-///
-/// 2026-10-09（0.2.3-rc.1「开箱即用」）：**缺省启用 `local-tts-melo`**
-/// （`launch_mode = with_app`）——仓库自带 MeloTTS 中文权重，克隆后开机就能出声；
-/// 它的程序是仓库内脚本，Mod 本身仍**不写 [tts]**（见下）。
+/// # 历史（不删）
+/// 0.2.0-rc.1 起缺省启用 `external-input`（直播弹幕 / 礼物经 Windows sidecar
+/// 清洗后 `POST /api/v1/external/chat` 注入主链路）；2026-10-09（0.2.3-rc.1
+/// 「开箱即用」）起缺省启用 `local-tts-melo`（`launch_mode = with_app`，开机
+/// 拉起仓库自带 MeloTTS）。这两行已随「一 Mod 一本地仓库」移出主仓。
 ///
 /// # 为什么缺省里**没有** TTS **Mod**（2026-09-11 用户裁决）
 ///
@@ -723,21 +723,7 @@ pub fn mods_path_for_web() -> std::path::PathBuf {
 /// 由 `live2d-ai-runtime` 直接读取并调用——**没有 Mod 夹在中间**。
 /// 详细论证见 `docs/architecture/tts-is-core.md`。
 fn default_mods_manifest() -> serde_json::Value {
-    serde_json::json!({
-        "mods": {
-            "external-input": { "enabled": true, "config": {} },
-            // 2026-10-09（0.2.3-rc.1「开箱即用」）：出厂出声的那一个。
-            // `with_app` = 随应用开机（Boot）就 spawn；缺省程序 = 第二仓
-            // `../Live2D-Ai-mods/crates/live2d-ai-mod-local-tts/melo/start.sh`
-            // （0.3.1-rc.5 起 Mod 住 sibling 仓），权重在 `melo/weights/`
-            // （config.json 普通入库，checkpoint.pth 走第二仓 Git LFS）。
-            // 它**不写 [tts] 的任何键**：出声端点仍只由 `live2d-ai.toml` 的 [tts] 决定。
-            "local-tts-melo": {
-                "enabled": true,
-                "config": { "launch_mode": "with_app" }
-            }
-        }
-    })
+    serde_json::json!({ "mods": {} })
 }
 
 /// 回收 supervisor 线程：server 退出后取回所有权并 join。
@@ -807,64 +793,40 @@ mod tests {
         assert_eq!(EXIT_ENVIRONMENT, 3);
     }
 
-    /// 0.2.0-rc.1 起：无 `mods.json` 时内建缺省启用外部注入。
-    /// **2026-10-09（0.2.3-rc.1「开箱即用」）起：同时启用 `local-tts-melo`**
-    /// （`with_app`，开机拉起仓库自带的 MeloTTS）。
+    /// 2026-10-19（一 Mod 一本地仓库）：缺省 manifest **不含任何 Mod**。
     ///
-    /// 断言各守一件事：
-    /// 1. 外部注入（直播弹幕刚需）开箱可用；
-    /// 2. 本地 TTS 开箱出声 —— `local-tts-melo` 在缺省 manifest 里且 `with_app`；
-    /// 3. CosyVoice3（id `local-tts`）**已封存移出注册表**，不得再进缺省；
-    /// 4. `local-llm` 不再出现在缺省（废除启动，别再加回来）；
-    /// 5. 其余三个注册 Mod（persona / voice-input / memory）仍缺省停用。
+    /// 理由：七个 Mod 实现各自一个本地仓库，主仓缺省不编译进任何工厂；没有
+    /// `mods.json` 时注册表就是空表（扩展区无 Mod 卡，三条前置路由 404）。
+    /// **挂载方式** = 维护者手动加回依赖 + 工厂表 + 本 manifest 一行；
+    /// 缺省提交里不得夹带任何 Mod。
     #[test]
-    fn default_mods_manifest_enables_external_input_and_melo() {
+    fn default_mods_manifest_has_no_mods() {
         let m = default_mods_manifest();
-        assert_eq!(
-            m["mods"]["external-input"]["enabled"], true,
-            "external-input 应默认启用（直播弹幕/礼物注入）"
-        );
-        assert_eq!(
-            m["mods"]["local-tts-melo"]["enabled"], true,
-            "local-tts-melo 应默认启用：仓库自带 MeloTTS 权重，克隆后开机就能出声"
-        );
-        assert_eq!(
-            m["mods"]["local-tts-melo"]["config"]["launch_mode"], "with_app",
-            "local-tts-melo 必须是 with_app（开机拉起），不是 on_apply（只在保存并应用时拉起）"
-        );
+        let mods = m["mods"]
+            .as_object()
+            .unwrap_or_else(|| panic!("mods 必须是对象：{m}"));
         assert!(
-            m["mods"].get("local-llm").is_none(),
-            "local-llm 已废除启动（0.2.0-rc.1），不得再进缺省 manifest"
+            mods.is_empty(),
+            "缺省不挂任何 Mod（一 Mod 一本地仓库）；实际 {mods:?}"
         );
-        assert!(
-            m["mods"].get("local-tts").is_none(),
-            "CosyVoice3（local-tts）已封存移出注册表（0.2.3-rc.1），不得进缺省 manifest"
-        );
-        // 0.2.0-rc.2：Wave 1 的 voice-input / wallpaper 只注册、**缺省停用**。
-        assert!(
-            m["mods"].get("voice-input").is_none(),
-            "voice-input 缺省停用（ASR 后端未接线），不得进缺省 manifest"
-        );
-        assert!(
-            m["mods"].get("wallpaper").is_none(),
-            "wallpaper 缺省停用（mode 缺省 off），不得进缺省 manifest"
-        );
-        // 0.2.0-rc.3：Wave 2 的 memory 同样只注册、**缺省停用**——
-        // 它会写 `persona.system_prompt`，必须由用户明确打开。
-        assert!(
-            m["mods"].get("memory").is_none(),
-            "memory 缺省停用（会写 persona.system_prompt），不得进缺省 manifest"
-        );
-        // 2026-10-17（rc4）：director 已**退役并移出注册表**（按句 cue 收归核心
-        // 第二路，单一 cue 写者）——不得再进缺省 manifest，也不得挂回工厂表。
-        assert!(
-            m["mods"].get("director").is_none(),
-            "director 已退役（rc4），不得进缺省 manifest"
-        );
-        // rc.6：local-engine 只注册、**缺省停用**（用户自己填 program 才拉起）。
-        assert!(
-            m["mods"].get("local-engine").is_none(),
-            "local-engine 缺省停用，不得进缺省 manifest"
-        );
+        // 「历史缺省项」单列一遍：防止有人「顺手」把它们加回缺省 manifest
+        // 却不改本断言的理由（挂载必须同时改依赖 + 工厂表 + 这一行，见执行单）。
+        for gone in [
+            "external-input",
+            "local-tts-melo",
+            "local-llm",
+            "local-tts",
+            "voice-input",
+            "wallpaper",
+            "memory",
+            "director",
+            "local-engine",
+            "persona",
+        ] {
+            assert!(
+                mods.get(gone).is_none(),
+                "`{gone}` 缺省不得出现在 manifest（挂载须维护者手动加回）"
+            );
+        }
     }
 }

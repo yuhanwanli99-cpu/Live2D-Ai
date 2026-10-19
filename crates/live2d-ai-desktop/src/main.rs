@@ -23,7 +23,17 @@
 //!   调用结果，绝不凭 X11 线索推断）；
 //! - CLI（[`cli`]）：默认无参数打印架构与能力后退出（无显示 CI 安全，
 //!   **不访问声卡**）。
-//! - 许可：**AGPL-3.0-only**，以仓库根 `LICENSE` 为准（见本 crate `README.md`）。
+//! - 许可：**AGPL-3.0-only**，以仓库根 LICENSE 为准（见本 crate README.md）。
+//!
+//! 2026-10-19（一 Mod 一本地仓库）：七个 Mod 实现（external-input / persona /
+//! voice-input / memory / local-tts / local-engine / a2a）各自迁到一个本地仓库；
+//! 主仓**缺省不引用任何 Mod 实现**——[AVAILABLE_MOD_FACTORIES] 为空（工厂数
+//! **0**），Cargo.toml 不再有指向旧 sibling checkout（Mod 合集目录）的
+//! path 依赖。POST /api/v1/external/chat、POST /api/v1/voice/transcript、
+//! GET /.well-known/agent-card.json、POST /api/v1/a2a 在未挂载时恒定
+//! 404 mod_disabled（见 web_api/{external_routes,voice_routes,a2a_gate}）。
+//! 核心对话 / 导演（motion_bias）/ TTS / 前端仍在本仓。要挂回某个 Mod：维护者
+//! 手动加回依赖 + 工厂表 + manifest 一行（见 docs/architecture/two-repo-mods.md）。
 
 mod app_event;
 mod audio;
@@ -42,7 +52,8 @@ mod platform;
 /// `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`（director）、
 /// `git show ef9f428^:crates/l2d-wasm-demo/src/web/surface.rs`（渲染面编舞）。
 /// **不要再挂回去**：
-/// 下方 `mod_count_is_six`（rc.6 起）是防回归断言。
+/// 下方的工厂数断言是防回归断言（2026-10-19 起为 `mod_count_is_zero`；此前的
+/// `mod_count_is_six` / `mod_count_is_seven` 已随工厂数归零改名）。
 ///
 /// 2026-10-17（rc4）：**决策/按句 cue 版 director Mod 也已退役**——按句清洗与
 /// cue 收归核心第二路（单一 cue 写者），本表由 6 → **5**。
@@ -73,39 +84,16 @@ mod platform;
 /// `docs/architecture/ARCHIVED-mods.md`。用户手动的舞台/壳背景能力（`DisplayPrefs`）
 /// **不受影响**——被拆掉的只是 wallpaper **Mod** 的接线。
 /// （2026-10-01 W2-A：两个 crate 已**物理删除**，见同一 tag。）
-pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &[
-    // 0.2.0-rc.1 起**缺省启用**（直播弹幕/礼物经 sidecar 注入，见 docs/external-input.md）。
-    &live2d_ai_mod_external_input::FACTORY,
-    // rc.4 M5：角色卡标准 Mod（缺省停用；启用后把卡合成 system_prompt 写回主链）。
-    &live2d_ai_mod_persona::FACTORY,
-    // Wave 1（0.2.0-rc.2）：语音转写 → 清洗 → say_tx；ASR 后端尚未接线，**缺省停用**。
-    &live2d_ai_mod_voice_input::FACTORY,
-    // Wave 2（0.2.0-rc.3）：会话记忆 v0（本地 JSONL + 词元重叠检索）。缺省停用是
-    // 刻意的——它会写 `persona.system_prompt`，用户得先明确打开。
-    &live2d_ai_mod_memory::FACTORY,
-    // 2026-10-09（0.2.3-rc.1「开箱即用」）：本地拉起 Mod —— id `local-tts-melo`，
-    // 界面名 `本地tts_MeloTTS`，缺省程序 = 仓库内 melo/start.sh，声明地址 8091。
-    // **这是缺省启用的那一个**（`cli_entry::default_mods_manifest` 收录，
-    // `launch_mode = with_app`：开机就拉起来）。它**不写 `[tts]` 的任何键**，
-    // 只按 argv spawn 外部进程；出声端点仍只由 `live2d-ai.toml` 的 `[tts]` 决定。
-    // **不新加 desktop 的 Cargo 依赖边**（工厂与运行时都在 local-tts crate 里）。
-    &live2d_ai_mod_local_tts::MELO_FACTORY,
-    // rc.6（2026-10-17）：spawn-only 本地引擎 —— id `local-engine`，界面名
-    // 「本地引擎（仅拉起进程）」。**只注册、缺省停用**（不进 default_mods_manifest）：
-    // 它按用户给的 program/args/workdir 拉起**任意**本地进程，没有 base_url，
-    // 不写 [tts]/[llm]、不探活、不换地址、不重启。5 → 6。
-    &live2d_ai_mod_local_engine::FACTORY,
-    // 0.3.9 rc.3（核心边界）：A2A 从主仓 `web_api/a2a_routes` 迁出，协议核住
-    // 第二仓 Mod —— id `a2a`，crate `live2d-ai-mod-a2a`，**只注册、缺省停用**。
-    // 宿主只留门（`web_api/a2a_gate`：loopback / Origin / Content-Type +
-    // 「停用则不调用」）；启用时才服务 `GET /.well-known/agent-card.json` 与
-    // `POST /api/v1/a2a`。**6 → 7**，断言守住。
-    &live2d_ai_mod_a2a::FACTORY,
-    // 同轮的封存：CosyVoice3（id `local-tts`，界面名 `本地tts_CosyVoice3-0.5B`）
-    // **已移出本表**——crate 与 engine/ 留在树上（可编译可测），头注写明「封存，
-    // 还要适配，未适配前不要挂回」。数字 7 → **6**，断言守住
-    // （rc4 起 director 退役 → **5**，见文件头注）。
-];
+///
+/// 2026-10-19（一 Mod 一本地仓库）：**本表清空，工厂数 = 0**。七个实现
+/// （external-input / persona / voice-input / memory / local-tts-melo /
+/// local-engine / a2a）各自迁到一个本地仓库；主仓 Cargo.toml 不再引用任何
+/// Mod 实现，故本二进制**缺省不编译进任何 Mod**。挂载方式（维护者手动）：
+/// 把对应 crate 加回 crates/live2d-ai-desktop/Cargo.toml 的 [dependencies]，
+/// 在这里加回 &...::FACTORY 一行，并在 cli_entry::default_mods_manifest 写
+/// 该 Mod 的一行 manifest——**缺省提交里不要加**（本表是防回归断言的对象，
+/// 见 mod_count_is_zero）。缺省核心（对话 / 导演 motion_bias / TTS / 前端）不受影响。
+pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &[];
 
 mod session_scope;
 mod supervisor;
@@ -277,69 +265,37 @@ mod tests {
         assert_eq!(EXIT_ENVIRONMENT, 3);
     }
 
-    /// 防回归：**恰好 6 个** Mod 工厂。
+    /// 防回归：**缺省恰好 0 个** Mod 工厂（2026-10-19「一 Mod 一本地仓库」）。
     ///
+    /// 历史（不删，逐条记录工厂数怎么走到 0 的）：
     /// 2026-09-12（rc.2）那个 director 已删除——它是动作序列的唯一驱动方，而动作在产品
     /// 路径上不存在。数字断言存在的意义就是「不要再挂回去」：若有人把**驱动动作**的
     /// Mod 加回静态注册，这条会立刻红。
     /// rc.4 M5：+1 个角色卡 Mod（`persona`），数字与之同步。
-    /// 0.2.0-rc.1：**local-llm 移出** → 4 → 3。数字断言继续守住「别再挂回来」。
+    /// 0.2.0-rc.1：**local-llm 移出** → 4 → 3。
     /// 0.2.0-rc.2（Wave 1）：+ `voice-input` / `wallpaper` → 3 → 5。
     /// 0.2.0-rc.3（Wave 2）：+ `memory` → 5 → 6。
     /// Wave 3（2026-09-14）：+ `director` **最小骨架**（零投递）→ 6 → 7。
-    /// 与 rc.2 删除的那个不同：它不驱动动作，见 `director-mod-v0.md`。
     /// 产品级加强波次（2026-09-14）：**封存 `wallpaper` / `pet-desktop`** → 7 → 5。
-    /// 封存（ARCHIVED）与废除（DEPRECATED）同口径：移出本表即不在启动注册表，
-    /// 断言继续守住「别再挂回来」（理由见 `docs/architecture/ARCHIVED-mods.md`）。
-    /// 2026-10-09「两类 TTS」：+ `local-tts`（**只拉起进程**，不写 `[tts]`）→ 5 → 6。
-    /// 它与 0.5.0 删掉的那个同名 Mod 不同：旧的会**探活并改写 `base_url`**，本轮
-    /// 明确不恢复那条路径（`docs/architecture/tts-is-core.md` 文末新节）。
-    /// 2026-10-09（CosyVoice3 + 设置分区那轮）：+ `local-tts-melo`（同一个 crate
-    /// 导出的第二个引擎）→ 6 → 7。
-    /// 2026-10-09（0.2.3-rc.1「开箱即用」）：**CosyVoice3（`local-tts`）移出本表
-    /// 并封存** → 7 → **6**。封存口径与 local-llm / wallpaper 相同：不在此表即不在
-    /// 启动注册表，断言继续守住「别再挂回来」（crate 与 engine/ 仍在树上）。
-    /// 2026-10-17（rc4）：**director Mod 退役**——按句清洗与 cue 收归核心第二路
-    /// （单一 cue 写者）→ 6 → **5**。断言继续守住「别再挂回来」。
+    /// 2026-10-09「两类 TTS」：+ `local-tts` → 5 → 6；+ `local-tts-melo` → 6 → 7；
+    /// **CosyVoice3（`local-tts`）移出并封存** → 7 → **6**。
+    /// 2026-10-17（rc4）：**director Mod 退役**（按句清洗与 cue 收归核心第二路）→ 6 → 5。
+    /// 2026-10-19：**七个 Mod 实现各自一个本地仓库**，主仓缺省不引用 → 5 → **0**。
+    ///
+    /// 为什么是 0：主仓只留核心（对话 / 导演 motion_bias / TTS / 前端）。要挂某个
+    /// Mod，由维护者**手动**加回 Cargo 依赖 + 本表一行工厂 + 缺省 manifest 一行；
+    /// 缺省提交里不得夹带任何 Mod 实现（本断言就是拦它的）。
     #[test]
-    fn mod_count_is_seven() {
+    fn mod_count_is_zero() {
         assert_eq!(
             super::AVAILABLE_MOD_FACTORIES.len(),
-            7,
-            "AVAILABLE_MOD_FACTORIES must contain exactly 7 Mod factories (external-input, persona, voice-input, memory, local-tts-melo, local-engine, a2a)"
+            0,
+            "一 Mod 一本地仓库，缺省工厂 0；挂载由维护者手动加回依赖+工厂（本提交不得夹带 Mod 实现）"
         );
-    }
-
-    #[test]
-    fn mod_factory_ids_match_expected() {
-        let mut ids: Vec<&str> = super::AVAILABLE_MOD_FACTORIES
-            .iter()
-            .map(|f| f.descriptor().id)
-            .collect();
-        ids.sort();
-
-        // local-llm 已废除（0.2.0-rc.1）：不在此表即不在启动注册表。
-        // wallpaper / pet-desktop 已封存（2026-09-14，产品级加强波次）：
-        // 同样不在此表即不在启动注册表，见 docs/architecture/ARCHIVED-mods.md。
-        // 2026-10-09（0.2.3-rc.1）：CosyVoice3 的 id `local-tts` 已封存移出；
-        // 出厂出声的那一个是 `local-tts-melo`（MeloTTS 中文）。
-        // 2026-10-17（rc4）：director 已退役（按句 cue 收归核心第二路）。
-        // rc.6：+ local-engine（spawn-only 本地引擎，缺省停用）。
-        // 0.3.9 rc.3：+ a2a（A2A 协议核迁出主仓，**缺省停用**；宿主只留门）。
-        let mut expected = vec![
-            "a2a",
-            "external-input",
-            "local-engine",
-            "local-tts-melo",
-            "memory",
-            "persona",
-            "voice-input",
-        ];
-        expected.sort();
-
-        assert_eq!(
-            ids, expected,
-            "Mod factory IDs must match the documented set"
+        // 空表本身也钉死：防止有人把断言改成 `<=` 或删掉后偷偷挂回。
+        assert!(
+            super::AVAILABLE_MOD_FACTORIES.is_empty(),
+            "AVAILABLE_MOD_FACTORIES 必须为空表（缺省不挂任何 Mod）"
         );
     }
 

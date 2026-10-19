@@ -102,8 +102,10 @@ fn spawn_supervisor_impl(
     let reload_ack: Arc<std::sync::Mutex<Option<ReloadAck>>> =
         Arc::new(std::sync::Mutex::new(None));
     let reload_ack_for_thread = Arc::clone(&reload_ack);
-    // 3.0 队首第一片（2026-10-17）：一轮在飞标志。外部文本端点据此把忙时
-    // 文本收进合并窗口、先不注入；supervisor 线程在 `run_one_turn` 前后置位。
+    // 3.0 队首第一片（2026-10-17）：一轮在飞标志，supervisor 线程在
+    // `run_one_turn` 前后置位 / 清零。2026-10-19 起消费者（外部文本端点的
+    // 忙时合并窗口）已随 `external-input` Mod 移出主仓——标志暂时无人读，
+    // 保留见 supervisor.rs 字段注释。
     let turn_in_flight = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let turn_in_flight_for_thread = Arc::clone(&turn_in_flight);
 

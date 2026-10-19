@@ -6,7 +6,7 @@ Live2D-Ai wires a single core loop and keeps everything else behind a Mod bounda
 
 **text → LLM (chat only) → TTS → lip-sync → Live2D render + Web UI**
 
-It ships one **white (bai) model** so a fresh clone renders out of the box; the terms in [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md) apply and are **not** an author authorization to redistribute. Import any other Live2D assets yourself, lawfully; models you import stay in your local model library and are **not** written into the repo. Complex extras (external input, persona, voice input, session memory, …) are optional Mods that fail independently of the core loop.
+It ships one **white (bai) model** so a fresh clone renders out of the box; the terms in [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md) apply and are **not** an author authorization to redistribute. Import any other Live2D assets yourself, lawfully; models you import stay in your local model library and are **not** written into the repo. Complex extras (external input, persona, voice input, session memory, …) are optional Mods: each lives in its own local repo and is **not** compiled into the default build — the core loop runs without any Mod.
 
 > Chinese: [README.zh-CN.md](./README.zh-CN.md)
 
@@ -27,41 +27,48 @@ It ships one **white (bai) model** so a fresh clone renders out of the box; the 
 - **WASM render path** — `/render` + `/models/*` via `l2d-wasm-demo`.
 
 ### Mods
-- Trait registry (`live2d-ai-mod-system`): enable / disable / restart at runtime.
-- Mods compiled into the binary (**7 registered factories**): `external-input`,
-  `persona`, `voice-input`, `memory`, `local-tts-melo`, `local-engine`, `a2a`.
-  **`external-input` and `local-tts-melo` are enabled by default** (the latter launches
-  the bundled MeloTTS on boot); the other five are opt-in (`memory` writes
-  `persona.system_prompt`, so it must be turned on deliberately; `a2a` and
-  `local-engine` are registered but off).
+- Trait registry (`live2d-ai-mod-system`) stays in the core: enable / disable / restart at runtime.
+- **The default build compiles 0 Mod factories** (`AVAILABLE_MOD_FACTORIES` is empty;
+  `default_mods_manifest` has an empty `mods` object), so no Mod — not even
+  `external-input` or `local-tts-melo` — is enabled out of the box.
+- Seven factories exist, each in its **own local repo** (no remote yet, not cloned with
+  the core, not referenced by the core's Cargo manifests):
+
+  | Repo (this machine) | crate | id |
+  | --- | --- | --- |
+  | `/home/skystar/live2d-ai-mod-external-input` | `live2d-ai-mod-external-input` | `external-input` |
+  | `/home/skystar/live2d-ai-mod-persona` | `live2d-ai-mod-persona` | `persona` |
+  | `/home/skystar/live2d-ai-mod-voice-input` | `live2d-ai-mod-voice-input` | `voice-input` |
+  | `/home/skystar/live2d-ai-mod-memory` | `live2d-ai-mod-memory` | `memory` |
+  | `/home/skystar/live2d-ai-mod-local-tts` | `live2d-ai-mod-local-tts` | `local-tts-melo` (`MELO_FACTORY`) |
+  | `/home/skystar/live2d-ai-mod-local-engine` | `live2d-ai-mod-local-engine` | `local-engine` |
+  | `/home/skystar/live2d-ai-mod-a2a` | `live2d-ai-mod-a2a` | `a2a` |
+
+- **Mounting is manual**: add the crate's `path` dependency back to the root
+  `[workspace.dependencies]` and `live2d-ai-desktop`, re-add the factory to
+  `AVAILABLE_MOD_FACTORIES` (plus count / id assertions) and restore that Mod's host
+  routes / integration. There is **no dynamic loader**; none of this is in the default
+  commit. See [`docs/architecture/two-repo-mods.md`](docs/architecture/two-repo-mods.md).
+- While a Mod is unmounted its routes answer **404** with
+  `error.code = "mod_disabled"`, without calling the LLM or `say`:
+  `POST /api/v1/external/chat`, `POST /api/v1/voice/transcript`,
+  `GET /.well-known/agent-card.json`, `POST /api/v1/a2a`.
 - `local-engine` (0.3.4) is **spawn-only**: it starts a process and never writes
   `[tts]` / `[llm]`, probes, or swaps endpoints.
-- `a2a` (0.3.9) is an optional extension, not core: the agent card and JSON-RPC
-  dispatch live in the second-repo Mod `a2a`; the host only keeps the gate
-  (`web_api/a2a_gate.rs`) and answers `403 mod_disabled` while the Mod is off. The
-  factory count went 6 → 7.
+- `local-tts-melo` only launches the external Melo process (its `melo/` lives in the
+  local-tts repo); it never writes `[tts]`. The sealed CosyVoice3 engine (`engine/`)
+  also lives there and must **not** be re-registered until it is adapted.
 - **`director` is not a Mod any more**: the rule table lives in the core, the director
   crate exited `AVAILABLE_MOD_FACTORIES`, no longer delivers cues, and must **not** be
   re-registered. The per-sentence second director path is a core resident: always on, no
   enable switch. Current contract: `docs/architecture/CURRENT.md` §4.
-- `local-tts` (CosyVoice3) is **sealed — not registered**; the crate stays in the tree
-  but must **not** be re-registered until it is adapted.
-- `wallpaper` and `pet-desktop` are **ARCHIVED**: **not registered and not compiled
-  into the binary**; the crates were **physically deleted on 2026-10-01** and now only
-  exist in tag `checkpoint/pre-d1-dormant`. They must **not** be re-registered. See
-  [`docs/architecture/ARCHIVED-mods.md`](docs/architecture/ARCHIVED-mods.md). The
-  user-facing stage/shell background (`DisplayPrefs`) is **kept** — it is not the
-  wallpaper Mod.
-- `local-llm` is **no longer started** (removed from the registry in `0.2.0-rc.1`; the
-  crate itself was deleted on 2026-10-01 and now only exists in tag
-  `checkpoint/pre-d1-dormant`). The action-driving `director` crate was removed in
-  `0.1.0-rc.2`; its archive branch `archive/action-layer-p6` **no longer exists**
-  (re-verified 2026-10-06: not local, not on the remote, not in the historical
-  bundles) — recover the deleted sources from `main`'s own history:
-  `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`.
-- Voice input: a local ASR **sidecar** (any process you run) POSTs transcripts to
-  `POST /api/v1/voice/transcript`; no ASR runtime is linked into the binary.
+- Voice input: a local ASR **sidecar** (any process you run) POSTs transcripts to the
+  (mounted) `POST /api/v1/voice/transcript`; no ASR runtime is linked into the binary.
 - Mod failure disables that Mod only; the core loop keeps running.
+- `wallpaper` / `pet-desktop` / `local-llm` are **ARCHIVED / deleted** and must **not**
+  be re-registered; see [`docs/architecture/ARCHIVED-mods.md`](docs/architecture/ARCHIVED-mods.md).
+  The user-facing stage/shell background (`DisplayPrefs`) is **kept** — it is not the
+  wallpaper Mod.
 - Contract, "add a Mod" checklist and the stable-release (Rust/C) rule:
   [`docs/architecture/mod-product-chain.md`](docs/architecture/mod-product-chain.md).
 
@@ -86,6 +93,9 @@ cp live2d-ai.toml.example live2d-ai.toml   # OpenAI-compatible LLM/TTS
 ./scripts/prune_web_artifacts.sh --check
 ./scripts/ignite.sh --build
 ```
+
+**Core alone:** cloning the core and filling `[llm]` / `[tts]` is enough — no Mod repo is
+needed to build or run it (with cloud TTS, not even Melo).
 
 `flutter` is the Flutter SDK in `~/flutter` (`scripts/ignite.sh` puts `$HOME/flutter/bin` on `PATH`).
 `./scripts/ignite.sh --build` builds the **debug backend** and starts it; it does **not** rebuild Flutter
@@ -170,7 +180,7 @@ crates/
   live2d-ai-desktop        Supervisor + Web API + desktop shell
   l2d-wasm-demo            Web WASM render
   live2d-ai-mod-system     Mod traits / registry
-  live2d-ai-mod-*          Optional Mods
+  live2d-ai-mod-*          director (retired) / template; Mod implementations live in their own repos
 ```
 
 Docs index: [docs/README.md](./docs/README.md)

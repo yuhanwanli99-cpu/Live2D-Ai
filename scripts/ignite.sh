@@ -23,9 +23,10 @@
 #
 # 服务在后台启动，本脚本前台等待就绪并保持不退出（Ctrl+C 会停掉服务）。
 #
-# 说明：本地 LLM / 云端 TTS 由你自己提供（任何 OpenAI 兼容实现）；**本机 TTS
-#       （MeloTTS / CosyVoice3）由桌面进程拉起**，GET /models = 200 之前不打印
-#       页面地址。本脚本不下载模型、不启动推理进程。两个本地 Mod 也会在后台自动探活。
+# 说明：本地 LLM / 云端 TTS 由你自己提供（任何 OpenAI 兼容实现）。**缺省构建不挂
+#       local-tts Mod**，Melo 不会被主链自动拉起：要么把该 Mod 挂回去，要么先手动跑
+#       ../live2d-ai-mod-local-tts/melo/start.sh；GET /models = 200 之前不打印页面地址
+#       （等待逻辑不变）。本脚本不下载模型、不启动推理进程。
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -194,7 +195,7 @@ TTS_LOCAL=0
 TTS_WAIT_TEXT="云端端点，不等本机进程"
 if [ "$TTS_MODE" = "local" ]; then
   TTS_LOCAL=1
-  TTS_WAIT_TEXT="本机进程随点火拉起并等待"
+  TTS_WAIT_TEXT="等待本机 TTS 就绪（缺省不自动拉起）"
 fi
 if [ "$TTS_HOST_LOCAL" = "1" ]; then
   TTS_HOST_TEXT="本机 / 局域网"
@@ -224,15 +225,15 @@ probe() {
     echo "    [ok]   $name 就绪（ollama /api/tags）"
     return 0
   fi
-  echo "    [warn] $name 未就绪：$base（继续；Mod 会在后台重试探活，也可先启动你的实现）"
+  echo "    [warn] $name 未就绪：$base（继续；也可先启动你的实现）"
   return 1
 }
 echo "==> 探测本地实现（OpenAI 标准接口）"
 probe "LLM" "$LLM_BASE" || true
 if [ "$TTS_LOCAL" = "1" ]; then
-  # 本机 TTS 由桌面进程**拉起**：预检探不到是常态（模型加载要几十秒到几分钟），
-  # 不再报「未就绪，继续」——真正的就绪判据在启动后的就绪等待里（GET /models = 200）。
-  echo "    [ok]   TTS 本机（${TTS_BASE%/}/models）：由本次点火拉起；GET /models = 200 之后才给页面地址"
+  # 缺省构建不挂 local-tts Mod，Melo 不会由主链自动拉起：预检探不到是常态（模型加载
+  # 要几十秒到几分钟）。真正的就绪判据仍是启动后的 GET /models = 200（行为不变）。
+  echo "    [ok]   TTS 本机（${TTS_BASE%/}/models）：缺省不自动拉起；挂回 Mod 或手动跑 start.sh 后，GET /models = 200 才给页面地址"
 elif [ -n "$TTS_BASE" ]; then
   probe "TTS" "$TTS_BASE" || true
 else
@@ -278,25 +279,23 @@ fi
 pkill -f "live2d-ai-desktop --web" 2>/dev/null || true
 sleep 0.5
 
-# 本地 TTS 子进程（MeloTTS / CosyVoice3）是**外部长驻进程**，由桌面端 spawn。
+# 本地 TTS 子进程（MeloTTS / CosyVoice3）是**外部长驻进程**。缺省构建不挂
+# local-tts Mod，桌面端不会 spawn 它；手动跑 melo/start.sh 时同样可能留下孤儿进程。
+#
 # 桌面端被 **SIGKILL/强杀**（不走 shutdown()）时，它们会被 reparent 成孤儿并继续
 # 占着端口 —— 本机实测：8091 上残留旧 melo → 新 melo 绑定 `Address already in use`
 # 立即退出 → 主链对着卡死的旧进程发请求得到 `tts_upstream_502`。
 #
 # 新代码已给 spawn 出的子进程装 `PR_SET_PDEATHSIG`（父死即内核收掉，见
-# `../Live2D-Ai-mods/crates/live2d-ai-mod-local-tts/src/child.rs`）；但**升级之前**
-# 留下的孤儿还在，这里按**仓库内路径**精确点名清掉（只认 melo/serve.py 与
-# engine/，不碰其它进程），使生命周期与刚修好的口径一致。
-# 0.3.1-rc.5 起 crate 住第二仓：新路径与拆分前的旧路径都清（旧路径只用于升级窗口）。
-MODS_REPO="$(cd "$PWD/../Live2D-Ai-mods" 2>/dev/null && pwd || true)"
-stale_patterns=(
-  "$PWD/crates/live2d-ai-mod-local-tts/melo/serve.py"
-  "$PWD/crates/live2d-ai-mod-local-tts/engine/"
-)
+# `../live2d-ai-mod-local-tts/src/child.rs`）；但**升级之前**留下的孤儿还在，
+# 这里按**本机仓库路径**精确点名清掉（只认 melo/serve.py 与 engine/，不碰其它进程）。
+# 2026-10-19 起 local-tts 仓库根 = crate 根（主仓不再引用它）。
+MODS_REPO="$(cd "$PWD/../live2d-ai-mod-local-tts" 2>/dev/null && pwd || true)"
+stale_patterns=()
 if [ -n "$MODS_REPO" ]; then
   stale_patterns+=(
-    "$MODS_REPO/crates/live2d-ai-mod-local-tts/melo/serve.py"
-    "$MODS_REPO/crates/live2d-ai-mod-local-tts/engine/"
+    "$MODS_REPO/melo/serve.py"
+    "$MODS_REPO/engine/"
   )
 fi
 for pat in "${stale_patterns[@]}"; do
@@ -375,7 +374,7 @@ if [ "$TTS_LOCAL" = "1" ]; then
       sleep 2
     done
   }
-  echo "==> 等待本机 TTS 就绪（GET $TTS_MODELS_URL = 200，最长 600 秒；由本次点火拉起）…"
+  echo "==> 等待本机 TTS 就绪（GET $TTS_MODELS_URL = 200，最长 600 秒；缺省不自动拉起）…"
   tts_ready
   echo "    [ok] 本机 TTS 就绪：GET $TTS_MODELS_URL = 200"
 fi
@@ -389,7 +388,7 @@ echo "  渲染面  ： http://127.0.0.1:${PORT}/render"
 echo "  Mod 状态： http://127.0.0.1:${PORT}/api/v1/mods"
 echo "  自测清单： docs/verification/ignition-core-loop.md"
 if [ "$TTS_LOCAL" = "1" ]; then
-  echo "  本地 TTS： GET $TTS_MODELS_URL = 200（本机，由本次点火拉起）"
+  echo "  本地 TTS： GET $TTS_MODELS_URL = 200（本机；缺省不自动拉起）"
 fi
 echo "=========================================================="
 echo

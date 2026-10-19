@@ -101,8 +101,9 @@ fn mod_config_get_returns_redacted_config() {
 
 /// **F-0062-01（路由层）**：POST `…/config` 省略声明的 secret 字段（= 前端从 GET
 /// 的**脱敏**配置出发的形状）时**保留**旧密钥。显式清除（空串）见
-/// `mod_registry::tests_secret`；端到端「密钥还在 ⇒ 端点仍 401」见
-/// `external_routes::tests::mod_config_save_without_secret_keeps_endpoint_auth`。
+/// `mod_registry::tests_secret`（用测试专用 ModFactory 覆盖两条语义）。
+/// 2026-10-19：原先指向 `external_routes` 的端到端「密钥还在 ⇒ 401」用例已随
+/// `external-input` Mod 移出主仓删除；保存不抹 secret 的规则本文件这条仍在守。
 #[test]
 fn config_save_preserves_omitted_secret() {
     let ctx = ctx_with_mod(serde_json::json!({

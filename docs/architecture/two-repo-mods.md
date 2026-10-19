@@ -1,40 +1,49 @@
-# 两仓：核心与 Mod 实现（0.3.4，2026-10-17）
+# 一 Mod 一本地仓库（2026-10-19）
 
 > 状态：**活**。这一页只讲**仓库边界**；协议、WS 帧、缺省启用集合仍以
 > [CURRENT.md](CURRENT.md) 与源码为准。拆分口径来自
-> [PROMPT-3.0-motion-first-2026-10-17.md](../plans/PROMPT-3.0-motion-first-2026-10-17.md)
-> 的「分仓库」一节（原 v0.3.3，落到 0.3.3）。
+> [PLAN-main-core-mod-repos-2026-10-19.md](../plans/PLAN-main-core-mod-repos-2026-10-19.md)
+> 与确认稿 [CONFIRM-repo-split-2026-10-19.md](../plans/CONFIRM-repo-split-2026-10-19.md)。
 
 ## 1. 布局
 
 | 仓库 | 路径（本机） | 内容 |
 | --- | --- | --- |
 | 主仓 | `/home/skystar/Live2D-Ai` | `l2d`、`live2d-ai-core`、`live2d-ai-runtime`、`live2d-ai-desktop`、`l2d-wasm-demo`、`xtask`、`live2d-ai-mod-system`、`director`（已退役，仅留 `motion_bias`）、`template`、Flutter 壳、白模资源、协议文档 |
-| 第二仓 | `/home/skystar/Live2D-Ai-mods` | 七个 Mod 实现：`external-input`、`persona`、`voice-input`、`memory`、`local-tts`（含 `melo/` 与已封存的 `engine/`）、`local-engine`（0.3.4，spawn-only，缺省停用）、`a2a`（0.3.9，协议核，缺省停用） |
+| `external-input` | `/home/skystar/live2d-ai-mod-external-input` | crate `live2d-ai-mod-external-input`，id `external-input` |
+| `persona` | `/home/skystar/live2d-ai-mod-persona` | crate `live2d-ai-mod-persona`，id `persona` |
+| `voice-input` | `/home/skystar/live2d-ai-mod-voice-input` | crate `live2d-ai-mod-voice-input`，id `voice-input` |
+| `memory` | `/home/skystar/live2d-ai-mod-memory` | crate `live2d-ai-mod-memory`，id `memory` |
+| `local-tts` | `/home/skystar/live2d-ai-mod-local-tts` | crate `live2d-ai-mod-local-tts`，id `local-tts-melo`（工厂 `MELO_FACTORY`），含 `melo/` 与已封存的 `engine/` |
+| `local-engine` | `/home/skystar/live2d-ai-mod-local-engine` | crate `live2d-ai-mod-local-engine`，id `local-engine`（spawn-only） |
+| `a2a` | `/home/skystar/live2d-ai-mod-a2a` | crate `live2d-ai-mod-a2a`，id `a2a` |
 
-第二仓是主仓的 **sibling checkout**，不是 git submodule，也不是 vendored 副本。
+七个 Mod 仓库都是**独立 git 仓库**，仓库根 = crate 根；**都没有远端、未 push**。
+每个都是主仓的 sibling checkout，不是 git submodule，也不是 vendored 副本。
+旧目录 `/home/skystar/Live2D-Ai-mods` **保留**（历史来源），已不被主仓引用；主仓清单、
+脚本与 pytest 都不再引用它（pytest 的 Melo 路径已改指 `../live2d-ai-mod-local-tts/melo/serve.py`）。
 
 ## 2. 依赖方向
 
-- 主仓根 `Cargo.toml` 的 `[workspace.dependencies]` 用
-  `path = "../Live2D-Ai-mods/crates/..."` 指七个 Mod；`live2d-ai-desktop`
-  用 `workspace = true` 继承。主仓 members 不再含这七个 crate。
-- 第二仓七个 Mod 用 `live2d-ai-mod-system = { workspace = true }`，根清单把
-  `live2d-ai-mod-system` / `live2d-ai-runtime` 指向
-  `../Live2D-Ai/crates/...`；persona 的 dev-dep memory 用仓内路径。
+- 只允许 **Mod → 主仓**：每个 Mod 仓库根 `Cargo.toml` 用 `path` 指
+  `../Live2D-Ai/crates/live2d-ai-mod-system` 与用到的
+  `../Live2D-Ai/crates/live2d-ai-runtime`；不指回旧的 `Live2D-Ai-mods`，
+  也不在 Mod 仓库之间互相 `path`。
+- 主仓根 `[workspace.dependencies]` 与 `crates/live2d-ai-desktop/Cargo.toml`
+  **没有**任何指向 Mod 仓库的 `path` / `git` 依赖；主仓 members 不含这七个 crate。
 - **无包级循环**：desktop → mod → mod-system/runtime，依赖图仍是 DAG。
-  两个 workspace 互相引用的是不同 package，不是同一个 package 的环。
+  跨仓库引用的是不同 package，不是同一个 package 的环。
 
-## 3. 主仓不再 standalone（已接受的代价）
+## 3. 主仓 standalone（2026-10-19 已落地）
 
-主仓的 `cargo metadata` / `cargo test` 需要 `../Live2D-Ai-mods` 存在；
-缺目录会直接失败。这是拆分的代价，不靠 `exclude` 或伪造的空 crate 兜底。
-第二仓单独构建时同样需要 `../Live2D-Ai` 存在。
-
-两树各自的门禁：
+克隆主仓、填好 `[llm]` 与 `[tts]`，核心就能编译并跑起来；不需要七个 Mod 仓库中的
+任何一个，也不需要旧的 `Live2D-Ai-mods`。云端 TTS 时连 Melo 启动器也不用
+（`[tts].mode=cloud`）。
 
 ```bash
-# 主仓
+# 主仓（缺省：工厂 0，manifest 空）
+cargo build -p live2d-ai-desktop
+cargo metadata --no-deps --format-version 1   # 输出里不应出现 Mod 仓库 / Live2D-Ai-mods
 cargo test --workspace --all-targets
 cargo test --doc --workspace
 cargo fmt --all -- --check
@@ -42,34 +51,49 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p xtask -- rust-ratio
 cargo run -p xtask -- code-stats --check
 (cd shell/flutter && flutter analyze && flutter test)
-
-# 第二仓
-cd /home/skystar/Live2D-Ai-mods
-cargo test --workspace --all-targets
-cargo test --doc --workspace
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-主仓 `rust-ratio` 只统计主仓文件系统，不再把七个 Mod crate 计入分子/分母；
-第二仓的门禁是 `cargo test/fmt/clippy`，不另设占比门槛。
+主仓 `rust-ratio` 只统计主仓文件系统，不再把 Mod crate 计入分子/分母。七个 Mod 仓库
+各自跑自己的门禁（不另设占比门槛）：
 
-## 4. 不变性（拆分不改变产品）
+```bash
+cd /home/skystar/live2d-ai-mod-<name>
+cargo test
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+```
 
-- 工厂 0.3.4 起 **6**（新增 `local-engine`，**缺省停用**）；0.3.9 起 **7**
-  （新增 `a2a`，**缺省停用**）：`mod_count_is_seven` / `mod_factory_ids_match_expected`。
-- 缺省启用仍 `external-input` + `local-tts-melo`（`local-engine` 不进缺省 manifest）。
+## 4. 缺省态与挂载步骤
+
+缺省提交里：`AVAILABLE_MOD_FACTORIES` 为空（工厂 **0**），`default_mods_manifest` 的
+`mods` 为空对象——**一个 Mod 都不启用**（`external-input` / `local-tts-melo`
+也不再缺省启用）。未挂载时 `POST /api/v1/external/chat`、
+`POST /api/v1/voice/transcript`、`GET /.well-known/agent-card.json`、
+`POST /api/v1/a2a` 回 **404**，body `error.code = "mod_disabled"`，不打 LLM、不 `say`。
+
+挂载**没有动态加载器**，由维护者手动完成：
+
+1. 根 `Cargo.toml` 的 `[workspace.dependencies]` 加
+   `live2d-ai-mod-<name> = { path = "../live2d-ai-mod-<name>" }`；
+2. `crates/live2d-ai-desktop/Cargo.toml` 用 `workspace = true` 加依赖；
+3. `crates/live2d-ai-desktop/src/main.rs` 的 `AVAILABLE_MOD_FACTORIES` 注册
+   `&<crate>::FACTORY`，并同步 `mod_count_is_*` / `mod_factory_ids_match_expected`；
+4. 恢复该 Mod 的宿主路由 / 集成代码（如 external/chat、voice/transcript、A2A 门）；
+5. 若要在缺省 manifest 里启用，同步 `cli_entry::default_mods_manifest`。
+
+缺省提交里**没有**以上任何一条；每次挂载都是显式改动，评审时逐条看。
+
+## 5. 不变性（拆仓不改变产品）
+
 - 协议、WS 帧、`ModServices` 契约不动；`action_tx` 仍休眠。
 - Mod **不写** `[tts]` / `[llm]`，不接 `action_tx`；`local-engine` 也没有
   `base_url`，只按 4 项 schema（program / args_json / workdir / launch_mode）spawn。
-- 0.3.4 多厂商选择（`[llm].vendor` / `[tts].vendor` + `vendors` 快照）是**核心设置**，
-  与 Mod 无关；`local-engine` 不参与、切 TTS 厂商也不碰它。
 - `director` 与 `template` 留主仓：desktop 仍用 `director::motion_bias`；
   template 是脚手架。
-- `docs/examples/voice-sidecar/` 留主仓；voice-input 的测试 fixture 在第二仓
-  内复制一份（`crates/live2d-ai-mod-voice-input/fixtures/fake_zh.wav`）。
+- `docs/examples/voice-sidecar/` 留主仓；voice-input 的测试 fixture 在它自己的仓库
+  （`fixtures/fake_zh.wav`）。
 
-## 5. 密钥：已知偏差 S2（本轮不修）
+## 6. 密钥：已知偏差 S2（本轮不修）
 
 - 现状：`external-input` 与 `memory` 仍通过 `live2d_ai_runtime::secrets::lookup`
   在自己进程内读取 `.env` 快照；**没有新增暴露面**，Mod 拿不到密钥值，
@@ -79,25 +103,12 @@ cargo clippy --workspace --all-targets -- -D warnings
 - 后续 S1：由宿主提供受限 secret 查询能力（只回「已配置/未配置」或按需签名），
   Mod 不再直接依赖 runtime 的 secrets 实现；在此之前保持现状并在评审中标注。
 
-## 6. 权重与 LFS
+## 7. 权重与本地产物
 
-- 第二仓 `.gitattributes` 只给
-  `crates/live2d-ai-mod-local-tts/melo/weights/checkpoint.pth` 加 LFS；
-  `config.json` 是普通 git 文件。
-- `melo/.venv/`、`melo/.cache/`、`melo/.src/`、CosyVoice 的 `weights/`
-  都在第二仓 `.gitignore`；它们留在本机，**不入库、不进 LFS**。
-- 第二仓首提交含 LFS 指针；本地 `git lfs install --local` 后克隆方需
-  `git lfs pull` 取权重。
-
-## 7. 公开前的切换计划
-
-当前只在本地两仓、**不建公开远端、不 push**。公开前必须做且只做其中一条：
-
-1. **换 git 依赖**：主仓把五条 path 依赖换成固定 `git = "..."` + `rev`
-   （或 tag），第二仓同理指回主仓的 `mod-system` / `runtime`；两仓各自可独立
-   `cargo fetch`。
-2. **CI 双 checkout**：CI 在同一父目录 checkout 两仓，保留 path 依赖；在
-   `pr-checks.yml` 增加第二仓的 test/fmt/clippy job。公开主仓的 README 必须
-   写明「需同父目录 checkout 第二仓」，否则主仓不是可独立构建的仓库。
-
-切换前不得声称主仓可独立构建，也不得把第二仓权重/缓存推进公开历史。
+- 不复制 Melo / CosyVoice 权重、`.venv`、`.cache`、`__pycache__`、
+  `checkpoint.pth` 到新仓库；它们留在本机，**不入库**。各自 Mod 仓库的
+  `.gitignore` 负责自己的安装产物与权重。
+- `local-tts` 仓库只含源码 / 脚本 / `melo/serve.py` / `start.sh` / 许可证说明，
+  不含 `melo/weights/`、`engine/` 里的权重和虚拟环境。
+- 远端未建、不 push；公开前也不需要 CI 双 checkout 或必选 `git` 依赖——
+  缺省构建只用主仓自己的树。

@@ -28,11 +28,11 @@
 //! - `POST /api/v1/settings/test/tts` → `settings.test_tts`
 //! - `POST /api/v1/chat` → `chat.post`（W2：HTTP 对话入口）
 //! - `POST /api/v1/chat/stop` → `chat.stop`（W2：停止当前轮）
-//! - `POST /api/v1/voice/transcript` → 前置静态路由（语音转写 → 清洗 → say；
-//!   Wave 2 A 轨 2026-09-14，见 [`voice_routes`]）
-//! - `GET /.well-known/agent-card.json` / `POST /api/v1/a2a` → A2A
-//!   前置路由（宿主门：loopback/Origin/CT + 停用门禁；协议核在第二仓 Mod
-//!   `live2d-ai-mod-a2a`，见 [`a2a_gate`]）
+//! - `POST /api/v1/voice/transcript` → 前置静态路由（**未挂载存根**：实现已随
+//!   `voice-input` Mod 移出主仓；未挂载时 404 `mod_disabled`，见 [`voice_routes`]）
+//! - `GET /.well-known/agent-card.json` / `POST /api/v1/a2a` → A2A 前置路由
+//!   （**未挂载存根**：两条路径都 404 `mod_disabled`，协议核已移出主仓，
+//!   见 [`a2a_gate`]）
 //! - `GET /api/v1/logs`（dev_mode=true） → `logs.get`
 //! - `GET /api/v1/logs/levels`（dev_mode=true） → `logs.levels`
 //! - `GET / POST / PATCH / DELETE /api/v1/models*` → `models`（D3 落地，2026-08-28）
@@ -55,10 +55,9 @@ use live2d_ai_runtime::AppSettings;
 use crate::supervisor::SupervisorHandle;
 use crate::web_api::app_routes::{CapabilitiesContext, StatusContext};
 
-/// A2A（Agent2Agent）**宿主门**（0.3.9，从 0.3.8 `a2a_routes` 收窄）：
-/// `GET /.well-known/agent-card.json` + `POST /api/v1/a2a` 的 loopback / Origin /
-/// Content-Type 校验、`a2a` Mod 停用门禁、上游闭包注入、POST 派生工作线程。
-/// 协议（card / JSON-RPC / 任务表）已迁到第二仓 Mod `live2d-ai-mod-a2a`。
+/// A2A（Agent2Agent）**未挂载存根**（2026-10-19）：`GET /.well-known/agent-card.json`
+/// 与 `POST /api/v1/a2a` 都回 404 `mod_disabled`；`is_a2a_path` 仍做前置判断。
+/// 协议核（card / JSON-RPC / 任务表）与宿主门的历史实现已随 `a2a` Mod 移出主仓。
 pub mod a2a_gate;
 /// Web API 子模块。
 pub mod app_routes;
@@ -74,10 +73,9 @@ pub mod env_routes;
 /// `env_routes` 的单元测试（自 `env_routes.rs` 拆出：>500 行棘轮，2026-10-16）。
 #[cfg(test)]
 mod env_routes_tests;
-/// 外部事件「忙时合并再注入」窗口 + 常驻合并线程（3.0 队首第一片，2026-10-17）。
-mod external_coalesce;
-/// 外部文本注入端点（节点 E5-T3）：`POST /api/v1/external/chat → say →
-/// 主链路`。静态前置路由（见 `run_request_loop` E5-T3 判定点）。
+/// 外部文本注入端点（**未挂载存根**，2026-10-19）：`POST /api/v1/external/chat`
+/// 未挂载时 404 `mod_disabled`（实现随 `external-input` Mod 移出主仓）。
+/// 静态前置路由（见 `run_request_loop` E5-T3 判定点）。
 pub mod external_routes;
 /// Flutter Web 前端托管（`/app` 与 `/app/*`；2026-09-10 点火轮）。
 pub mod flutter_app;
@@ -126,8 +124,8 @@ mod tests_ws_acks;
 /// 单独承载：`tests_ws.rs` 已贴测试文件行数上限，修复不再让它增长。
 #[cfg(test)]
 mod tests_ws_client;
-/// 语音转写注入端点（Wave 2 A 轨，2026-09-14）：`POST /api/v1/voice/transcript`
-/// → 清洗（复用 `live2d_ai_mod_voice_input::clean_transcript`）→ `say` → 主链路。
+/// 语音转写注入端点（**未挂载存根**，2026-10-19）：`POST /api/v1/voice/transcript`
+/// 未挂载时 404 `mod_disabled`（实现随 `voice-input` Mod 移出主仓）。
 /// 静态前置路由（与 [`external_routes`] 同款）。
 pub mod voice_routes;
 /// Web 静态资产：/models/* 模型资产 + /render* WASM 渲染页（节点 E E2）。
@@ -332,13 +330,6 @@ pub struct ServerContext {
     /// `AVAILABLE_MOD_FACTORIES` + manifest）；其它路径（测试 / 缺省）
     /// 用空 registry 占位。handler 经 `lock()` 调用 enable/disable/restart/list。
     pub mod_registry: std::sync::Arc<std::sync::Mutex<crate::mod_registry::ModRegistry>>,
-    /// 外部事件「忙时合并」窗口（3.0 队首第一片，2026-10-17）。
-    ///
-    /// `POST /api/v1/external/chat` 直送 `say` 失败（主链忙）时把文本收进
-    /// 这里；`run_request_loop` 起的常驻 `external-coalesce` 线程在主链空出来
-    /// 后把整窗文本合并成一条注入一次。状态随 `ServerContext` 走，测试可
-    /// 直接调 `external_coalesce::flush_once` 确定性驱动。
-    pub external_coalescer: external_coalesce::ExternalCoalescer,
 }
 
 impl ServerContext {
@@ -362,7 +353,6 @@ impl ServerContext {
             mod_registry: Arc::new(std::sync::Mutex::new(
                 crate::mod_registry::ModRegistry::new(&[], &serde_json::json!({})),
             )),
-            external_coalescer: external_coalesce::ExternalCoalescer::default(),
         }
     }
 
@@ -527,7 +517,7 @@ pub fn start_server(ctx: ServerContext, port: u16) -> std::io::Result<tiny_http:
 /// 校验。
 /// 前置分支的统一出口：**先记分级日志，再 respond**（F-0001-01）。
 ///
-/// 四条前置路由（chat session / external chat / voice transcript / mods）与
+/// 前置路由（a2a / chat session / external chat / voice transcript / mods）与
 /// WS 前门（Origin 拒绝 / 方法错）都在 dispatch **之前**返回。从前它们直接
 /// respond + continue，于是 dispatch 末尾那条请求级日志对它们一行都不留 ——
 /// 「没能形成响应的失败」更是完全不可见，而 AGENTS.md 明令禁止
@@ -549,10 +539,8 @@ fn respond_and_log(
 }
 
 pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
-    // 外部事件忙时合并（3.0 队首第一片，2026-10-17）：常驻线程随服务生命周期
-    // 起停。入口前的 handler 用 `ctx.external_coalescer` 收下忙时文本，这里
-    // 的线程在主链空出来后合并注入一次；窗口空时线程阻塞在 Condvar 上。
-    let coalesce_thread = crate::web_api::external_coalesce::spawn_flusher(ctx.clone());
+    // 2026-10-19：忙时合并窗口（`external_coalesce` + 常驻 flusher 线程）已随
+    // `external-input` Mod 移出主仓删除；服务不再起任何合并线程。
     for mut request in server.incoming_requests() {
         let method = request.method().clone();
         // **带查询串的原始 URL**（日志用）与**剥掉查询串的路径**（路由用）。
@@ -609,35 +597,12 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             .find(|h| h.field.equiv("Authorization"))
             .map(|h| h.value.as_str().to_string());
         let body_str = read_body_from_request(&mut request);
-        // 0.3.9 rc.3：A2A 前置路由 = **宿主门**（协议核已迁进第二仓 Mod）。
-        // 与 external_routes 同款：自身完成 loopback + Origin + Content-Type 校验，
-        // 以及「Mod 停用则不调用」。message/send 要等上游 LLM，因此 POST 派生
-        // 工作线程（不能冻住整个 HTTP 循环）。
+        // 2026-10-19：A2A 前置路由 = **未挂载存根**（Mod 实现已移出主仓）。
+        // 两条路径都 404 mod_disabled，不派生工作线程——没有上游 LLM 可等，
+        // 直接在本循环里 respond（仍走 respond_and_log 留请求级日志）。
         if crate::web_api::a2a_gate::is_a2a_path(&path) {
-            if method == Method::Get {
-                let resp = crate::web_api::a2a_gate::handle_a2a(
-                    &ctx,
-                    crate::web_api::a2a_gate::A2aRequest {
-                        method: &method,
-                        path: &path,
-                        body: &body_str,
-                        origin: origin.as_deref(),
-                        content_type: content_type.as_deref(),
-                    },
-                );
-                respond_and_log(request, &method, &path, "a2a", resp);
-            } else {
-                let (log_method, log_path) = (method.clone(), path.clone());
-                crate::web_api::a2a_gate::spawn_a2a(
-                    ctx.clone(),
-                    method,
-                    path,
-                    body_str,
-                    origin,
-                    content_type,
-                    move |resp| respond_and_log(request, &log_method, &log_path, "a2a", resp),
-                );
-            }
+            let resp = crate::web_api::a2a_gate::handle_a2a(&ctx);
+            respond_and_log(request, &method, &path, "a2a", resp);
             continue;
         }
         // L1 基座（2026-09-15）：会话 id 宿主能力
@@ -654,9 +619,9 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             respond_and_log(request, &method, &path, "chat.session", resp);
             continue;
         }
-        // 节点 E5-T3：外部文本注入端点（POST /api/v1/external/chat → say →
-        // 主链路）。前置于 dispatch_with_security，自身完成 loopback + json
-        // 校验（详见 external_routes 头注）。
+        // 2026-10-19：外部文本注入端点 = **未挂载存根**（`external-input` Mod
+        // 实现已移出主仓）。路径命中即 404 mod_disabled，不读 body / 不打主链
+        // （详见 external_routes 头注）。
         if let Some(resp) = crate::web_api::external_routes::handle_external_chat(
             &ctx,
             &method,
@@ -669,9 +634,8 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             respond_and_log(request, &method, &path, "external.chat", resp);
             continue;
         }
-        // Wave 2 A 轨（2026-09-14）：语音转写注入端点
-        // （POST /api/v1/voice/transcript → 清洗 → say → 主链路）。
-        // 与 external_routes 同款前置路由：自身完成 loopback + json 校验
+        // 2026-10-19：语音转写注入端点 = **未挂载存根**（`voice-input` Mod
+        // 实现已移出主仓）。路径命中即 404 mod_disabled，不读 body / 不打主链
         // （详见 voice_routes 头注）。
         if let Some(resp) = crate::web_api::voice_routes::handle_voice_transcript(
             &ctx,
@@ -710,9 +674,6 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
         );
         let _ = request.respond(response);
     }
-    // 服务停机：唤醒常驻合并线程并等它退出（不留后台线程跨服务实例存活）。
-    ctx.external_coalescer.shutdown();
-    let _ = coalesce_thread.join();
 }
 
 /// 派发（保持 mod.rs 简洁：实际实现见 [`dispatch`] 模块）。

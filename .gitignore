@@ -173,5 +173,5 @@ nohup.out
 # memory Mod 根目录遗留的运行时产物（本机运行态，勿入库；正式桶在 /sessions/）
 /memory.jsonl
 
-# 2026-10-17（rc.5 分仓库）：MeloTTS 安装产物与 CosyVoice3 权重的忽略规则随
-# local-tts crate 迁到 ../Live2D-Ai-mods/.gitignore。
+# 2026-10-19（一 Mod 一本地仓库）：MeloTTS 安装产物与 CosyVoice3 权重的忽略规则
+# 由各自 Mod 仓库的 .gitignore 负责（local-tts 实现住 ../live2d-ai-mod-local-tts）。

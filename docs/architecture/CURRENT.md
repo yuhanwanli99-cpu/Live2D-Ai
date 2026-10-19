@@ -11,9 +11,9 @@
 2. **二路导演**：按句清洗，把这一句送上屏、送 TTS、并据原文出动作。0.2.0 之后新进入核心的只有这一路。
 3. **一个前端**：渲染、动作、设置、对话。这是会话系统本身。
 
-分句只由引擎给，音频播放时钟是唯一时间基准。TTS 出声是第 2 块把句子送出去的那一跳，端点在 `[tts]`，可以是云端 API。`local-tts-melo` 只在端点是本机 Melo 时拉起那个进程，本身是 Mod，不是这跳出声。
+分句只由引擎给，音频播放时钟是唯一时间基准。TTS 出声是第 2 块把句子送出去的那一跳，端点在 `[tts]`，可以是云端 API。`local-tts-melo` 只在端点是本机 Melo 时拉起那个进程，本身是 Mod（缺省不挂，见 §7/§8），不是这跳出声。
 
-记忆、角色卡、外部事件、语音输入、本地引擎、A2A 都是扩展，归 Mod，实现住第二仓。工程目录里的 crate 名叫 `core` / `runtime` / `desktop`，只说明代码放哪，**不**用来判断一个功能是不是核心。桌宠不是这套最小实现：`pet-desktop` 已删除，不恢复。
+记忆、角色卡、外部事件、语音输入、本地引擎、A2A 都是扩展，归 Mod，各自一个本机仓库（§8），主仓不依赖它们。工程目录里的 crate 名叫 `core` / `runtime` / `desktop`，只说明代码放哪，**不**用来判断一个功能是不是核心。桌宠不是这套最小实现：`pet-desktop` 已删除，不恢复。
 
 ## 2. 版本与工作区
 
@@ -26,7 +26,7 @@
 - **0.3.8 已落地（2026-10-18，本地 tag `v0.3.8-rc.1`…`v0.3.8-rc.3`，未 push）**：当前这一路 `[llm]` 对外暴露 A2A（agent card + JSON-RPC `message/send` / `tasks/get`）；皮套回合仍纯对话、不调工具，皮套链路未接 A2A。产品侧 A2A 是扩展，不是核心；A2A 已在 0.3.9 进第二仓 Mod `a2a`（缺省停用），宿主只留门 `web_api/a2a_gate.rs`，与 §1 的归属一致。不并进 `0.4.0` / `0.4.1`。发布说明 `docs/releases/v0.3.8-rc.3.md`。真机补验（Pi 从 GitHub 克隆、浏览器看隐藏）见 [`PLAN-0.3.8-verify-pi-browser-2026-10-18.md`](../plans/PLAN-0.3.8-verify-pi-browser-2026-10-18.md)。真 Ollama 本轮不拉模型，记为 3.0 遗留，不写入 `0.4.0`。
 - **0.3.9 已落地（2026-10-19，本地 tag `v0.3.9-rc.1` / `v0.3.9-rc.2` 同在提交 `6d841e4`（主仓非 standalone，拆两次会让 rc.1 不能单独构建），`v0.3.9-rc.3`（主仓 `a36421a`，第二仓同 tag `519a3e0`）逐个落地，rc.4 只清理（本页所在提交，tag `v0.3.9-rc.4`），未 push）**：A2A（含已写进 `web_api` 的路由）拆出核心，进第二仓新 Mod `a2a`（缺省停用，工厂 6 → 7）；TTS/LLM 的多厂商选择器留在核心，但收成「云端 / 本地 + 二级设置」，厂商目录与 `vendors.*` 快照已删；旧 toml 仍能加载、写回不再写出 `vendor` / `vendors`。发布说明 [`docs/releases/v0.3.9-rc.4.md`](../releases/v0.3.9-rc.4.md)。不并进 `0.4.0` / `0.4.1`。范围 [`PLAN-0.3.9-core-boundary-2026-10-19.md`](../plans/PLAN-0.3.9-core-boundary-2026-10-19.md)。
 - **0.3.10 已收口（2026-10-19，本地 tag `v0.3.10-rc.1` = `3a7f6c0`、`v0.3.10-rc.2` = `cab3996`，rc.3 只清理（本页所在提交，tag `v0.3.10-rc.3`），未 push）**：标红修复（`live2d_stage.dart` 844 → 785 + 新 `director_cue_plan.dart`；pytest Melo 路径指第二仓）、项目声明收成单一 AGPL-3.0（商业付费 = 单独书面协议，见 §11）、皮套入库与仓库分发分开、活文档对齐；`0.4.0` 未开始。发布说明 [`docs/releases/v0.3.10-rc.3.md`](../releases/v0.3.10-rc.3.md)。范围 [`PLAN-0.3.10-red-docs-statement-2026-10-19.md`](../plans/PLAN-0.3.10-red-docs-statement-2026-10-19.md)。
-- **两仓（0.3.3 起）**：最小表演闭环与宿主在主仓 `/home/skystar/Live2D-Ai`。七个 Mod（0.3.9 起）实现住 sibling 仓 `/home/skystar/Live2D-Ai-mods`，主仓经 `path` 依赖引用。主仓**不再 standalone**；公开前换 git 依赖或 CI 双 checkout，见 [`two-repo-mods.md`](two-repo-mods.md)。
+- **仓库（2026-10-19，已落地）**：主仓只留核心链路，克隆并填好 `[llm]` / `[tts]` 就能编译并跑，不需要任何 Mod 实现。`AVAILABLE_MOD_FACTORIES` 为空（工厂 **0**），`default_mods_manifest` 的 `mods` 为空对象——缺省不再启用 `external-input` 与 `local-tts-melo`。七个实现各自一个**本机仓库**（都没有远端、未 push）：`/home/skystar/live2d-ai-mod-external-input`、`-persona`、`-voice-input`、`-memory`、`-local-tts`（id `local-tts-melo`，工厂 `MELO_FACTORY`）、`-local-engine`、`-a2a`。旧目录 `/home/skystar/Live2D-Ai-mods` 保留作历史来源，已不被主仓引用。挂载 = 维护者手动把 crate 的 path 依赖加回根 `[workspace.dependencies]` 与 desktop 依赖、加回 `AVAILABLE_MOD_FACTORIES`、恢复该 Mod 的宿主路由/集成代码；没有动态加载器，缺省提交里没有这些。执行单 [`PLAN-main-core-mod-repos-2026-10-19.md`](../plans/PLAN-main-core-mod-repos-2026-10-19.md)。
 - **多 Live2D（0.3.5）**：设置 → 模型库可加载本机 `model3`。唯一真源仍是
   `model_registry.json.active_id`；`GET /api/v1/app/status` 同时派生 `active_model_url`
   （空 = 无模型），不加 DisplayPrefs/localStorage 字段、不加端点。白模 `bai` 出厂
@@ -100,6 +100,7 @@
 - `./scripts/ignite.sh`：`[tts].mode=local` 时等本机 `GET {tts}/models` = 200，才打印
   `http://127.0.0.1:18080/app/` 并打开浏览器；在此之前不报地址。
   `mode=cloud` **不等本机 8091**——出声端点在云端，Melo 进程在不在跑与这一跳无关。
+- **缺省构建不挂 `local-tts-melo` Mod**，Melo 不会由主链自动拉起：本机出声要么按 §8 挂回该 Mod，要么手动跑 `/home/skystar/live2d-ai-mod-local-tts/melo/start.sh`。等待逻辑（`mode=local` 等 `GET {tts}/models`）不变。
 - **云端 / 本地两档（0.3.9 收束，原 0.3.4 多厂商）**：LLM 与 TTS 各一个模式开关，
   二级设置直接挂在当前这一档下面；**不再有**厂商目录、`vendors.*` 快照、
   `vendor_modified` 或「一次 PATCH 把快照复制到当前段」。
@@ -129,25 +130,25 @@
     `auth_failed`，其余 `protocol_error`，**不真跑对话 / 不合成**；本地没配置 / 连不上回
     `llm_local_unreachable`（不显示 ready）。
 
-## 8. Mod（在册七个）
+## 8. Mod（缺省 0；七个实现各一本地仓库）
 
-`external-input`、`persona`、`voice-input`、`memory`、`local-tts-melo`、`local-engine`、`a2a`。
+`AVAILABLE_MOD_FACTORIES` 为空，工厂 **0**；`default_mods_manifest` 的 `mods` 为空对象，缺省**不启用**任何 Mod（含 `external-input` / `local-tts-melo`）。七个实现各自一个**本机仓库**，主仓不依赖、缺省不编译：
 
-- **实现住第二仓** `../Live2D-Ai-mods/crates/`（`live2d-ai-mod-system` 与出厂协议仍在主仓）；
-  工厂数、id、缺省集合不因拆仓改变。
-- **缺省启用**：`external-input` 与 `local-tts-melo`；`local-engine` 只注册、**缺省停用**；
-  `a2a` 只注册、**缺省停用**。
-- `a2a`（0.3.9）：协议核住第二仓 `live2d-ai-mod-a2a`（agent card、JSON-RPC dispatch、
-  `message/send` / `tasks/get`、进程内任务表上限 32、错误脱敏）；宿主只留门
-  `web_api/a2a_gate.rs`——loopback + Origin + Content-Type 校验与「Mod 停用则不调用」。
-  停用时 `GET /.well-known/agent-card.json` 与 `POST /api/v1/a2a` 两处同一套、回
-  `403 mod_disabled` 且**不打上游**；启用后线格式与 0.3.8 逐字一致（取消仍拒绝）。
-  密钥仍只在宿主按 `[llm].api_key_env` 查，Mod 与响应 / 日志 / 卡片都拿不到值。
-  工厂 6 → 7。
-- `local-engine`（0.3.4）：spawn-only，4 项 schema（program / args_json / workdir / launch_mode），
-  无 `base_url`；不写 `[tts]`/`[llm]`、不探活、不换地址、不重启；`apply_settings` 恒 0 次。
-  立即退出（1s 窗口）→ Failed 带 stderr 尾；之后退出只进 `state_json`。
-  **2026-10-18 裁决：不删除、不注销。** 设置 → 扩展不再显示这张卡；工厂与 API 仍在。出声仍是 `local-tts-melo`，对话云/本地仍是 `[llm].mode`。
+| 本机仓库 | crate | id |
+|---|---|---|
+| `/home/skystar/live2d-ai-mod-external-input` | `live2d-ai-mod-external-input` | `external-input` |
+| `/home/skystar/live2d-ai-mod-persona` | `live2d-ai-mod-persona` | `persona` |
+| `/home/skystar/live2d-ai-mod-voice-input` | `live2d-ai-mod-voice-input` | `voice-input` |
+| `/home/skystar/live2d-ai-mod-memory` | `live2d-ai-mod-memory` | `memory` |
+| `/home/skystar/live2d-ai-mod-local-tts` | `live2d-ai-mod-local-tts` | `local-tts-melo`（工厂 `MELO_FACTORY`） |
+| `/home/skystar/live2d-ai-mod-local-engine` | `live2d-ai-mod-local-engine` | `local-engine` |
+| `/home/skystar/live2d-ai-mod-a2a` | `live2d-ai-mod-a2a` | `a2a` |
+
+- 七个仓库都**没有远端、未 push**；旧目录 `/home/skystar/Live2D-Ai-mods` 保留作历史来源，已不被主仓引用。`live2d-ai-mod-system` 与出厂协议仍在主仓。
+- **挂载**由维护者手动完成：把该 crate 的 `path` 依赖加回根 `[workspace.dependencies]` 与 `live2d-ai-desktop` 依赖、加回 `AVAILABLE_MOD_FACTORIES`（并同步计数 / id 断言）、恢复该 Mod 的宿主路由 / 集成代码。**没有动态加载器**；缺省提交里没有这些。
+- **未挂载时**：`POST /api/v1/external/chat`、`POST /api/v1/voice/transcript`、`GET /.well-known/agent-card.json`、`POST /api/v1/a2a` 一律回 **404**，body `error.code = "mod_disabled"`，不打 LLM、不 `say`。
+- `a2a`（0.3.9）：协议核在本机仓库 `live2d-ai-mod-a2a`（agent card、JSON-RPC dispatch、`message/send` / `tasks/get`、进程内任务表上限 32、错误脱敏）；宿主只留门 `web_api/a2a_gate.rs`——loopback + Origin + Content-Type 校验与「Mod 未挂载则不调用」。挂回后线格式与 0.3.8 逐字一致（取消仍拒绝）；密钥仍只在宿主按 `[llm].api_key_env` 查，Mod 与响应 / 日志 / 卡片都拿不到值。
+- `local-engine`（0.3.4）：spawn-only，4 项 schema（program / args_json / workdir / launch_mode），无 `base_url`；不写 `[tts]`/`[llm]`、不探活、不换地址、不重启；`apply_settings` 恒 0 次。立即退出（1s 窗口）→ Failed 带 stderr 尾；之后退出只进 `state_json`。**2026-10-18 裁决：不删除、不注销。** 设置 → 扩展不再显示这张卡；缺省未挂载（见上表）。出声仍是 `local-tts-melo`（挂回后），对话云 / 本地仍是 `[llm].mode`。
 - `memory`：本地 JSONL + 词重叠检索（**零向量云依赖**），缺省**关**。
 - `director` 的 crate 仍在主仓 workspace（规则表已迁入核心），但**退出 `AVAILABLE_MOD_FACTORIES`、不再投递，禁止挂回**；
   旧 8 个配置键（3 个词表映射 + 5 个 `staging_*`）不再出现在界面，`mods.json` 残留键被忽略。
