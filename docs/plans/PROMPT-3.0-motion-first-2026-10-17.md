@@ -41,6 +41,7 @@
 - 所有 rc 只做**本地提交 + 本地附注 tag**；**不 push**。远端/云端由维护者在逐个小版本验收后提交。
 - 需要外部实机/云端的验证（Windows、公开第二仓库、真实云端端点）如实标“不做/未验证”，不伪造。
 - 后续功能用下一个 `0.x.y`。清债留在同一号的最后一个 `rc.(z+1)`，不另开版本号。`0.3.6` 至 `0.3.10` 已本地收口。下一块是 `0.4.0`（Windows），`0.4.1`（桌面透传）随后；两版仍 deferred，尚未开始。
+- **2026-10-19 无版本号的仓库拆分已验收**（不编 `0.3.11`，不打 `v0.4*`）。主仓 `15cdfa0`（父提交 `6a0a1ef` = `v0.3.10-rc.3`）。工厂 **0**，缺省 manifest `{"mods":{}}`。七个本机仓库各一次首提交、无 remote。旧 `/home/skystar/Live2D-Ai-mods` 仍在 `519a3e0`。维护者要求云端提交后，`origin/main` 已快进到 `15cdfa0`；附注 tag 未推。七个 Mod 的 GitHub 仓库未建（token 不能 `createRepository`）。抽查未重跑全门禁。上文 0.3.3 / 0.3.9 里的「一个第二仓、工厂 7」是当时的版本记录；现状以 [`CURRENT.md`](../architecture/CURRENT.md) §8 为准。
 
 ## 版本序列
 
@@ -73,7 +74,7 @@
 - 对话模型与出厂 TTS 不改。出厂 TTS 仍是 Melo `http://127.0.0.1:8091/v1`。
 - TTS / LLM 的协议留在核心 `[tts]` / `[llm]`。
 - 不挂回 `pet-desktop`、`wallpaper`、`local-llm`、已封存的 CosyVoice `local-tts`。
-- 源码 `>500` 的文件数保持 42。新文件跨过 500 就要在同一版里拆开，总数不能涨。`preset/mod.rs` 保持 ≤1000。
+- 源码 `>500` 棘轮在无版本号拆分（`15cdfa0`）收紧为 **22**，desktop deps 棘轮收紧为 **18**。不得放宽。`>1000` 仍是 0。`preset/mod.rs` 保持 ≤1000。`RATCHET_DART_800` 仍是 0。docs 预算仍是 45000。
 - wasm 体积超过 4.2 MiB 是已知停点。不改预设、不降 `WASM_DIST_BUDGET_MIB` 去追体积。
 - 这些保持原样，不要夹进任何一版：快捷键帮助里的「停止本轮」、仓内 `docs/examples/bilibili-sidecar/`、主动点头、示例里的 `[tts].channels`、`docs/design/web-ui-spec-v3.md` 的枚举表、`docs/audit/2026-10-09-silent-errors/FINDINGS.md` 正文、调试面板的位置。
 - 新预设 id 没有点名。任何一版都不要自己发明动作包。点名之后，加进当时还没验收的那一版，不单开版本号。
