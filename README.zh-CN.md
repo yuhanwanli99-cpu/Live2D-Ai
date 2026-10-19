@@ -6,7 +6,7 @@ Live2D-Ai 只打磨一条核心链路，其余能力放在 Mod 边界之后：
 
 **文本 → LLM（纯对话）→ TTS → 口型 → Live2D 渲染 + Web UI**
 
-**不绑定**任何单一模型；出厂带白模型（条约见 [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md)，**不是**作者授权再分发），其余模型由你合法取得后自行导入。外部输入、语音输入、会话记忆、导演序列等增强能力走 Mod，失败只关掉该 Mod，不影响主链路。
+**不绑定**任何单一模型；出厂带白模型（条约见 [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md)，**不是**作者授权再分发），其余模型由你合法取得后自行导入；导入的模型只留在本机模型库，不写入仓库。外部输入、语音输入、会话记忆、导演序列等增强能力走 Mod，失败只关掉该 Mod，不影响主链路。
 
 > English (default): [README.md](./README.md)
 
@@ -28,19 +28,21 @@ Live2D-Ai 只打磨一条核心链路，其余能力放在 Mod 边界之后：
 
 ### Mod
 - trait 注册中心（`live2d-ai-mod-system`）：运行时 enable / disable / restart。
-- 已编译进二进制的 Mod（**6 个注册**）：`external-input`、`persona`、`voice-input`、
-  `memory`、`director`、`local-tts-melo`。**缺省启用 `external-input` 与
+- 已编译进二进制的 Mod（**7 个注册工厂**）：`external-input`、`persona`、`voice-input`、
+  `memory`、`local-tts-melo`、`local-engine`、`a2a`。**缺省启用 `external-input` 与
   `local-tts-melo`**（后者开机拉起仓库内 MeloTTS；见编译期
-  `cli_entry::default_mods_manifest`），其余四个都要手动开
-  （`memory` 会写 `persona.system_prompt`，必须由用户明确打开）。
+  `cli_entry::default_mods_manifest`），其余五个都要手动开
+  （`memory` 会写 `persona.system_prompt`，必须由用户明确打开；`a2a` 与 `local-engine`
+  只注册、缺省停用）。
+- `local-engine`（0.3.4）：**spawn-only**，只拉起进程；不写 `[tts]` / `[llm]`、不探活、
+  不换地址。
+- `a2a`（0.3.9）：产品侧是扩展，不是核心。agent card 与 JSON-RPC 分发住第二仓 Mod
+  `a2a`；宿主只留门（`web_api/a2a_gate.rs`），Mod 停用时回 `403 mod_disabled`。工厂 6 → 7。
+- **`director` 已不是 Mod**：规则表在核心，director crate 已退出 `AVAILABLE_MOD_FACTORIES`、
+  不再投递，**禁止挂回**；按句的第二路导演是核心常驻（常开，无启用开关）。现状真源：
+  `docs/architecture/CURRENT.md` §4。
 - `local-tts`（CosyVoice3）**已封存、未注册**：crate 与 `engine/` 留在树上（可编译可测），
   **未适配前不要挂回**。
-- `director`（2026-09-14 起的**决策/按句 cue**版）：规则层按**用户输入**判情绪 / 意图选动作包，
-  经 host `ModServices.cues` 广播 WS `action_cue`（**唯一驱动舞台**；中性轮发
-  `preset_id=="none"` 撤销哨兵），本机 `mods.json` 启用后**确实驱动动作**；
-  `latest.preset_id` 仅供面板只读（前端拉取驱动的通道已退役，D12）。异步第二路 LLM
-  （priority 40）**默认关**，其真实 HTTP 客户端已接线（`staging_http.rs`）。
-  现状真源：`AGENTS.md` §「动作与表演的现行状态（2026-09 实测）」③。
 - `wallpaper` 与 `pet-desktop` **已封存（ARCHIVED，本波不做）**：**不再注册、不再
   编译进 binary**；crate 已于 2026-10-01 **物理删除**（只存在于 tag
   `checkpoint/pre-d1-dormant`），**禁止挂回**。
@@ -49,8 +51,7 @@ Live2D-Ai 只打磨一条核心链路，其余能力放在 Mod 边界之后：
 - `local-llm` **已废除启动**（`0.2.0-rc.1` 移出注册表；crate 已于 2026-10-01 删除）。
   rc.2 删除的那个**动作驱动** director 的归档分支 `archive/action-layer-p6` **已不存在**
   （2026-10-06 复核：本地 / 远端 / 历史 bundle 里都没有）；被删内容可从 `main` 历史取回：
-  `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`。现在的 `director` 是
-  2026-09-14 同名**不同职责**的决策 / 按句 cue 版（见上一条）。
+  `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`。
 - 语音输入：本机 ASR **sidecar**（你自己起的进程）把转写 POST 到
   `POST /api/v1/voice/transcript`；**ASR 不进 binary**。
 - Mod 失败仅 disable 自身，主链路继续。
@@ -150,9 +151,9 @@ crates/
 
 ## 许可与资产
 
-- **项目自有代码：** [AGPL-3.0-only](LICENSE) © 2026 Sakura Motion Project  
-  可选商业许可：[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)
+- **项目自有代码：** [AGPL-3.0-only](LICENSE) © 2026 Sakura Motion Project——项目自有代码的**唯一**公开许可证。照 AGPL 履约即可商业使用，不需要另买许可。
+- **想避开 AGPL 的源码义务？** 那不是第二份公开许可证，而是**商业付费 + 单独书面协议**，见 [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)（联系方式在该文件里）。
 - **第三方：** 见 [NOTICE](NOTICE)、[CREDITS.md](CREDITS.md)
-- **Live2D 模型 / 贴图：** 不受 AGPL 覆盖；须合法取得并自行导入。出厂白模型**渲染必需的那几份已跟踪**（`bai.moc3`、`texture_00_4096.png`），条约见 [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md)——**不是**作者授权再分发。范围说明：[LICENSE-SCOPE.md](LICENSE-SCOPE.md)
+- **Live2D 模型 / 贴图：** 不受 AGPL 覆盖；须合法取得并自行导入。出厂白模型**渲染必需的那几份已跟踪**（`bai.moc3`、`texture_00_4096.png`），条约见 [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md)——**不是**作者授权再分发；用户导入的模型只留本机模型库、不进仓库。范围说明：[LICENSE-SCOPE.md](LICENSE-SCOPE.md)
 
 渲染栈使用开源 Ayagami，而非 Live2D Inc. 的专有 Cubism Core SDK。若你自行加入第三方 Cubism 二进制，它们仍受 Live2D EULA 约束，且不属于本项目许可范围。

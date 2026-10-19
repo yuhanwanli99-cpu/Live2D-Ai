@@ -6,7 +6,7 @@ Live2D-Ai wires a single core loop and keeps everything else behind a Mod bounda
 
 **text → LLM (chat only) → TTS → lip-sync → Live2D render + Web UI**
 
-It ships one **white (bai) model** so a fresh clone renders out of the box; the terms in [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md) apply and are **not** an author authorization to redistribute. Import any other Live2D assets yourself, lawfully. Complex extras (external input, persona, voice input, session memory, …) are optional Mods that fail independently of the core loop.
+It ships one **white (bai) model** so a fresh clone renders out of the box; the terms in [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md) apply and are **not** an author authorization to redistribute. Import any other Live2D assets yourself, lawfully; models you import stay in your local model library and are **not** written into the repo. Complex extras (external input, persona, voice input, session memory, …) are optional Mods that fail independently of the core loop.
 
 > Chinese: [README.zh-CN.md](./README.zh-CN.md)
 
@@ -28,11 +28,22 @@ It ships one **white (bai) model** so a fresh clone renders out of the box; the 
 
 ### Mods
 - Trait registry (`live2d-ai-mod-system`): enable / disable / restart at runtime.
-- Mods compiled into the binary (**6 registered**): `external-input`, `persona`,
-  `voice-input`, `memory`, `director`, `local-tts-melo`. **`external-input` and
-  `local-tts-melo` are enabled by default** (the latter launches the bundled MeloTTS on
-  boot); the other four are opt-in (`memory` writes `persona.system_prompt`, so it must
-  be turned on deliberately).
+- Mods compiled into the binary (**7 registered factories**): `external-input`,
+  `persona`, `voice-input`, `memory`, `local-tts-melo`, `local-engine`, `a2a`.
+  **`external-input` and `local-tts-melo` are enabled by default** (the latter launches
+  the bundled MeloTTS on boot); the other five are opt-in (`memory` writes
+  `persona.system_prompt`, so it must be turned on deliberately; `a2a` and
+  `local-engine` are registered but off).
+- `local-engine` (0.3.4) is **spawn-only**: it starts a process and never writes
+  `[tts]` / `[llm]`, probes, or swaps endpoints.
+- `a2a` (0.3.9) is an optional extension, not core: the agent card and JSON-RPC
+  dispatch live in the second-repo Mod `a2a`; the host only keeps the gate
+  (`web_api/a2a_gate.rs`) and answers `403 mod_disabled` while the Mod is off. The
+  factory count went 6 → 7.
+- **`director` is not a Mod any more**: the rule table lives in the core, the director
+  crate exited `AVAILABLE_MOD_FACTORIES`, no longer delivers cues, and must **not** be
+  re-registered. The per-sentence second director path is a core resident: always on, no
+  enable switch. Current contract: `docs/architecture/CURRENT.md` §4.
 - `local-tts` (CosyVoice3) is **sealed — not registered**; the crate stays in the tree
   but must **not** be re-registered until it is adapted.
 - `wallpaper` and `pet-desktop` are **ARCHIVED**: **not registered and not compiled
@@ -48,14 +59,6 @@ It ships one **white (bai) model** so a fresh clone renders out of the box; the 
   (re-verified 2026-10-06: not local, not on the remote, not in the historical
   bundles) — recover the deleted sources from `main`'s own history:
   `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`.
-- The `director` registered today (2026-09-14, same name, different job) **does drive
-  the stage**: its rule layer maps **user input** to an action preset and broadcasts the
-  per-sentence WS `action_cue` (the only stage driver; a neutral turn emits the
-  `preset_id=="none"` revoke sentinel). `latest.preset_id` is panel-read-only (the
-  front-end pull-to-drive channel was retired, D12); the async second LLM (priority 40)
-  is **off by default** and its real HTTP client is wired (`staging_http.rs`).
-  Contract: `docs/architecture/director-rfc.md`; current status: `AGENTS.md`
-  §「动作与表演的现行状态（2026-09 实测）」.
 - Voice input: a local ASR **sidecar** (any process you run) POSTs transcripts to
   `POST /api/v1/voice/transcript`; no ASR runtime is linked into the binary.
 - Mod failure disables that Mod only; the core loop keeps running.
@@ -176,9 +179,13 @@ Docs index: [docs/README.md](./docs/README.md)
 
 ## License & assets
 
-- **Project code:** [AGPL-3.0-only](LICENSE) © 2026 Sakura Motion Project  
-  Optional proprietary terms: [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)
+- **Project code:** [AGPL-3.0-only](LICENSE) © 2026 Sakura Motion Project — the **only**
+  public license for project-owned code. Commercial use is allowed as long as the AGPL
+  terms are met; no extra license is needed.
+- **Avoiding the AGPL source obligations?** That is **not** a second public license: it
+  requires commercial payment plus a **separate written agreement**. Contact QQ
+  `338438383` — see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
 - **Third-party:** see [NOTICE](NOTICE) and [CREDITS.md](CREDITS.md)
-- **Live2D models / textures:** not covered by AGPL; obtain and import lawfully. The **white model's few required files are tracked** (`bai.moc3`, `texture_00_4096.png`); the terms in [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md) apply and are **not** an author authorization to redistribute. Scope notes: [LICENSE-SCOPE.md](LICENSE-SCOPE.md)
+- **Live2D models / textures:** not covered by AGPL; obtain and import lawfully. The **white model's few required files are tracked** (`bai.moc3`, `texture_00_4096.png`); the terms in [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md) apply and are **not** an author authorization to redistribute. Imported models stay in your local model library and are not written into the repo. Scope notes: [LICENSE-SCOPE.md](LICENSE-SCOPE.md)
 
 Render stack uses open-source Ayagami — not Live2D Inc.’s proprietary Cubism Core SDK. If you add third-party Cubism binaries yourself, those stay under Live2D’s own EULA and are never part of this project’s license.

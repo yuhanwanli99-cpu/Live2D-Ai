@@ -1,7 +1,7 @@
 # LICENSE-SCOPE — what each part is licensed under
 
 This document describes the **current Rust baseline** (`crates/`, `0.1.0-rc.1`).  
-Project-owned code defaults to **AGPL-3.0-only** ([LICENSE](LICENSE)). Third-party code and assets keep their own terms. Commercial use is allowed when AGPL-3.0 obligations are met; for proprietary use without those obligations, see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
+Project-owned code is public under **AGPL-3.0-only** ([LICENSE](LICENSE)) — the **only** public license for project-owned code; there is no second public license. Commercial use is allowed when the AGPL-3.0 obligations are met. Avoiding the AGPL source-availability obligations requires commercial payment plus a **separate written agreement** (contact QQ `338438383`), not another public license — see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
 
 Legacy Python / Android stack notes (historical only): [docs/legal/legacy/README.md](docs/legal/legacy/README.md).
 
@@ -10,7 +10,7 @@ Legacy Python / Android stack notes (historical only): [docs/legal/legacy/README
 | Scope | License | Notes |
 |---|---|---|
 | Workspace crates under `crates/` (except where a crate overrides) | **AGPL-3.0-only** | See root `LICENSE` and `Cargo.toml` `workspace.package.license` |
-| `crates/l2d` | **MIT OR Apache-2.0** | Render wrapper; see that crate’s `LICENSE-*` |
+| `crates/l2d` | **MIT OR Apache-2.0** | Render wrapper; **upstream-compatible third-party part**, not relicensed by the single AGPL-3.0 declaration; see that crate’s `LICENSE-*` |
 | `xtask`, root tooling committed in-tree | **AGPL-3.0-only** unless marked otherwise | |
 
 Contributions of project-owned code are licensed AGPL-3.0-only by default.
