@@ -53,12 +53,8 @@ class SettingsDraft {
   /// 端点形态（`local` / `cloud`，0.3.7 T1）。`null` = 没动。
   ///
   /// 服务端这一项是**普通可选值**（不是三态）：给了值就切换；切模式**不动**
-  /// 地址 / 模型 / token / 思考 / 厂商快照（与 TTS 的 `ttsMode` 同款）。
+  /// 地址 / 模型 / token / 思考（与 TTS 的 `ttsMode` 同款）。
   String? llmMode;
-
-  /// 当前厂商（rc.6，三态）：`Tri.set(id)` = 切换并复制快照；
-  /// `Tri.clear()` = 手动填写（只清标签）。
-  DraftField<String>? llmVendor;
 
   // ── TTS ──
   /// 语音来源（`local` / `cloud`，2026-10-09）。null = 没动。
@@ -71,9 +67,6 @@ class SettingsDraft {
   Tri<String>? ttsApiKeyEnv;
   int? ttsSampleRate;
   int? ttsChannels;
-
-  /// 当前厂商（rc.6，三态；melo = 内置虚拟快照，其它 = cloud）。
-  DraftField<String>? ttsVendor;
 
   // ── persona（M5.1：只剩系统提示词与历史轮数；卡字段已迁出主链） ──
   String? personaSystemPrompt;
@@ -194,7 +187,6 @@ class SettingsDraft {
       model: _tri(llmModel),
       maxTokens: llmMaxTokens,
       showReasoning: llmShowReasoning,
-      vendor: llmVendor,
     );
     return patch.isEmpty ? null : patch;
   }
@@ -214,7 +206,6 @@ class SettingsDraft {
       apiKeyEnv: ttsApiKeyEnv,
       sampleRate: ttsSampleRate == null ? null : Tri.set(ttsSampleRate!),
       channels: ttsChannels == null ? null : Tri.set(ttsChannels!),
-      vendor: ttsVendor,
     );
     return patch.isEmpty ? null : patch;
   }
@@ -254,7 +245,6 @@ class SettingsDraft {
     llmMaxTokens = null;
     llmShowReasoning = null;
     llmMode = null;
-    llmVendor = null;
     ttsMode = null;
     ttsBaseUrl = null;
     ttsModel = null;
@@ -262,7 +252,6 @@ class SettingsDraft {
     ttsApiKeyEnv = null;
     ttsSampleRate = null;
     ttsChannels = null;
-    ttsVendor = null;
     personaSystemPrompt = null;
     personaMaxHistoryPairs = null;
     actionHeadScale = null;
@@ -502,21 +491,7 @@ class SettingsController extends ChangeNotifier {
     }
     // 切回服务端本就使用的模式 → 撤回草稿（「点开又改回去」不该显示未保存）。
     if (_draft.llmMode == remote.llm.mode) _draft.llmMode = null;
-    if (_draft.llmVendor case TriSet<String>(:final value)
-        when value == remote.llm.vendor) {
-      _draft.llmVendor = null;
-    }
-    if (_draft.llmVendor is TriClear<String> && remote.llm.vendor == null) {
-      _draft.llmVendor = null;
-    }
     if (_draft.ttsMode == remote.tts.mode) _draft.ttsMode = null;
-    if (_draft.ttsVendor case TriSet<String>(:final value)
-        when value == remote.tts.vendor) {
-      _draft.ttsVendor = null;
-    }
-    if (_draft.ttsVendor is TriClear<String> && remote.tts.vendor == null) {
-      _draft.ttsVendor = null;
-    }
     if (_draft.ttsBaseUrl == remote.tts.baseUrl) _draft.ttsBaseUrl = null;
     if (_draft.ttsModel == remote.tts.model) _draft.ttsModel = null;
     if (_draft.ttsVoice == remote.tts.voice) _draft.ttsVoice = null;

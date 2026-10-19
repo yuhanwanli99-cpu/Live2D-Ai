@@ -1,5 +1,8 @@
 //! `settings::patch` 的三态 JSON 非法载荷回归（自 `patch_tests.rs` 拆出，
 //! 保持 `patch_tests.rs` ≤500 行；测试计数不丢）。
+//!
+//! 2026-10-19（0.3.9）：文件名从 `patch_vendor_tests.rs` 改来——内容一直是三态
+//! 非法载荷，与已删除的厂商快照无关。
 
 use crate::settings::patch::{SettingsPatch, apply_patch};
 

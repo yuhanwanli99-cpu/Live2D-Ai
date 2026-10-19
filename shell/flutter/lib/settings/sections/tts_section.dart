@@ -15,10 +15,12 @@
 ///   44100 / 单声道、**无密钥**。普通层**不给改端口**（这里连输入框都不画，
 ///   只有只读展示）；保存时由**设置保存**把这一组值写进 `[tts]`，
 ///   同时只启用 `local-tts-melo` 这一个本地引擎（已有子进程不再起一个）。
-/// - **云端**：地址 / 音色 / 模型名 / 密钥都由用户填；**不预填厂商、不带 Key**。
+/// - **云端**：地址 / 音色 / 模型名 / 密钥都由用户填；**不预填任何值、不带 Key**。
 ///   自检仍只打 `/models`。
 /// - 切换走同一次「保存并应用」；失败就让这一轮没生效（错误码照旧），
 ///   **不自动改回另一个**。
+/// - 2026-10-19（0.3.9 rc.2）：厂商下拉与快照脏标记已删除——「本地 / 云端」
+///   二选一就是唯一切换手段，二级字段直接挂在这一档下面。
 ///
 /// 开发者层只留采样率、声道、服务端静音（不做任何加法）。
 library;
@@ -46,14 +48,6 @@ const String kTtsLocalSpecText = 'pcm · 44100 Hz · 单声道';
 
 /// 云端模式、还没绑定密钥时的那一行（保存后才出现输入框）。
 const String kTtsCloudKeyPending = '保存后这里出现密钥输入（绑定 LIVE2D_AI_TTS_API_KEY）';
-
-/// 草稿优先的当前厂商（空串 = 手动填写 / 没有标签）。
-String ttsVendorOf(SettingsDraft draft, TtsSettingsView tts) {
-  final Tri<String>? drafted = draft.ttsVendor;
-  if (drafted is TriSet<String>) return drafted.value;
-  if (drafted is TriClear<String>) return '';
-  return tts.vendor ?? '';
-}
 
 class TtsSection extends StatelessWidget {
   const TtsSection({
@@ -102,8 +96,6 @@ class TtsSection extends StatelessWidget {
   void _switchMode(String next) {
     controller.edit((SettingsDraft draft) {
       draft.ttsMode = next;
-      // 手动切来源 = 不再走厂商快照（服务端只清标签，不动当前值）。
-      draft.ttsVendor = Tri.clear<String>();
       if (next == kTtsModeLocal) {
         draft.ttsBaseUrl = null;
         draft.ttsVoice = null;
@@ -122,52 +114,16 @@ class TtsSection extends StatelessWidget {
     });
   }
 
-  /// rc.6：切换厂商 = 服务端一次「快照→当前」复制；清空本卡草稿，
-  /// 避免旧快照的地址 / 音色 / 密钥绑定混进新快照。
-  void _switchVendor(String id) {
-    controller.edit((SettingsDraft draft) {
-      draft.ttsVendor = id.isEmpty ? Tri.clear<String>() : Tri.set(id);
-      draft.ttsMode = null;
-      draft.ttsBaseUrl = null;
-      draft.ttsVoice = null;
-      draft.ttsModel = null;
-      draft.ttsSampleRate = null;
-      draft.ttsChannels = null;
-      draft.ttsApiKeyEnv = null;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final SettingsDraft d = controller.draft;
     final TtsSettingsView tts = view.tts;
     final String mode = modeOf(d, tts);
     final bool isLocal = mode != kTtsModeCloud;
-    final String vendor = ttsVendorOf(d, tts);
-    final List<FieldOption<String>> vendorOptions = <FieldOption<String>>[
-      const FieldOption<String>(value: '', label: '手动填写（不绑定厂商）'),
-      for (final String id in tts.vendors.keys)
-        FieldOption<String>(
-          value: id,
-          label: id == 'melo' ? 'melo（内置本地哨兵）' : id,
-        ),
-      if (vendor.isNotEmpty && !tts.vendors.containsKey(vendor))
-        FieldOption<String>(value: vendor, label: '$vendor（快照缺失）'),
-    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        DropdownField<String>(
-          label: '当前厂商',
-          icon: Icons.storefront_outlined,
-          value: vendor,
-          options: vendorOptions,
-          description: tts.vendorModified
-              ? '当前值已手改（保存不会回写快照）；切回同一厂商即可重新套用快照。'
-              : 'melo = 本地哨兵（local）；其它厂商一律 cloud。切换后仍需「保存并重载」；空闲后 / 下一轮生效。',
-          onChanged: _switchVendor,
-        ),
         SegmentedField<String>(
           label: '语音来源',
           icon: Icons.cloud_outlined,

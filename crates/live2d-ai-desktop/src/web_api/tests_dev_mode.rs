@@ -196,8 +196,6 @@ fn patch_no_op_does_not_change_dev_mode() {
             api_key_env: None,
             max_tokens: None,
             show_reasoning: None,
-            vendor: None,
-            vendors: Default::default(),
         },
         dev_mode: true,
         ..Default::default()

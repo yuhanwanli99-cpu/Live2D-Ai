@@ -6,7 +6,8 @@
 #   2) 确保渲染面产物：crates/l2d-wasm-demo/dist（/render 用）；
 #   3) 确保前端产物：shell/flutter/build/web（/app/ 用，可选 --build 自动构建）；
 #   4) 后台启动 live2d-ai-desktop --web，脚本前台等待：先等 GET /app/ = 200
-#      （最长 90 秒）；本机 TTS 再等 GET {tts.base_url}/models = 200（最长 600 秒）；
+#      （最长 90 秒）；[tts].mode=local 时再等 GET {tts.base_url}/models = 200（最长 600 秒，
+#      cloud 不等——出声端点是云端 API 时不需要本机 Melo 进程）；
 #      服务进程退出 = 提前停下。
 #   5) 全部就绪才打印点火入口，并用默认浏览器打开页面（WSL 走 Windows 的
 #      Start-Process；LIVE2D_AI_NO_BROWSER=1 只打印）。页面未就绪或本机 TTS
@@ -152,31 +153,43 @@ echo "==> Live2D-Ai 点火检查"
 if ! command -v python3 >/dev/null 2>&1; then
   echo "[error] 需要 python3 读取 live2d-ai.toml"; exit 1
 fi
-# 三行输出 + mapfile：不用 `read -r a b c`（空 TTS 会被 `read` 吃掉，行数错位），
-# 也不用 `print(a, b, c)`（同一原因）。主机名按 urlparse 归一（127.0.0.1 /
-# localhost / ::1 视为本机 = tts_local=1）。
+# 四行输出 + mapfile：不用 `read -r a b c`（空 TTS 会被 `read` 吃掉，行数错位），
+# 也不用 `print(a, b, c, d)`（同一原因）。
+#
+# **0.3.9：就绪等待只认 `[tts].mode`**（"local" 缺省 / "cloud"）。旧口径按
+# base_url 主机名判「是否本机」——云端模式下把地址填成局域网/本机代理时会去等一个
+# 永远不会起的 Melo；现在 mode=cloud 一律不等（核心只打 [tts].base_url，
+# 出声端点在云端，本机 Melo 进程与本跳无关）。
 mapfile -t ENDPOINTS < <(python3 - <<'PY'
 import pathlib, tomllib
 from urllib.parse import urlparse
 llm = "http://127.0.0.1:11434/v1"
 tts = ""
+mode = "local"
 p = pathlib.Path("live2d-ai.toml")
 if p.is_file():
     d = tomllib.loads(p.read_text(encoding="utf-8"))
     llm = d.get("llm", {}).get("base_url", llm)
     tts = d.get("tts", {}).get("base_url", "")
+    mode = d.get("tts", {}).get("mode", "local")
 host = (urlparse(tts).hostname or "").lower()
 print(llm)
 print(tts)
+print(mode)
 print("1" if host in ("127.0.0.1", "localhost", "::1") else "0")
 PY
 )
 LLM_BASE="${ENDPOINTS[0]}"
 TTS_BASE="${ENDPOINTS[1]}"
-TTS_LOCAL="${ENDPOINTS[2]}"
+TTS_MODE="${ENDPOINTS[2]}"
+TTS_HOST_LOCAL="${ENDPOINTS[3]}"
+# 只有「本地」模式才由本次点火拉起并等待本机 TTS 进程。
+TTS_LOCAL=0
+[ "$TTS_MODE" = "local" ] && TTS_LOCAL=1
 echo "    配置 LLM base : $LLM_BASE"
 echo "    配置 TTS base : ${TTS_BASE:-（未配置，选型待定）}"
-echo "    TTS 本机      : $([ "$TTS_LOCAL" = "1" ] && echo 是 || echo 否)"
+echo "    配置 TTS mode : $TTS_MODE（$([ "$TTS_LOCAL" = "1" ] && echo 本机进程随点火拉起并等待 || echo 云端端点，不等本机进程））"
+echo "    TTS 地址主机  : $([ "$TTS_HOST_LOCAL" = "1" ] && echo 本机 / 局域网 || echo 远程)"
 
 probe() {
   local name="$1" base="$2"
@@ -282,7 +295,7 @@ sleep 0.5
 
 echo
 echo "==> 启动 web 服务（音频单源=browser：由浏览器出声并驱动口型）"
-echo "==> 就绪判据：GET /app/ = 200（本机 TTS 还要再等 GET {tts}/models = 200），"
+echo "==> 就绪判据：GET /app/ = 200（[tts].mode=local 还要再等 GET {tts}/models = 200；cloud 不等），"
 echo "    就绪前**不给**页面地址、不开浏览器。服务在后台，本脚本前台等待。"
 
 ./target/debug/live2d-ai-desktop --web --http-port "${PORT}" &
@@ -319,9 +332,11 @@ echo "==> 等待页面就绪（GET http://127.0.0.1:${PORT}/app/ = 200，最长 
 page_ready
 echo "    [ok] 页面就绪：GET /app/ = 200"
 
-# ---- 5b) 仅本机 TTS：等 GET {tts}/models = 200，超时 600 秒，15 秒一行「仍在等待」。
+# ---- 5b) 仅 [tts].mode=local：等 GET {tts}/models = 200，超时 600 秒，15 秒一行「仍在等待」。
+# cloud 模式整段跳过——出声端点在云端，本机 Melo 进程在不在跑与这一跳无关。
 if [ "$TTS_LOCAL" = "1" ]; then
   TTS_MODELS_URL="${TTS_BASE%/}/models"
+  # 只有 local 模式才可能由本次点火拉起；base_url 不在本机时明确说清不是我们起的。
   tts_ready() {
     local tts_deadline=$((SECONDS + 600)) code last_note=0
     while :; do

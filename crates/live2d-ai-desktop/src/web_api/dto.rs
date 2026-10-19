@@ -330,8 +330,6 @@ mod tests {
                 api_key_env: Some("LIVE2D_AI_LLM_API_KEY".into()),
                 max_tokens: None,
                 show_reasoning: None,
-                vendor: None,
-                vendors: Default::default(),
             },
             tts: TtsSettings {
                 mode: live2d_ai_runtime::settings::TtsMode::Cloud,
@@ -342,8 +340,6 @@ mod tests {
                 api_key_env: Some("LIVE2D_AI_TTS_API_KEY".into()),
                 sample_rate: 24_000,
                 channels: 1,
-                vendor: None,
-                vendors: Default::default(),
             },
             persona: PersonaSettings {
                 system_prompt: "你是桌宠".into(),

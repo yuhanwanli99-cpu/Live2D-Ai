@@ -21,8 +21,6 @@ fn cloud_sample() -> AppSettings {
             api_key_env: Some("TTS_KEY".into()),
             sample_rate: 24_000,
             channels: 1,
-            vendor: None,
-            vendors: Default::default(),
         },
         ..Default::default()
     }

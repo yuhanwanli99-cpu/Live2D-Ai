@@ -33,6 +33,11 @@
 /// 0.3.7 T1：`[llm].mode` 类型（从本文件拆出，保持 ≤1000 行）。
 mod llm_mode;
 pub mod patch;
+/// 2026-10-17：三态 JSON 非法载荷回归（自 `patch_tests` 再拆一片，控制 ≤500 行）。
+/// 2026-10-19（0.3.9）：文件名从 `patch_vendor_tests` 改来——它从来只测三态
+/// 非法载荷，与已删除的厂商快照无关。
+#[cfg(test)]
+mod patch_invalid_payload_tests;
 /// 2026-10-18（0.3.7 T1）：`[llm].mode` 云 / 本地二选一的回归（缺省 cloud、
 /// 旧 toml 逐字 round-trip、未知 mode 拒绝、切模式不动厂商快照）。
 #[cfg(test)]
@@ -47,24 +52,15 @@ mod patch_tests;
 #[cfg(test)]
 #[path = "settings/patch_tts_mode_tests.rs"]
 mod patch_tts_mode_tests;
-/// 2026-10-17：三态 JSON 非法载荷回归（自 `patch_tests` 再拆一片，控制 ≤500 行）。
-#[cfg(test)]
-mod patch_vendor_tests;
 #[cfg(test)]
 mod settings_tests;
 /// 2026-10-17：写回 / round-trip / merge 回归（settings_tests 拆分为两片）。
 #[cfg(test)]
 mod settings_tests_roundtrip;
 pub use llm_mode::LlmMode;
-/// 0.3.4 厂商快照类型（从本文件拆出，保持 ≤1000 行）。
-mod vendor;
-/// 0.3.4 多厂商选择（vendor / vendors）回归。
-#[cfg(test)]
-mod vendor_tests;
 pub mod view;
 use std::collections::BTreeMap;
 use std::path::Path;
-pub use vendor::{LlmVendor, MAX_VENDOR_ID_LEN, MELO_VENDOR_ID, TtsVendor, is_valid_vendor_id};
 
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -205,16 +201,6 @@ pub struct LlmSettings {
     /// 「省流量 / 加速」——那是对它的误读。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_reasoning: Option<bool>,
-    /// 当前选中的厂商标签（rc.6，2026-10-17）。**只是标签**：真正的权威仍是
-    /// 本段各字段；vendors 里存的是快照，选厂商 = 一次 PATCH 的「快照→当前」复制。
-    /// 省略 = 没有厂商标签（旧 toml 的逐字现状）。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vendor: Option<String>,
-    /// 厂商快照表（rc.6）：键 = 厂商 id（[a-z0-9][a-z0-9_-]{0,31}）。
-    /// **不参与** resolve——只有被选中并复制进本段当前值后才生效；
-    /// 非激活项配置有误也不会 brick。空表时**不序列化**（旧 toml 逐字 round-trip）。
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub vendors: BTreeMap<String, LlmVendor>,
 }
 
 /// [`LlmSettings::max_tokens`] 省略时的默认上限。
@@ -316,14 +302,6 @@ pub struct TtsSettings {
     /// 返回 PCM 流声道数；默认单声道。
     #[serde(default = "default_channels")]
     pub channels: u16,
-    /// 当前选中的厂商标签（rc.6，2026-10-17）。**只是标签**：权威仍是本段字段。
-    /// 特殊值 melo = 内置虚拟快照（不进文件；选中即 apply_local_tts_defaults）。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vendor: Option<String>,
-    /// 厂商快照表（rc.6）：键 = 厂商 id（[a-z0-9][a-z0-9_-]{0,31}）。
-    /// 本表**不参与** resolve；空表时不序列化（旧 toml 逐字 round-trip）。
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub vendors: BTreeMap<String, TtsVendor>,
 }
 
 /// 出厂 TTS 服务地址（2026-10-09）：仓库自带的 MeloTTS 垫片。
@@ -392,8 +370,6 @@ impl Default for TtsSettings {
             api_key_env: None,
             sample_rate: default_sample_rate(),
             channels: default_channels(),
-            vendor: None,
-            vendors: BTreeMap::new(),
         }
     }
 }
@@ -700,8 +676,19 @@ pub struct ResolvedSettings {
 
 impl AppSettings {
     /// 解析 TOML 文本。
+    ///
+    /// # 0.3.9：旧 toml 的 `vendor` / `vendors` 键**读入时忽略**
+    ///
+    /// 0.3.4–0.3.8 的「多厂商快照」已删除（0.3.9 收成「云端 / 本地 + 二级设置」）。
+    /// 用户磁盘上的旧 toml 可能仍带 `[llm].vendor`、`[llm.vendors.<id>]`、
+    /// `[tts].vendor`、`[tts.vendors.<id>]`；这两键**不得**让进程启动失败
+    ///（`deny_unknown_fields` 仍负责拦截其它拼错的键）。解析前在
+    /// `toml::Value` 上剥掉两键即可，**不改磁盘**——下一次正常保存由
+    /// `merge_into_toml` 的「期望里没有的键 → 删」语义把它们清理掉。
     pub fn from_toml_str(text: &str) -> Result<Self, SettingsError> {
-        Ok(toml::from_str(text)?)
+        let mut value: toml::Value = toml::from_str(text)?;
+        strip_legacy_vendor_keys(&mut value);
+        Ok(value.try_into()?)
     }
 
     /// 从磁盘读取并解析 `live2d-ai.toml`。
@@ -940,6 +927,22 @@ fn sync_item(dst: &mut toml_edit::Item, desired: &toml_edit::Item) {
         }
     }
 }
+/// 剥掉旧 toml 里已删除的厂商选择键（0.3.9）：`[llm|tts].vendor` 与
+/// `[llm|tts].vendors`（含整个子表）。只动为解析服务的 `toml::Value`，
+/// **不碰磁盘**；写回由 `merge_into_toml` 的「期望里没有 → 删」语义完成。
+fn strip_legacy_vendor_keys(root: &mut toml::Value) {
+    let Some(root) = root.as_table_mut() else {
+        return;
+    };
+    for section in ["llm", "tts"] {
+        let Some(table) = root.get_mut(section).and_then(toml::Value::as_table_mut) else {
+            continue;
+        };
+        table.remove("vendor");
+        table.remove("vendors");
+    }
+}
+
 /// 校验环境变量名：非空、ASCII、`[A-Za-z_][A-Za-z0-9_]*`。
 fn validate_env_name(section: &'static str, name: &str) -> Result<(), SettingsError> {
     let valid = !name.is_empty()

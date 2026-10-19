@@ -1,10 +1,11 @@
-/// 0.3.7 T1：LLM 云端 / 本地的**草稿与交互**回归（纯逻辑 + 真泵）。
+/// 0.3.7 T1 / 0.3.9 rc.2：LLM 云端 / 本地的**草稿与交互**回归（纯逻辑 + 真泵）。
 ///
 /// 守四件事：
 /// 1. 旧服务端缺 `mode` → 按云端理解（不能把界面拨到本地那套配置）；
 /// 2. 草稿切模式只发 `mode`（服务端普通可选值），不预填/不清空地址 / 模型；
-/// 3. 与 TTS 的 `_switchMode` 逐条对齐：切模式 = 清厂商**标签**（`Tri.clear`），
-///    服务端只清标签、不动快照——界面里快照仍在、仍可选；
+/// 3. 0.3.9 rc.2 起没有厂商下拉 / 快照脏标记：PATCH body 里**不再出现**
+///    `vendor` / `vendors` / `vendor_modified` 键，二级字段（地址 / 模型名 /
+///    token / 思考 / 音色 / 采样率 / 声道 / 密钥变量名）随模式一起正确发出；
 /// 4. 本地模式给 Ollama 示例文案（示例，不预填）、自检说明仍是「只打 /models」。
 library;
 
@@ -23,32 +24,17 @@ import 'package:live2d_ai_shell/ui/field_row.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
 /// 真实抓包形状的 `GET /api/v1/settings`（0.3.6 形态：**没有** `llm.mode`）。
+///
+/// 0.3.9 rc.2 的后端不再返回厂商键，这里也**不再造** vendor / vendors。
 const String _getJson = '''
 {"llm":{"base_url":"https://api.deepseek.com/v1","model":"deepseek-flash",
-"has_api_key":true,"max_tokens":4096,"show_reasoning":false,
-"vendor":"foo","vendor_modified":false,
-"vendors":{"foo":{"base_url":"https://api.example.com/v1","model":"foo-large",
-"has_api_key":true,"max_tokens":4096,"show_reasoning":false}}},
+"has_api_key":true,"max_tokens":4096,"show_reasoning":false},
 "tts":{"mode":"local","base_url":"http://127.0.0.1:8091/v1","model":null,
 "voice":"ZH","has_api_key":false,"sample_rate":44100,"channels":1},
 "persona":{"system_prompt":"","max_history_pairs":0},
 "action":{"head_scale":0.75,"body_scale":0.8,"expression_scale":1.0,"models":{}},
 "dev_mode":false,"active_model_id":""}
 ''';
-
-/// 服务端真相（可去掉 / 换掉厂商标签）。
-String _getBody({String? vendor = 'foo'}) {
-  final Map<String, Object?> j =
-      (jsonDecode(_getJson) as Map<String, Object?>);
-  final Map<String, Object?> llm =
-      (j['llm']! as Map<Object?, Object?>).cast<String, Object?>();
-  if (vendor == null) {
-    llm.remove('vendor');
-  } else {
-    llm['vendor'] = vendor;
-  }
-  return jsonEncode(j);
-}
 
 http.Response _jsonResponse(String body) => http.Response.bytes(
   utf8.encode(body),
@@ -58,10 +44,9 @@ http.Response _jsonResponse(String body) => http.Response.bytes(
   },
 );
 
-SettingsController _controller({String? vendor = 'foo'}) {
-  final String body = _getBody(vendor: vendor);
+SettingsController _controller() {
   final MockClient client = MockClient(
-    (http.Request request) async => _jsonResponse(body),
+    (http.Request request) async => _jsonResponse(_getJson),
   );
   return SettingsController(
     api: ApiClient(base: 'http://127.0.0.1:18080', client: client),
@@ -93,6 +78,25 @@ Future<void> _pump(
   await tester.pump();
 }
 
+/// 递归断言：补丁 JSON **任何一层**都不出现厂商键（0.3.9 rc.2 契约）。
+void _expectNoVendorKeys(Object? node, {String path = r'$'}) {
+  if (node is Map) {
+    for (final MapEntry<Object?, Object?> e in node.entries) {
+      final String key = e.key.toString();
+      expect(
+        <String>['vendor', 'vendors', 'vendor_modified'].contains(key),
+        isFalse,
+        reason: '补丁里不得再出现厂商键（$path.$key）',
+      );
+      _expectNoVendorKeys(e.value, path: '$path.$key');
+    }
+  } else if (node is List) {
+    for (int i = 0; i < node.length; i += 1) {
+      _expectNoVendorKeys(node[i], path: '$path[$i]');
+    }
+  }
+}
+
 void main() {
   group('视图解析（旧服务端兼容）', () {
     test('缺 mode → cloud；local 才 isLocal', () {
@@ -108,39 +112,72 @@ void main() {
       expect(local.mode, kLlmModeLocal);
       expect(local.isLocal, isTrue);
     });
-
-    test('视图里的厂商快照不含 mode（快照语义不变）', () {
-      final SettingsView v = SettingsView.fromJson(
-        <String, Object?>{
-          'llm': <String, Object?>{
-            'mode': kLlmModeLocal,
-            'base_url': 'http://127.0.0.1:11434/v1',
-            'model': 'qwen2.5:7b',
-            'vendors': <String, Object?>{
-              'foo': <String, Object?>{'base_url': 'https://api.example.com/v1'},
-            },
-          },
-        },
-      );
-      expect(v.llm.mode, kLlmModeLocal);
-      expect(v.llm.vendors.containsKey('foo'), isTrue, reason: '切模式不动快照');
-    });
   });
 
   group('草稿 / PATCH 形状', () {
-    test('切模式只发 mode；与清标签同发（界面实际形状）', () {
+    test('切模式只发 mode（不预填、不清空地址 / 模型）', () {
       final SettingsDraft d = SettingsDraft();
       d.llmMode = kLlmModeLocal;
       expect(d.toPatch().toJson(), <String, Object?>{
         'llm': <String, Object?>{'mode': 'local'},
       });
-      d.llmVendor = Tri.clear<String>();
-      expect(d.toPatch().toJson(), <String, Object?>{
-        'llm': <String, Object?>{'mode': 'local', 'vendor': null},
-      });
-      // 不预填、不清空地址 / 模型（LLM 的本地形态没有冻结地址）。
       expect(d.llmBaseUrl, isNull);
       expect(d.llmModel, isNull);
+      expect(d.llmMaxTokens, isNull);
+      expect(d.llmShowReasoning, isNull);
+    });
+
+    test('PATCH body 不再出现 vendor 键；cloud / local 二级字段正确', () {
+      // 一帧补丁里把两档的二级字段都填上：LLM 本地 + TTS 云端。
+      final SettingsDraft localCloud = SettingsDraft()
+        ..llmMode = kLlmModeLocal
+        ..llmBaseUrl = 'http://127.0.0.1:11434/v1'
+        ..llmModel = 'qwen2.5:7b'
+        ..llmMaxTokens = Tri.set<int>(2048)
+        ..llmShowReasoning = Tri.set<bool>(true)
+        ..ttsMode = kTtsModeCloud
+        ..ttsBaseUrl = 'https://tts.example/v1'
+        ..ttsVoice = 'nova'
+        ..ttsModel = 'tts-1'
+        ..ttsApiKeyEnv = Tri.set<String>(kTtsCloudKeyEnv)
+        ..ttsSampleRate = 24000
+        ..ttsChannels = 2;
+      final Map<String, Object?> body = localCloud.toPatch().toJson();
+      expect(body, <String, Object?>{
+        'llm': <String, Object?>{
+          'mode': kLlmModeLocal,
+          'base_url': 'http://127.0.0.1:11434/v1',
+          'model': 'qwen2.5:7b',
+          'max_tokens': 2048,
+          'show_reasoning': true,
+        },
+        'tts': <String, Object?>{
+          'mode': kTtsModeCloud,
+          'base_url': 'https://tts.example/v1',
+          'api_key_env': kTtsCloudKeyEnv,
+          'model': 'tts-1',
+          'voice': 'nova',
+          'sample_rate': 24000,
+          'channels': 2,
+        },
+      });
+      _expectNoVendorKeys(body);
+      expect(
+        jsonEncode(body).contains('vendor'),
+        isFalse,
+        reason: '序列化后的请求体里不得出现任何厂商键',
+      );
+
+      // 反方向：LLM 云端 + TTS 本地 —— 切模式只改 mode 这一项。
+      final SettingsDraft cloudLocal = SettingsDraft()
+        ..llmMode = kLlmModeCloud
+        ..ttsMode = kTtsModeLocal;
+      final Map<String, Object?> simple = cloudLocal.toPatch().toJson();
+      expect(simple, <String, Object?>{
+        'llm': <String, Object?>{'mode': kLlmModeCloud},
+        'tts': <String, Object?>{'mode': kTtsModeLocal},
+      });
+      _expectNoVendorKeys(simple);
     });
 
     test('切回服务端本就使用的模式 → 草稿撤回（不白写盘）', () async {
@@ -162,7 +199,7 @@ void main() {
   });
 
   group('真泵 LlmSection', () {
-    testWidgets('拨到本地：草稿 + Ollama 示例文案；厂商快照仍在、仍可选', (
+    testWidgets('拨到本地：草稿 + Ollama 示例文案；没有厂商下拉', (
       WidgetTester tester,
     ) async {
       final SettingsController c = _controller();
@@ -175,69 +212,29 @@ void main() {
       expect(seg.value, kLlmModeCloud);
       expect(find.text('模型来源'), findsOneWidget);
       expect(find.text(kLlmCloudNotice), findsOneWidget);
+      // 0.3.9 rc.2：厂商下拉已删除——模式二选一是唯一切换手段。
+      expect(find.text('当前厂商'), findsNothing);
 
       await tester.tap(find.text('本地'));
       await tester.pump();
 
       expect(c.draft.llmMode, kLlmModeLocal, reason: '只进草稿，保存才生效');
-      expect(
-        c.draft.llmVendor,
-        isA<TriClear<String>>(),
-        reason: '与 TTS 同款：切模式只清厂商标签（不删快照）',
-      );
       expect(c.draft.llmBaseUrl, isNull, reason: '不预填、不清空地址');
       expect(c.draft.llmModel, isNull);
       expect(c.draft.toPatch().toJson(), <String, Object?>{
-        'llm': <String, Object?>{'mode': 'local', 'vendor': null},
+        'llm': <String, Object?>{'mode': 'local'},
       });
 
       // 本地模式给 Ollama 示例文案（只是文案，不预填）。
       expect(find.text(kLlmLocalNotice), findsOneWidget);
       expect(find.textContaining(kLlmLocalExampleBaseUrl), findsWidgets);
-
-      // 厂商快照**没被删**：视图里仍有 foo，下拉的可选项里仍能选到它。
-      expect(c.remote!.llm.vendors.containsKey('foo'), isTrue);
-      final DropdownField<String> vendorField = tester
-          .widget<DropdownField<String>>(find.byType(DropdownField<String>));
-      expect(
-        vendorField.options.any((FieldOption<String> o) => o.value == 'foo'),
-        isTrue,
-        reason: '切模式只清标签，不删快照——快照仍要可选',
-      );
-    });
-
-    testWidgets('切厂商仍是「快照→当前」：只记 vendor 草稿，模式草稿让位', (
-      WidgetTester tester,
-    ) async {
-      // 服务端没有标签（手动填写）；快照 foo 在。
-      final SettingsController c = _controller(vendor: null);
-      await c.load();
-      await _pump(tester, controller: c);
-
-      expect(llmVendorOf(c.draft, c.remote!.llm), '');
-
-      await tester.tap(find.byType(DropdownButton<String>));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('foo').last);
-      await tester.pumpAndSettle();
-
-      expect(c.draft.llmVendor, isA<TriSet<String>>());
-      expect(
-        (c.draft.llmVendor! as TriSet<String>).value,
-        'foo',
-        reason: '选厂商 = 服务端一次快照→当前复制（既有 rc.6 语义）',
-      );
-      expect(c.draft.llmMode, isNull, reason: '切厂商不顺手改模式草稿');
-      expect(c.draft.toPatch().toJson(), <String, Object?>{
-        'llm': <String, Object?>{'vendor': 'foo'},
-      });
     });
 
     testWidgets('本地模式自检入口仍在（只探连通，文案不写试听）', (
       WidgetTester tester,
     ) async {
       int calls = 0;
-      final SettingsController c = _controller(vendor: null);
+      final SettingsController c = _controller();
       await c.load();
       await tester.pumpWidget(
         MaterialApp(

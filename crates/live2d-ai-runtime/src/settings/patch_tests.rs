@@ -23,8 +23,6 @@ pub(super) fn sample() -> AppSettings {
             api_key_env: Some("LLM_KEY".into()),
             max_tokens: None,
             show_reasoning: None,
-            vendor: None,
-            vendors: Default::default(),
         },
         tts: TtsSettings {
             mode: crate::settings::TtsMode::Cloud,
@@ -35,8 +33,6 @@ pub(super) fn sample() -> AppSettings {
             api_key_env: Some("TTS_KEY".into()),
             sample_rate: 24_000,
             channels: 1,
-            vendor: None,
-            vendors: Default::default(),
         },
         persona: PersonaSettings {
             system_prompt: "你是桌宠".into(),
@@ -61,8 +57,8 @@ fn settings_to_view_with_keys_drops_key_env_name_and_derives_from_lookup() {
         !json.contains("api_key_env"),
         "view 暴露 api_key_env 字段：{json}"
     );
-    // 3 个当前段 + 内置 melo 虚拟快照（rc.6，无密钥）各一个 false。
-    assert_eq!(json.matches("\"has_api_key\":false").count(), 4, "{json}");
+    // 3 个当前段（llm / tts / performance）各一个 false；0.3.9 起没有厂商快照位。
+    assert_eq!(json.matches("\"has_api_key\":false").count(), 3, "{json}");
 
     // (b) 有非空值 → llm / tts / performance 三段走**同一**私有派生函数，
     //     一起翻 true；值本身永不出现在视图里。
@@ -151,7 +147,6 @@ fn patch_none_keeps_old_base_url() {
             api_key_env: None,
             max_tokens: None,
             show_reasoning: None,
-            vendor: None,
         })),
         ..Default::default()
     };
@@ -194,8 +189,8 @@ fn patch_some_empty_string_clears_api_key_env() {
     assert!(!v.llm.has_api_key);
     assert!(!v.tts.has_api_key);
     let json = serde_json::to_string(&v).unwrap();
-    // 3 个当前段 + 内置 melo 虚拟快照（rc.6，无密钥）。
-    assert_eq!(json.matches("\"has_api_key\":false").count(), 4, "{json}");
+    // 3 个当前段（llm / tts / performance）各一个 false；0.3.9 起没有厂商快照位。
+    assert_eq!(json.matches("\"has_api_key\":false").count(), 3, "{json}");
     assert!(!json.contains("_KEY\""), "视图不得回环境变量名：{json}");
 }
 

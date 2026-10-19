@@ -69,11 +69,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ActionModelOverride, ActionSettings, AppSettings, LlmMode, LlmSettings, MELO_VENDOR_ID,
-    TtsMode, TtsSettings, apply_local_tts_defaults, clamp_action_scale, is_valid_model_id,
-    is_valid_vendor_id,
+    ActionModelOverride, ActionSettings, AppSettings, LlmMode, TtsMode, TtsSettings,
+    apply_local_tts_defaults, clamp_action_scale, is_valid_model_id,
 };
-use url::Url;
 
 // `serde_with::rust::double_option` 的 deserialize/serialize 函数；
 // 作用在 `Option<Option<T>>` 字段上，让 JSON 端 `缺省 / null / 显式值`
@@ -139,8 +137,8 @@ pub struct LlmPatch {
     /// 缺键 / `null` = 不改；`"cloud"` / `"local"` = 切换。
     /// 未知取值由 serde 直接拒绝（→ 路由层 400 `invalid_payload`），不会静默忽略。
     ///
-    /// 切模式**不动**同一次补丁里的地址 / 模型 / token 上限 / 思考开关 /
-    /// 厂商快照，也**不清** `api_key_env`（变量名在界面上不可编辑，
+    /// 切模式**不动**同一次补丁里的地址 / 模型 / token 上限 / 思考开关，
+    /// 也**不清** `api_key_env`（变量名在界面上不可编辑，
     /// 清掉就再也绑不回去）。与 TTS 的 `mode` 三态外形状一致。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<LlmMode>,
@@ -188,16 +186,6 @@ pub struct LlmPatch {
         serialize_with = "::serde_with::rust::double_option::serialize"
     )]
     pub show_reasoning: Option<Option<bool>>,
-    /// 厂商选择（rc.6）：缺省 = 不改；显式 null = 清除标签（当前值不动）；
-    /// 字符串 = **一次原子「快照→当前」复制**并打上标签。id 必须存在于
-    /// [llm.vendors] 且格式合法，否则整体 Err（400），文件 / 快照 / engine 都不动。
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "::serde_with::rust::double_option::deserialize",
-        serialize_with = "::serde_with::rust::double_option::serialize"
-    )]
-    pub vendor: Option<Option<String>>,
 }
 
 /// TTS 段字段级三态补丁。
@@ -252,16 +240,6 @@ pub struct TtsPatch {
         serialize_with = "::serde_with::rust::double_option::serialize"
     )]
     pub channels: Option<Option<u16>>,
-    /// 厂商选择（rc.6）：缺省 = 不改；显式 null = 清除标签（当前值不动）；
-    /// 字符串 = 一次原子「快照→当前」复制。melo 是内置虚拟快照（apply_local_tts_defaults
-    /// + mode=local）；其它任何厂商一律 mode=cloud。不存在 / 非法 id → Err（400）。
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "::serde_with::rust::double_option::deserialize",
-        serialize_with = "::serde_with::rust::double_option::serialize"
-    )]
-    pub vendor: Option<Option<String>>,
 }
 
 /// persona 段字段级三态补丁。
@@ -429,83 +407,6 @@ fn merge_model_override(
     }
 }
 
-// ===== 厂商选择（rc.6）=====
-
-/// 校验绝对 http(s) URL。
-fn vendor_url_ok(raw: &str) -> bool {
-    matches!(Url::parse(raw), Ok(url) if matches!(url.scheme(), "http" | "https"))
-}
-
-/// 把 llm.vendors 里的一份快照**原子**复制进当前 [llm] 段。
-///
-/// 规则：id 格式合法 -> 快照存在 -> 按当前段同一套规则校验（URL / env 名）
-/// -> 复制 + 打标签。任一步失败都返回 Err，调用方整体放弃本次补丁
-/// （文件、快照、engine 都不动）。
-fn select_llm_vendor(llm: &mut LlmSettings, id: &str) -> Result<(), String> {
-    if !is_valid_vendor_id(id) {
-        return Err(format!(
-            "llm.vendor id 非法: {id:?}（要求 [a-z0-9][a-z0-9_-]{{0,31}}）"
-        ));
-    }
-    let Some(vendor) = llm.vendors.get(id).cloned() else {
-        return Err(format!("llm.vendor 不存在: {id:?}（本次保存未生效）"));
-    };
-    if !vendor_url_ok(&vendor.base_url) {
-        return Err(format!(
-            "llm.vendor {id} 的 base_url 非法: {:?}（需要绝对 http/https URL）",
-            vendor.base_url
-        ));
-    }
-    if let Some(name) = &vendor.api_key_env {
-        validate_env_name_strict("llm", name)?;
-    }
-    vendor.apply_to(llm);
-    llm.vendor = Some(id.to_string());
-    Ok(())
-}
-
-/// 把 tts.vendors 里的一份快照**原子**复制进当前 [tts] 段。
-///
-/// - melo = 内置虚拟快照：apply_local_tts_defaults() + mode=local（不读文件）；
-/// - 其它任何厂商（含 localhost 第二引擎）：复制快照 + mode=cloud。
-fn select_tts_vendor(tts: &mut TtsSettings, id: &str) -> Result<(), String> {
-    if !is_valid_vendor_id(id) {
-        return Err(format!(
-            "tts.vendor id 非法: {id:?}（要求 [a-z0-9][a-z0-9_-]{{0,31}}）"
-        ));
-    }
-    if id == MELO_VENDOR_ID {
-        apply_local_tts_defaults(tts);
-        tts.vendor = Some(id.to_string());
-        return Ok(());
-    }
-    let Some(vendor) = tts.vendors.get(id).cloned() else {
-        return Err(format!("tts.vendor 不存在: {id:?}（本次保存未生效）"));
-    };
-    if !vendor_url_ok(&vendor.base_url) {
-        return Err(format!(
-            "tts.vendor {id} 的 base_url 非法: {:?}（需要绝对 http/https URL）",
-            vendor.base_url
-        ));
-    }
-    if vendor.voice.trim().is_empty() {
-        return Err(format!("tts.vendor {id} 需要填写音色（voice）"));
-    }
-    if vendor.sample_rate == 0 {
-        return Err(format!("tts.vendor {id} 的 sample_rate 不能为 0"));
-    }
-    if vendor.channels == 0 {
-        return Err(format!("tts.vendor {id} 的 channels 不能为 0"));
-    }
-    if let Some(name) = &vendor.api_key_env {
-        validate_env_name_strict("tts", name)?;
-    }
-    vendor.apply_to(tts);
-    tts.mode = TtsMode::Cloud;
-    tts.vendor = Some(id.to_string());
-    Ok(())
-}
-
 // ===== apply_patch =====
 
 /// 把 `patch` 合并进 `current` 的（拷贝）版本上。
@@ -556,15 +457,6 @@ pub fn apply_patch(
                     next.llm.mode = LlmMode::Cloud;
                     changed = true;
                 }
-                // rc.6：段级清空连标签与快照表一起清（整段回到出厂形态）。
-                if next.llm.vendor.is_some() {
-                    next.llm.vendor = None;
-                    changed = true;
-                }
-                if !next.llm.vendors.is_empty() {
-                    next.llm.vendors.clear();
-                    changed = true;
-                }
             }
             Some(fields) => {
                 // base_url：None=Keep / Some(None)=清成 "" / Some(Some(v))=赋值。
@@ -606,40 +498,13 @@ pub fn apply_patch(
                         changed = true;
                     }
                 }
-                // 0.3.7 T1：切模式排在 vendor 之前——模式只是标签，不动地址 /
-                // 模型 / 密钥绑定 / 快照；同一次补丁里的 vendor 选择仍按自己的
-                // 语义（清标签或快照→当前）执行。
+                // 0.3.7 T1 / 0.3.9：切模式只是标签，不动地址 / 模型 / 密钥绑定 /
+                // token / 思考；0.3.9 起没有厂商快照可复制。
                 if let Some(mode) = fields.mode
                     && next.llm.mode != mode
                 {
                     next.llm.mode = mode;
                     changed = true;
-                }
-                // rc.6：厂商选择排在显式字段之后——它是一次**原子复制**，
-                // 同一次补丁里的其它字段不会与快照混成半新半旧。
-                if let Some(v) = &fields.vendor {
-                    // 只有「标签真的变了」或「这一帧只发了 vendor」（下拉单独一次
-                    // 选择）才复制快照：整卡保存会把当前 vendor 一并带上，此时不得
-                    // 用它覆盖用户刚编辑的字段。
-                    let vendor_only = fields.base_url.is_none()
-                        && fields.model.is_none()
-                        && fields.api_key_env.is_none()
-                        && fields.max_tokens.is_none()
-                        && fields.show_reasoning.is_none();
-                    let before = next.llm.clone();
-                    match v {
-                        None => next.llm.vendor = None,
-                        Some(id)
-                            if before.vendor.as_deref() != Some(id.as_str())
-                                || (vendor_only && before.vendors.contains_key(id)) =>
-                        {
-                            select_llm_vendor(&mut next.llm, id)?;
-                        }
-                        Some(_) => {}
-                    }
-                    if next.llm != before {
-                        changed = true;
-                    }
                 }
             }
         }
@@ -739,35 +604,6 @@ pub fn apply_patch(
                                 changed = true;
                             }
                         }
-                    }
-                }
-                // rc.6：厂商选择排在 mode 之后——它决定最终 mode（melo=local，
-                // 其它=cloud），并一次性复制快照，不允许半新半旧。
-                if let Some(v) = &fields.vendor {
-                    // 同 llm：标签变了，或这一帧只发了 vendor（下拉单独一次选择）
-                    // 才重放快照；整卡保存不覆盖用户刚编辑的字段。
-                    let vendor_only = fields.mode.is_none()
-                        && fields.base_url.is_none()
-                        && fields.model.is_none()
-                        && fields.voice.is_none()
-                        && fields.api_key_env.is_none()
-                        && fields.sample_rate.is_none()
-                        && fields.channels.is_none();
-                    let before = next.tts.clone();
-                    match v {
-                        None => next.tts.vendor = None,
-                        Some(id)
-                            if before.vendor.as_deref() != Some(id.as_str())
-                                || (vendor_only
-                                    && (id == MELO_VENDOR_ID
-                                        || before.vendors.contains_key(id))) =>
-                        {
-                            select_tts_vendor(&mut next.tts, id)?;
-                        }
-                        Some(_) => {}
-                    }
-                    if next.tts != before {
-                        changed = true;
                     }
                 }
             }

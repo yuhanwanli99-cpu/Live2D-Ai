@@ -2,7 +2,8 @@
 
 > 立档：**2026-10-01** · 状态：**活** · 真源：本文件
 > 用途：回答两件事 —— **「这个问题看哪份文档」** 与 **「这份文档还活着吗」**。
-> 真源优先级：**源码 > AGENTS.md > docs/architecture/CURRENT.md > docs/architecture/* > docs/plans/*（活）> docs/legacy/*（历史，仅留证）**。
+> 真源优先级：**源码 > `docs/architecture/CURRENT.md`（产品核心、版本号 `0.x.y-rc.z`）> 其它活文档 > `AGENTS.md` 历史段**。
+> 2026-10-19：产品核心与版本纪律以 CURRENT 为准。`AGENTS.md`、`tts-is-core.md`、`core-chain-baseline.md` 的旧正文不改，只在顶部指向 CURRENT。工程目录里的「核心层」不是产品核心。
 
 ## 1. 真源地图（按问题查）
 
@@ -24,7 +25,7 @@
 | Mod 产品链路 / 许可 | `docs/architecture/mod-product-chain.md`、`mod-community-license.md` | |
 | 核心与 Mod 两仓结构 | `docs/architecture/two-repo-mods.md` | 2026-10-17 rc5 起；主仓非 standalone，公开前切换计划见文内 |
 | 已**删除** Mod（local-llm / wallpaper / pet-desktop） | `docs/architecture/ARCHIVED-mods.md` | §1.4/§2.4/§3.1 删除记录（W2-A，2026-10-01）；**禁止挂回** |
-| TTS 是核心（不是 Mod） | `docs/architecture/tts-is-core.md` | |
+| TTS 是核心（不是 Mod） | `docs/architecture/tts-is-core.md` | 2026-10-19：`[tts]` 那跳出声仍是核心，可以是云端 API。拉起 Melo 的 `local-tts-melo` 是 Mod。以 CURRENT §1 为准 |
 | 渲染算法 / 纹理档位 | `docs/architecture/renderer-*.md`、`mask-*.md` | |
 | 逐版发布说明 | **`docs/releases/v0.3.1.md`（当前）**、`v0.2.7.md`、`v0.2.6-rc.1.md`、`v0.2.5-rc.1.md`、`v0.2.4-rc.1.md`、`v0.2.3-rc.2.md`、`v0.2.3-rc.1.md`、`v0.2.2.md`、`v0.2.1-rc.1.md`、`docs/releases/v0.2.0*.md`（更早） | 版本四处以源码为准 |
 | 2026-10-07 任务账（历史） | **已移出工作树**（2026-10-17 rc2）——取回见 [REMOVED-docs-index-2026-10-06.md](REMOVED-docs-index-2026-10-06.md) §8 | T1–T9 已收口；现行计划见上文 3.0 行 |

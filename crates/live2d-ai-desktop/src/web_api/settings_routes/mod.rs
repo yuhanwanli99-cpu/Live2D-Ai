@@ -368,5 +368,3 @@ fn error_response_from(
 mod tests;
 #[cfg(test)]
 mod tests_llm_mode;
-#[cfg(test)]
-mod tests_vendor;

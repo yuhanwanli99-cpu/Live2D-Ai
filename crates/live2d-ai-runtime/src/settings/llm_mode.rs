@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// LLM 端点形态二选一（`[llm].mode`，2026-10-18 0.3.7 T1）。
 ///
-/// **缺省 `Cloud`**：地址 / 模型 / 密钥由用户填（`[llm.vendors.*]` 可存快照）。
+/// **缺省 `Cloud`**：地址 / 模型 / 密钥由用户填（0.3.9 起不再有厂商快照）。
 /// `Local`：端点在用户**自己起的**本机 / 局域网 OpenAI-compatible 服务上
 /// （Ollama / llama.cpp / vLLM 等）。**transport 不变**——仍是同一条
 /// `/chat/completions`；本项目不嵌模型、不下载权重、不加推理依赖、

@@ -452,3 +452,103 @@ fn merge_rejects_broken_existing_toml() {
     let s = AppSettings::default();
     assert!(s.merge_into_toml("[llm\nbase_url = ").is_err());
 }
+
+// ============================================================================
+// 0.3.9：旧 toml 的 vendor / vendors 键**读入时忽略**，写回时不再写出
+// ============================================================================
+
+/// 0.3.4–0.3.8 的旧 toml 夹具：带 `[llm].vendor`、`[llm.vendors.*]`、
+/// `[tts].vendor`、`[tts.vendors.*]` 与手写注释。
+///
+/// 要求（执行单 §2）：`deny_unknown_fields` 不得因旧键让启动失败；读入后
+/// 这两键被忽略；下一次正常保存（`merge_into_toml`）**不再写出**它们。
+const LEGACY_VENDOR_TOML: &str = r#"# 旧配置（0.3.8 形态）：厂商标签 + 快照
+dev_mode = false
+
+[llm]
+mode = "local"
+# 当前值仍是唯一权威
+base_url = "http://127.0.0.1:11434/v1"
+model = "qwen2.5:7b"
+vendor = "ollama"            # 旧标签
+show_reasoning = true
+
+[llm.vendors.ollama]
+base_url = "http://127.0.0.1:11434/v1"
+model = "qwen2.5:7b"
+
+[llm.vendors.deepseek]
+base_url = "https://api.deepseek.com/v1"
+model = "deepseek-flash"
+api_key_env = "DEEPSEEK_API_KEY"
+
+[tts]
+mode = "cloud"
+base_url = "https://tts.example/v1"
+voice = "nova"
+vendor = "melo"
+api_key_env = "TTS_KEY"
+
+[tts.vendors.melo]
+base_url = "http://127.0.0.1:8091/v1"
+voice = "ZH"
+"#;
+
+#[test]
+fn legacy_vendor_keys_are_ignored_on_load_and_dropped_on_save() {
+    // ① 旧键不得让解析失败。
+    let old = AppSettings::from_toml_str(LEGACY_VENDOR_TOML).expect("旧 toml 必须仍能加载");
+    assert_eq!(old.llm.mode, crate::settings::LlmMode::Local);
+    assert_eq!(old.llm.base_url, "http://127.0.0.1:11434/v1");
+    assert_eq!(old.llm.model, "qwen2.5:7b");
+    assert_eq!(old.llm.api_key_env, None, "快照里的密钥变量名不参与当前段");
+    assert_eq!(old.tts.mode, crate::settings::TtsMode::Cloud);
+    assert_eq!(old.tts.voice, "nova");
+    assert_eq!(old.tts.api_key_env.as_deref(), Some("TTS_KEY"));
+
+    // ② 序列化不再写出这两键。
+    let written = old.to_toml_string();
+    assert!(
+        !written.contains("vendor"),
+        "写回不得再出现 vendor/vendors：\n{written}"
+    );
+
+    // ③ 真实保存路径（merge_into_toml）：旧键被删掉，注释与当前值留住。
+    let merged = old.merge_into_toml(LEGACY_VENDOR_TOML).expect("合并应成功");
+    assert!(
+        !merged.contains("vendor"),
+        "保存后不得再写出 vendor/vendors：\n{merged}"
+    );
+    for needle in [
+        "# 旧配置（0.3.8 形态）",
+        "# 当前值仍是唯一权威",
+        "[llm]",
+        "[tts]",
+    ] {
+        assert!(
+            merged.contains(needle),
+            "保存丢了注释/段 {needle}：\n{merged}"
+        );
+    }
+    assert!(merged.contains("base_url = \"http://127.0.0.1:11434/v1\""));
+    assert!(merged.contains("voice = \"nova\""));
+    // 保存后仍可再解析（且等于同一份内存快照）。
+    assert_eq!(
+        AppSettings::from_toml_str(&merged).expect("re-parse"),
+        old,
+        "保存并再解析必须得到同一份配置：\n{merged}"
+    );
+}
+
+#[test]
+fn genuinely_unknown_keys_still_fail_fast() {
+    // 忽略旧键**不**等于放宽 deny_unknown_fields：真正拼错的键仍然启动即报错。
+    let bad =
+        "[llm]\nbase_url = \"http://a/v1\"\nbogus_key = 1\n[tts]\nbase_url = \"http://b/v1\"\n";
+    let err = AppSettings::from_toml_str(bad).expect_err("未知键必须拒绝");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("bogus_key") || msg.contains("unknown"),
+        "错误信息要点名未知键：{msg}"
+    );
+}

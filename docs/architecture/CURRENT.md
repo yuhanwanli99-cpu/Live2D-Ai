@@ -5,8 +5,15 @@
 
 ## 1. 产品是什么
 
-**本地优先的皮套接入服务**：对话 → 按句 TTS → 口型跟音频时钟 → Live2D 渲染。
-分句只由引擎给，音频播放时钟是唯一时间基准。桌宠**不是**底座：`pet-desktop` 已删除，不恢复。
+**本地优先的皮套接入服务**。产品侧的**核心**只指最小能跑起来的一套：Live2D 表演 + AI 对话 + 动作。有且只有这三块：
+
+1. **一路表演 LLM**：当前这一路 `[llm]`，纯对话。
+2. **二路导演**：按句清洗，把这一句送上屏、送 TTS、并据原文出动作。0.2.0 之后新进入核心的只有这一路。
+3. **一个前端**：渲染、动作、设置、对话。这是会话系统本身。
+
+分句只由引擎给，音频播放时钟是唯一时间基准。TTS 出声是第 2 块把句子送出去的那一跳，端点在 `[tts]`，可以是云端 API。`local-tts-melo` 只在端点是本机 Melo 时拉起那个进程，本身是 Mod，不是这跳出声。
+
+记忆、角色卡、外部事件、语音输入、本地引擎、A2A 都是扩展，归 Mod，实现住第二仓。工程目录里的 crate 名叫 `core` / `runtime` / `desktop`，只说明代码放哪，**不**用来判断一个功能是不是核心。桌宠不是这套最小实现：`pet-desktop` 已删除，不恢复。
 
 ## 2. 版本与工作区
 
@@ -16,8 +23,9 @@
 - **版本号写法 `0.x.y-rc.z`（2026-10-18）**：`0.x.y` 通常是一块具体功能，下一块用下一个号。`z` 不事先钉死，由做这块的执行 agent 按代码拆成小任务；`0.x.y-rc.1` … `0.x.y-rc.z` 都在实现这块功能，每步换一队 agent，每步一次本地提交加一个本地附注 tag，不 push。最后一个才是 `0.x.y-rc.(z+1)`，只清理这一块的拆分、测试、文档和棘轮，不加功能，也不另开一个 `0.x.y`。`Cargo.toml` 仍是 `0.3.1`，本地 rc 不改版本串。2026-09-10 的本地 tag `v0.4.0`–`v0.4.5` 不在当前 `main` 上，远端也没有，已经删除，号留给上面的 `0.4.0` / `0.4.1`。`CHANGELOG.md` 里的同名旧条目是历史正文，不改。
 - **0.3.6 已收口（2026-10-18，本地 tag `v0.3.6-rc.1`…`v0.3.6-rc.4`，未 push）**：热换原子化（panic 未复现，结构性删除二次 load）、设置纪律（草稿不生效，只有「保存并重载」）、cue / field map 重绑（`model_epoch`）。发布说明 `docs/releases/v0.3.6-rc.4.md`。
 - **0.3.7 已收口（2026-10-18，本地 tag `v0.3.7-rc.1`…`v0.3.7-rc.3`，未 push）**：LLM `[llm].mode = cloud | local`；动作 12 → 21（D1=A 手不做）。发布说明 `docs/releases/v0.3.7-rc.3.md`。
-- **0.3.8 已落地（2026-10-18，本地 tag `v0.3.8-rc.1`…`v0.3.8-rc.3`，未 push）**：当前这一路 `[llm]` 对外暴露 A2A（agent card + JSON-RPC `message/send` / `tasks/get`）；皮套回合仍纯对话、不调工具，皮套链路未接 A2A。不并进 `0.4.0` / `0.4.1`。发布说明 `docs/releases/v0.3.8-rc.3.md`。
-- **两仓（0.3.3 起）**：核心在主仓 `/home/skystar/Live2D-Ai`，六个 Mod 实现住 sibling 仓 `/home/skystar/Live2D-Ai-mods`，主仓经 `path` 依赖引用。主仓**不再 standalone**；公开前换 git 依赖或 CI 双 checkout，见 [`two-repo-mods.md`](two-repo-mods.md)。
+- **0.3.8 已落地（2026-10-18，本地 tag `v0.3.8-rc.1`…`v0.3.8-rc.3`，未 push）**：当前这一路 `[llm]` 对外暴露 A2A（agent card + JSON-RPC `message/send` / `tasks/get`）；皮套回合仍纯对话、不调工具，皮套链路未接 A2A。产品侧 A2A 是扩展，不是核心；路由目前写在主仓 `web_api`，与 §1 的归属不一致，搬家另计。不并进 `0.4.0` / `0.4.1`。发布说明 `docs/releases/v0.3.8-rc.3.md`。真机补验（Pi 从 GitHub 克隆、浏览器看隐藏）见 [`PLAN-0.3.8-verify-pi-browser-2026-10-18.md`](../plans/PLAN-0.3.8-verify-pi-browser-2026-10-18.md)。真 Ollama 本轮不拉模型，记为 3.0 遗留，不写入 `0.4.0`。
+- **0.3.9 未开始（2026-10-19 落号）**：一块功能。扩展（含已写进 `web_api` 的 A2A）拆出核心；TTS/LLM 的多厂商选择器留在核心，但收成「云端 / 本地 + 二级设置」，去掉厂商目录和快照。不并进 `0.4.0` / `0.4.1`。范围 [`PLAN-0.3.9-core-boundary-2026-10-19.md`](../plans/PLAN-0.3.9-core-boundary-2026-10-19.md)。
+- **两仓（0.3.3 起）**：最小表演闭环与宿主在主仓 `/home/skystar/Live2D-Ai`。六个 Mod 实现住 sibling 仓 `/home/skystar/Live2D-Ai-mods`，主仓经 `path` 依赖引用。主仓**不再 standalone**；公开前换 git 依赖或 CI 双 checkout，见 [`two-repo-mods.md`](two-repo-mods.md)。
 - **多 Live2D（0.3.5）**：设置 → 模型库可加载本机 `model3`。唯一真源仍是
   `model_registry.json.active_id`；`GET /api/v1/app/status` 同时派生 `active_model_url`
   （空 = 无模型），不加 DisplayPrefs/localStorage 字段、不加端点。白模 `bai` 出厂
@@ -90,7 +98,7 @@
 - 出厂 TTS 是**本机 Melo**：`http://127.0.0.1:8091/v1`（`live2d-ai.toml` 的 `[tts]`）。
 - `./scripts/ignite.sh`：等本机 `GET {tts}/models` = 200，才打印
   `http://127.0.0.1:18080/app/` 并打开浏览器；在此之前不报地址。
-- **多厂商（0.3.4）**：`[llm].vendor` / `[tts].vendor` 只是标签，当前段始终是唯一权威；
+- **多厂商（0.3.4，2026-10-19 起待 0.3.9 收束）**：选择器属于核心增强。目标只留「云端 / 本地」和该档下面的二级设置（地址、模型或音色、密钥变量名等），不再用厂商目录和 `vendors.*` 快照做切换。下面是**今天的代码**，直到 0.3.9 落地才改：`[llm].vendor` / `[tts].vendor` 只是标签，当前段始终是唯一权威；
   `[llm.vendors.*]` / `[tts.vendors.*]` 是文件里的快照。一次 PATCH 原子「快照→当前」复制；
   手改当前后 GET 只给 `vendor_modified`，不回写快照。内置虚拟 `melo` 快照不进文件
   （选中 = `apply_local_tts_defaults()` + `mode=local`），其它厂商一律 `mode=cloud`。
@@ -115,6 +123,7 @@
 - `local-engine`（0.3.4）：spawn-only，4 项 schema（program / args_json / workdir / launch_mode），
   无 `base_url`；不写 `[tts]`/`[llm]`、不探活、不换地址、不重启；`apply_settings` 恒 0 次。
   立即退出（1s 窗口）→ Failed 带 stderr 尾；之后退出只进 `state_json`。
+  **2026-10-18 裁决：不删除、不注销。** 设置 → 扩展不再显示这张卡；工厂与 API 仍在。出声仍是 `local-tts-melo`，对话云/本地仍是 `[llm].mode`。
 - `memory`：本地 JSONL + 词重叠检索（**零向量云依赖**），缺省**关**。
 - `director` 的 crate 仍在主仓 workspace（规则表已迁入核心），但**退出 `AVAILABLE_MOD_FACTORIES`、不再投递，禁止挂回**；
   旧 8 个配置键（3 个词表映射 + 5 个 `staging_*`）不再出现在界面，`mods.json` 残留键被忽略。

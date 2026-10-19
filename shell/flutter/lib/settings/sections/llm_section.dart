@@ -2,15 +2,16 @@
 ///
 /// # 2026-10-18（0.3.7 T1）：云端 / 本地二选一
 ///
-/// - **云端**（缺省）：地址 / 模型名 / 密钥由用户填（可存厂商快照，rc.6 语义不变）。
+/// - **云端**（缺省）：地址 / 模型名 / 密钥由用户填。
 /// - **本地**：端点在**用户自己起的**本机 / 局域网 OpenAI-compatible 服务上
 ///   （Ollama / llama.cpp / vLLM 等）。**transport 不变**（仍是一条
 ///   `/chat/completions`）——本项目不下载模型、不装推理运行时、不预填厂商或 Key；
 ///   这里只给 Ollama 地址做示例文案。
 /// - 切模式**只是草稿**（保存并重载才生效）；服务端把 `mode` 当普通可选值：
-///   切模式不动地址 / 模型 / token / 思考 / 厂商快照，也不清密钥绑定。
-///   与 `tts_section.dart` 的 `_switchMode` 逐条对齐（清厂商标签 = 服务端只清
-///   标签，不复制、不删除快照）。
+///   切模式不动地址 / 模型 / token / 思考，也不清密钥绑定。
+/// - 2026-10-19（0.3.9 rc.2）：厂商下拉与快照脏标记已删除——「云端 / 本地」
+///   二选一就是唯一切换手段，二级字段直接挂在这一档下面。
+///   与 `tts_section.dart` 的 `_switchMode` 同一条纪律。
 /// - 连通性自检与 TTS 同一条纪律：`GET {base_url}/models`，404 算可达 + note，
 ///   **不真跑一次对话**；本地没配置 / 连不上时服务端回 `llm_local_unreachable`
 ///   （明确状态，不显示 ready），且**不会自动切回云端**。
@@ -46,14 +47,6 @@ const String kLlmCloudKeyHint = '到 DeepSeek 申请自己的 Key，填到下面
 
 /// 本地模式的密钥行：本地端点通常不鉴权，但**不清理**已绑定的变量名。
 const String kLlmLocalKeyHint = '本地通常不需要密钥；要鉴权时仍填在下面（变量名不变）。';
-
-/// 草稿优先的当前厂商（空串 = 手动填写 / 没有标签）。
-String llmVendorOf(SettingsDraft draft, LlmSettingsView llm) {
-  final Tri<String>? drafted = draft.llmVendor;
-  if (drafted is TriSet<String>) return drafted.value;
-  if (drafted is TriClear<String>) return '';
-  return llm.vendor ?? '';
-}
 
 /// 当前该显示的模式：草稿优先，再回落服务端；两边都没有 = 云端（缺省）。
 String llmModeOf(SettingsDraft draft, LlmSettingsView llm) {
@@ -101,15 +94,12 @@ class LlmSection extends StatelessWidget {
 
   /// 切换端点形态（0.3.7 T1）：**只记草稿**，保存并重载才生效。
   ///
-  /// 与 TTS 的 `_switchMode` 逐条对齐：
-  /// ① 清厂商标签（三态 `Tri.clear`；服务端只清标签，不复制/不删除快照）；
-  /// ② **不预填、也不清空**地址 / 模型 / token / 思考：LLM 的本地形态没有
-  ///    冻结地址（不像 TTS 的 melo 固定端口），这些字段仍归用户自己填；
-  ///    清掉它们反而会让「切回云端」丢配置。
+  /// **不预填、也不清空**地址 / 模型 / token / 思考：LLM 的本地形态没有
+  /// 冻结地址（不像 TTS 的 melo 固定端口），这些字段仍归用户自己填；
+  /// 清掉它们反而会让「切回云端」丢配置。
   void switchMode(String next) {
     controller.edit((SettingsDraft draft) {
       draft.llmMode = next;
-      draft.llmVendor = Tri.clear<String>();
     });
   }
 
@@ -117,44 +107,12 @@ class LlmSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final SettingsDraft d = controller.draft;
     final LlmSettingsView llm = view.llm;
-    final String vendor = llmVendorOf(d, llm);
     final String mode = llmModeOf(d, llm);
     final bool isLocal = mode == kLlmModeLocal;
-    final List<FieldOption<String>> vendorOptions = <FieldOption<String>>[
-      const FieldOption<String>(value: '', label: '手动填写（不绑定厂商）'),
-      for (final String id in llm.vendors.keys)
-        FieldOption<String>(value: id, label: id),
-      if (vendor.isNotEmpty && !llm.vendors.containsKey(vendor))
-        FieldOption<String>(value: vendor, label: '$vendor（快照缺失）'),
-    ];
-
-    // rc.6：切换厂商 = 一次「快照→当前」复制；清空本卡草稿，避免把旧厂商的
-    // 地址 / 模型名混进新快照。服务端在空闲后换 engine，失败不回退。
-    // 0.3.7 T1：厂商快照语义**不变**（模式切换不复制、不删除它）。
-    void switchVendor(String id) {
-      controller.edit((SettingsDraft draft) {
-        draft.llmVendor = id.isEmpty ? Tri.clear<String>() : Tri.set(id);
-        draft.llmBaseUrl = null;
-        draft.llmModel = null;
-        draft.llmMaxTokens = null;
-        draft.llmShowReasoning = null;
-        draft.llmMode = null;
-      });
-    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        DropdownField<String>(
-          label: '当前厂商',
-          icon: Icons.storefront_outlined,
-          value: vendor,
-          options: vendorOptions,
-          description: llm.vendorModified
-              ? '当前值已手改（保存不会回写快照）；切回同一厂商即可重新套用快照。'
-              : '切换后仍需「保存并重载」；空闲后 / 下一轮生效。',
-          onChanged: switchVendor,
-        ),
         SegmentedField<String>(
           label: '模型来源',
           icon: Icons.cloud_outlined,

@@ -117,15 +117,12 @@ class LlmSettingsView {
     required this.maxTokens,
     required this.showReasoning,
     this.mode = kLlmModeCloud,
-    this.vendor,
-    this.vendorModified = false,
-    this.vendors = const <String, LlmVendorView>{},
   });
 
   /// 端点形态（`"cloud"` 缺省 / `"local"`，0.3.7 T1）。
   ///
   /// 服务端字段缺失 → 按 [kLlmModeCloud] 理解（老服务端 / 老配置只有云端）。
-  /// 它只是标签：transport、鉴权、厂商快照语义都不因它改变。
+  /// 它只是标签：transport 与鉴权都不因它改变。
   final String mode;
 
   /// 是否本地模式。
@@ -161,15 +158,6 @@ class LlmSettingsView {
   /// 不省 token，也不改变「思考不进 TTS」这条既有纪律。
   final bool showReasoning;
 
-  /// 当前厂商标签（rc.6）。`null` = 没有标签（手动填写）。
-  final String? vendor;
-
-  /// 当前值与标签所指快照已经不一致（只报告；服务端不回写快照）。
-  final bool vendorModified;
-
-  /// 厂商快照（键 = id）。只含 `has_api_key`，**没有**变量名 / 值。
-  final Map<String, LlmVendorView> vendors;
-
   /// `maxTokens == 0` = 不限制（协议里请求体省略该字段）。
   bool get isMaxTokensUnlimited => maxTokens == 0;
 
@@ -189,55 +177,8 @@ class LlmSettingsView {
       // 旧服务端缺该字段 → false（与「缺省不展示思考」同口径，
       // 不会因为前端连了旧后端就突然把思考摆上屏）。
       showReasoning: j['show_reasoning'] == true,
-      vendor: j['vendor'] is String ? j['vendor']! as String : null,
-      vendorModified: j['vendor_modified'] == true,
-      vendors: _llmVendors(j['vendors']),
     );
   }
-}
-
-/// 一份 LLM 厂商快照（rc.6）。密钥只有 `hasApiKey`。
-class LlmVendorView {
-  const LlmVendorView({
-    required this.id,
-    required this.baseUrl,
-    required this.model,
-    required this.hasApiKey,
-    required this.maxTokens,
-    required this.showReasoning,
-  });
-
-  final String id;
-  final String baseUrl;
-  final String model;
-  final bool hasApiKey;
-  final int maxTokens;
-  final bool showReasoning;
-
-  factory LlmVendorView.fromJson(String id, Map<String, Object?> json) {
-    return LlmVendorView(
-      id: id,
-      baseUrl: _str(json['base_url']),
-      model: _str(json['model']),
-      hasApiKey: json['has_api_key'] == true,
-      maxTokens: json.containsKey('max_tokens')
-          ? _int(json['max_tokens'])
-          : LlmSettingsView.defaultMaxTokens,
-      showReasoning: json['show_reasoning'] == true,
-    );
-  }
-}
-
-Map<String, LlmVendorView> _llmVendors(Object? raw) {
-  if (raw is! Map) return const <String, LlmVendorView>{};
-  final Map<String, LlmVendorView> out = <String, LlmVendorView>{};
-  raw.forEach((Object? key, Object? value) {
-    if (value is Map) {
-      final String id = key.toString();
-      out[id] = LlmVendorView.fromJson(id, value.cast<String, Object?>());
-    }
-  });
-  return out;
 }
 
 /// 语音来源的稳定值（与 Rust `TtsMode::as_str` 逐字一致）。
@@ -265,9 +206,6 @@ class TtsSettingsView {
     required this.sampleRate,
     required this.channels,
     this.mode = kTtsModeLocal,
-    this.vendor,
-    this.vendorModified = false,
-    this.vendors = const <String, TtsVendorView>{},
   });
 
   /// 语音来源（`"local"` / `"cloud"`，2026-10-09）。缺省按**本地**理解：
@@ -285,15 +223,6 @@ class TtsSettingsView {
   final int sampleRate;
   final int channels;
 
-  /// 当前厂商标签（rc.6）。`null` = 手动填写；`melo` = 内置虚拟快照。
-  final String? vendor;
-
-  /// 当前值与标签所指快照已经不一致（只报告；服务端不回写快照）。
-  final bool vendorModified;
-
-  /// 厂商快照（键 = id，**始终包含 melo**）。只含 `has_api_key`。
-  final Map<String, TtsVendorView> vendors;
-
   factory TtsSettingsView.fromJson(Map<String, Object?>? json) {
     final Map<String, Object?> j = json ?? const <String, Object?>{};
     final String rawMode = _str(j['mode']);
@@ -305,56 +234,8 @@ class TtsSettingsView {
       hasApiKey: j['has_api_key'] == true,
       sampleRate: _int(j['sample_rate']),
       channels: _int(j['channels']),
-      vendor: j['vendor'] is String ? j['vendor']! as String : null,
-      vendorModified: j['vendor_modified'] == true,
-      vendors: _ttsVendors(j['vendors']),
     );
   }
-}
-
-/// 一份 TTS 厂商快照（rc.6）。密钥只有 `hasApiKey`。
-class TtsVendorView {
-  const TtsVendorView({
-    required this.id,
-    required this.baseUrl,
-    required this.model,
-    required this.voice,
-    required this.hasApiKey,
-    required this.sampleRate,
-    required this.channels,
-  });
-
-  final String id;
-  final String baseUrl;
-  final String? model;
-  final String voice;
-  final bool hasApiKey;
-  final int sampleRate;
-  final int channels;
-
-  factory TtsVendorView.fromJson(String id, Map<String, Object?> json) {
-    return TtsVendorView(
-      id: id,
-      baseUrl: _str(json['base_url']),
-      model: json['model'] is String ? json['model']! as String : null,
-      voice: _str(json['voice']),
-      hasApiKey: json['has_api_key'] == true,
-      sampleRate: _int(json['sample_rate']),
-      channels: _int(json['channels']),
-    );
-  }
-}
-
-Map<String, TtsVendorView> _ttsVendors(Object? raw) {
-  if (raw is! Map) return const <String, TtsVendorView>{};
-  final Map<String, TtsVendorView> out = <String, TtsVendorView>{};
-  raw.forEach((Object? key, Object? value) {
-    if (value is Map) {
-      final String id = key.toString();
-      out[id] = TtsVendorView.fromJson(id, value.cast<String, Object?>());
-    }
-  });
-  return out;
 }
 
 /// `GET /api/v1/settings` 的 persona 段。

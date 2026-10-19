@@ -137,11 +137,13 @@ void main() {
     expect(find.textContaining('base_url'), findsNothing);
   });
 
-  testWidgets('A6：厂商下拉说明含「空闲后 / 下一轮生效」（与 LLM 卡一致）', (
+  testWidgets('A6：厂商下拉已删除（0.3.9 rc.2：模式二选一是唯一切换手段）', (
     WidgetTester tester,
   ) async {
     await _pump(tester, controller: _controller(), view: _view(model: null));
-    expect(find.textContaining('空闲后 / 下一轮生效'), findsOneWidget);
+    expect(find.text('语音来源'), findsOneWidget);
+    expect(find.text('当前厂商'), findsNothing);
+    expect(find.byType(DropdownButton<String>), findsNothing);
   });
 
   testWidgets('A5：服务端静音只在开发者模式里画（2026-10-08）', (
