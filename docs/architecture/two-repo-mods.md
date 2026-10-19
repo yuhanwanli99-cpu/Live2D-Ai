@@ -10,16 +10,16 @@
 | 仓库 | 路径（本机） | 内容 |
 | --- | --- | --- |
 | 主仓 | `/home/skystar/Live2D-Ai` | `l2d`、`live2d-ai-core`、`live2d-ai-runtime`、`live2d-ai-desktop`、`l2d-wasm-demo`、`xtask`、`live2d-ai-mod-system`、`director`（已退役，仅留 `motion_bias`）、`template`、Flutter 壳、白模资源、协议文档 |
-| 第二仓 | `/home/skystar/Live2D-Ai-mods` | 六个 Mod 实现：`external-input`、`persona`、`voice-input`、`memory`、`local-tts`（含 `melo/` 与已封存的 `engine/`）、`local-engine`（0.3.4，spawn-only，缺省停用） |
+| 第二仓 | `/home/skystar/Live2D-Ai-mods` | 七个 Mod 实现：`external-input`、`persona`、`voice-input`、`memory`、`local-tts`（含 `melo/` 与已封存的 `engine/`）、`local-engine`（0.3.4，spawn-only，缺省停用）、`a2a`（0.3.9，协议核，缺省停用） |
 
 第二仓是主仓的 **sibling checkout**，不是 git submodule，也不是 vendored 副本。
 
 ## 2. 依赖方向
 
 - 主仓根 `Cargo.toml` 的 `[workspace.dependencies]` 用
-  `path = "../Live2D-Ai-mods/crates/..."` 指六个 Mod；`live2d-ai-desktop`
-  用 `workspace = true` 继承。主仓 members 不再含这六个 crate。
-- 第二仓六个 Mod 用 `live2d-ai-mod-system = { workspace = true }`，根清单把
+  `path = "../Live2D-Ai-mods/crates/..."` 指七个 Mod；`live2d-ai-desktop`
+  用 `workspace = true` 继承。主仓 members 不再含这七个 crate。
+- 第二仓七个 Mod 用 `live2d-ai-mod-system = { workspace = true }`，根清单把
   `live2d-ai-mod-system` / `live2d-ai-runtime` 指向
   `../Live2D-Ai/crates/...`；persona 的 dev-dep memory 用仓内路径。
 - **无包级循环**：desktop → mod → mod-system/runtime，依赖图仍是 DAG。
@@ -51,13 +51,13 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-主仓 `rust-ratio` 只统计主仓文件系统，不再把六个 Mod crate 计入分子/分母；
+主仓 `rust-ratio` 只统计主仓文件系统，不再把七个 Mod crate 计入分子/分母；
 第二仓的门禁是 `cargo test/fmt/clippy`，不另设占比门槛。
 
 ## 4. 不变性（拆分不改变产品）
 
-- 工厂 0.3.4 起 **6**：`mod_count_is_six` / `mod_factory_ids_match_expected`
-  （新增 `local-engine`，**缺省停用**）。
+- 工厂 0.3.4 起 **6**（新增 `local-engine`，**缺省停用**）；0.3.9 起 **7**
+  （新增 `a2a`，**缺省停用**）：`mod_count_is_seven` / `mod_factory_ids_match_expected`。
 - 缺省启用仍 `external-input` + `local-tts-melo`（`local-engine` 不进缺省 manifest）。
 - 协议、WS 帧、`ModServices` 契约不动；`action_tx` 仍休眠。
 - Mod **不写** `[tts]` / `[llm]`，不接 `action_tx`；`local-engine` 也没有

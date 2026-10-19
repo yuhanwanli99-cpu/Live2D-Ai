@@ -18,6 +18,7 @@
 | 导演层同类对照（N.E.K.O. + 12 项目） | `docs/research/调研结果-导演层同类对照-2026-10-07.md` | 2026-10-07；N.E.K.O. 快照 `a3c82b5a`；判据/证据纪律见文内 |
 | 本项目工程 / 底座定位评估 | `docs/research/评估-底座定位-Grok-2026-10-12.md` | **权威稿**：Grok 4.7，2026-10-12 22:48 CST。并行稿 `评估-底座定位与工程质量-2026-10-12.md`（deepseek-v4.1-flash，同日 22:45）冲突时改并行稿。**非契约真源** |
 | **当前执行计划：3.0 各阶段任务** | [`docs/plans/PROMPT-3.0-motion-first-2026-10-17.md`](plans/PROMPT-3.0-motion-first-2026-10-17.md) | 2026-10-17 起为当前真源：版本边界、验收口径、后续各版都在这里 |
+| **0.3.9 核心边界复位（计划 / 发布说明）** | [`PLAN-0.3.9-core-boundary-2026-10-19.md`](plans/PLAN-0.3.9-core-boundary-2026-10-19.md) · [`v0.3.9-rc.4.md`](releases/v0.3.9-rc.4.md) | 2026-10-19；A2A 拆出核心进第二仓 Mod `a2a`（缺省停用，工厂 6 → 7），设置收成「云端 / 本地 + 二级字段」，旧 toml 仍能加载 |
 | 0.2 时代收口 / 身份收口两单（历史） | **已移出工作树**（2026-10-17 rc2）——取回见 [REMOVED-docs-index-2026-10-06.md](REMOVED-docs-index-2026-10-06.md) §8 | 0.2.7 已发布，任务已收口；现行计划看上一行 |
 | 底座一致性索引（已有测试点名） | `docs/architecture/base-conformance.md` | 索引，非契约真源；协议仍以 `performance-protocol-v1.md` / `core-chain-baseline.md` 为准 |
 | 外部输入（弹幕 / 礼物） | `docs/external-input.md` | B 站抓取在 Win sidecar，不在主仓 |

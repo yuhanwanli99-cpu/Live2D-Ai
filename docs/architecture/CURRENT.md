@@ -24,8 +24,8 @@
 - **0.3.6 已收口（2026-10-18，本地 tag `v0.3.6-rc.1`…`v0.3.6-rc.4`，未 push）**：热换原子化（panic 未复现，结构性删除二次 load）、设置纪律（草稿不生效，只有「保存并重载」）、cue / field map 重绑（`model_epoch`）。发布说明 `docs/releases/v0.3.6-rc.4.md`。
 - **0.3.7 已收口（2026-10-18，本地 tag `v0.3.7-rc.1`…`v0.3.7-rc.3`，未 push）**：LLM `[llm].mode = cloud | local`；动作 12 → 21（D1=A 手不做）。发布说明 `docs/releases/v0.3.7-rc.3.md`。
 - **0.3.8 已落地（2026-10-18，本地 tag `v0.3.8-rc.1`…`v0.3.8-rc.3`，未 push）**：当前这一路 `[llm]` 对外暴露 A2A（agent card + JSON-RPC `message/send` / `tasks/get`）；皮套回合仍纯对话、不调工具，皮套链路未接 A2A。产品侧 A2A 是扩展，不是核心；路由目前写在主仓 `web_api`，与 §1 的归属不一致，搬家另计。不并进 `0.4.0` / `0.4.1`。发布说明 `docs/releases/v0.3.8-rc.3.md`。真机补验（Pi 从 GitHub 克隆、浏览器看隐藏）见 [`PLAN-0.3.8-verify-pi-browser-2026-10-18.md`](../plans/PLAN-0.3.8-verify-pi-browser-2026-10-18.md)。真 Ollama 本轮不拉模型，记为 3.0 遗留，不写入 `0.4.0`。
-- **0.3.9 未开始（2026-10-19 落号）**：一块功能。扩展（含已写进 `web_api` 的 A2A）拆出核心；TTS/LLM 的多厂商选择器留在核心，但收成「云端 / 本地 + 二级设置」，去掉厂商目录和快照。不并进 `0.4.0` / `0.4.1`。范围 [`PLAN-0.3.9-core-boundary-2026-10-19.md`](../plans/PLAN-0.3.9-core-boundary-2026-10-19.md)。
-- **两仓（0.3.3 起）**：最小表演闭环与宿主在主仓 `/home/skystar/Live2D-Ai`。六个 Mod 实现住 sibling 仓 `/home/skystar/Live2D-Ai-mods`，主仓经 `path` 依赖引用。主仓**不再 standalone**；公开前换 git 依赖或 CI 双 checkout，见 [`two-repo-mods.md`](two-repo-mods.md)。
+- **0.3.9 已落地（2026-10-19，本地 tag `v0.3.9-rc.1` / `v0.3.9-rc.2` 同在提交 `6d841e4`（主仓非 standalone，拆两次会让 rc.1 不能单独构建），`v0.3.9-rc.3`（主仓 `a36421a`，第二仓同 tag `519a3e0`）逐个落地，rc.4 只清理（本页所在提交，tag `v0.3.9-rc.4`），未 push）**：A2A（含已写进 `web_api` 的路由）拆出核心，进第二仓新 Mod `a2a`（缺省停用，工厂 6 → 7）；TTS/LLM 的多厂商选择器留在核心，但收成「云端 / 本地 + 二级设置」，厂商目录与 `vendors.*` 快照已删；旧 toml 仍能加载、写回不再写出 `vendor` / `vendors`。发布说明 [`docs/releases/v0.3.9-rc.4.md`](../releases/v0.3.9-rc.4.md)。不并进 `0.4.0` / `0.4.1`。范围 [`PLAN-0.3.9-core-boundary-2026-10-19.md`](../plans/PLAN-0.3.9-core-boundary-2026-10-19.md)。
+- **两仓（0.3.3 起）**：最小表演闭环与宿主在主仓 `/home/skystar/Live2D-Ai`。七个 Mod（0.3.9 起）实现住 sibling 仓 `/home/skystar/Live2D-Ai-mods`，主仓经 `path` 依赖引用。主仓**不再 standalone**；公开前换 git 依赖或 CI 双 checkout，见 [`two-repo-mods.md`](two-repo-mods.md)。
 - **多 Live2D（0.3.5）**：设置 → 模型库可加载本机 `model3`。唯一真源仍是
   `model_registry.json.active_id`；`GET /api/v1/app/status` 同时派生 `active_model_url`
   （空 = 无模型），不加 DisplayPrefs/localStorage 字段、不加端点。白模 `bai` 出厂
@@ -96,30 +96,53 @@
 ## 7. TTS 与点火
 
 - 出厂 TTS 是**本机 Melo**：`http://127.0.0.1:8091/v1`（`live2d-ai.toml` 的 `[tts]`）。
-- `./scripts/ignite.sh`：等本机 `GET {tts}/models` = 200，才打印
+- `./scripts/ignite.sh`：`[tts].mode=local` 时等本机 `GET {tts}/models` = 200，才打印
   `http://127.0.0.1:18080/app/` 并打开浏览器；在此之前不报地址。
-- **多厂商（0.3.4，2026-10-19 起待 0.3.9 收束）**：选择器属于核心增强。目标只留「云端 / 本地」和该档下面的二级设置（地址、模型或音色、密钥变量名等），不再用厂商目录和 `vendors.*` 快照做切换。下面是**今天的代码**，直到 0.3.9 落地才改：`[llm].vendor` / `[tts].vendor` 只是标签，当前段始终是唯一权威；
-  `[llm.vendors.*]` / `[tts.vendors.*]` 是文件里的快照。一次 PATCH 原子「快照→当前」复制；
-  手改当前后 GET 只给 `vendor_modified`，不回写快照。内置虚拟 `melo` 快照不进文件
-  （选中 = `apply_local_tts_defaults()` + `mode=local`），其它厂商一律 `mode=cloud`。
-  每厂商只存 `api_key_env`（变量名），值仍只住 `.env`；GET 只给 `has_api_key`。
-  本版只选不建厂商（TOML 手配）；旧 toml 无 vendor 字段时逐字 round-trip。
-  **旧二进制读新 toml 可能因 `deny_unknown_fields` 失败**——rc 线接受。
-- **LLM 云 / 本地（0.3.7）**：`[llm].mode = cloud | local`，缺省 **cloud**，省略不写
-  （旧 toml 无此键**逐字 round-trip**）。transport 不变（同一条 OpenAI-compatible
-  `/chat/completions`）；local 只表示「端点在用户本机 / 局域网、通常不需要云 key」，
-  **不嵌模型、不下载权重、不加依赖、不预填厂商或 Key**。切模式只是标签：不动地址 /
-  模型 / 密钥绑定 / 厂商快照，也**不自动回退**另一个模式。连通性自检沿用 TTS 纪律：
-  `GET {base_url}/models`，404 算可达 + note，401/403 `auth_failed`，其余 `protocol_error`，
-  **不真跑对话**；本地没配置 / 连不上回 `llm_local_unreachable`（不显示 ready）。
+  `mode=cloud` **不等本机 8091**——出声端点在云端，Melo 进程在不在跑与这一跳无关。
+- **云端 / 本地两档（0.3.9 收束，原 0.3.4 多厂商）**：LLM 与 TTS 各一个模式开关，
+  二级设置直接挂在当前这一档下面；**不再有**厂商目录、`vendors.*` 快照、
+  `vendor_modified` 或「一次 PATCH 把快照复制到当前段」。
+  - **LLM `[llm].mode`**（0.3.7 起）：`cloud | local`，缺省 **cloud**，省略不写
+    （旧 toml 无此键**逐字 round-trip**）。transport 不变（同一条 OpenAI-compatible
+    `/chat/completions`）；local 只表示「端点在用户本机 / 局域网、通常不需要云 key」，
+    **不嵌模型、不下载权重、不加依赖、不预填厂商或 Key**。二级字段：`base_url` 地址、
+    `model` 模型名、`api_key_env` 密钥变量名（值仍只住 `.env`，GET 只给
+    `has_api_key`）、`show_reasoning` 思考开关（只决定要不要上屏；思考**永不进**
+    句子装配器与 TTS）。
+  - **TTS `[tts].mode`**（0.3.9 起）：`cloud | local`，缺省 **local**（本机 Melo）。
+    二级字段：`base_url` 地址、`voice` 音色、`model` 模型名（可空）、
+    `response_format` 格式（缺省 `pcm`）、`sample_rate` 采样率（缺省 44100）、
+    `channels` 声道（缺省单声道）、`api_key_env` 云端密钥变量名。界面：本地档只读
+    固定一组（`127.0.0.1:8091/v1` / `ZH` / `pcm · 44100 Hz · 单声道` / 无密钥），
+    云端档可填地址 / 音色 / 模型名并在保存后绑密钥；采样率与声道在开发者层；
+    `response_format` 只住 `[tts]`，设置面板不出这个控件。`mode=cloud` 时核心只打
+    `[tts].base_url`，**不要求** `local-tts-melo` 在跑（点火也不等 8091）。
+  - 切档只是标签，仍走同一次「保存并重载」：**不预填**厂商 / Key / 地址，
+    也**不自动回退**另一个模式（local 连不上不会偷偷切 cloud）。云端 TTS 要求同一次
+    保存里地址与音色非空，否则整体 400、本次不生效。
+  - **旧 toml**：0.3.4–0.3.8 的 `[llm].vendor` / `[llm.vendors.*]` / `[tts].vendor` /
+    `[tts.vendors.*]` 读入时**忽略**（不让 `deny_unknown_fields` 拦下启动），
+    下一次保存**不再写回**这两键，手写注释保留。旧机制只作历史留证，见
+    [`docs/releases/v0.3.9-rc.4.md`](../releases/v0.3.9-rc.4.md)。
+  - 连通性自检沿用 TTS 纪律：`GET {base_url}/models`，404 算可达 + note，401/403
+    `auth_failed`，其余 `protocol_error`，**不真跑对话 / 不合成**；本地没配置 / 连不上回
+    `llm_local_unreachable`（不显示 ready）。
 
-## 8. Mod（在册六个）
+## 8. Mod（在册七个）
 
-`external-input`、`persona`、`voice-input`、`memory`、`local-tts-melo`、`local-engine`。
+`external-input`、`persona`、`voice-input`、`memory`、`local-tts-melo`、`local-engine`、`a2a`。
 
 - **实现住第二仓** `../Live2D-Ai-mods/crates/`（`live2d-ai-mod-system` 与出厂协议仍在主仓）；
   工厂数、id、缺省集合不因拆仓改变。
-- **缺省启用**：`external-input` 与 `local-tts-melo`；`local-engine` 只注册、**缺省停用**。
+- **缺省启用**：`external-input` 与 `local-tts-melo`；`local-engine` 只注册、**缺省停用**；
+  `a2a` 只注册、**缺省停用**。
+- `a2a`（0.3.9）：协议核住第二仓 `live2d-ai-mod-a2a`（agent card、JSON-RPC dispatch、
+  `message/send` / `tasks/get`、进程内任务表上限 32、错误脱敏）；宿主只留门
+  `web_api/a2a_gate.rs`——loopback + Origin + Content-Type 校验与「Mod 停用则不调用」。
+  停用时 `GET /.well-known/agent-card.json` 与 `POST /api/v1/a2a` 两处同一套、回
+  `403 mod_disabled` 且**不打上游**；启用后线格式与 0.3.8 逐字一致（取消仍拒绝）。
+  密钥仍只在宿主按 `[llm].api_key_env` 查，Mod 与响应 / 日志 / 卡片都拿不到值。
+  工厂 6 → 7。
 - `local-engine`（0.3.4）：spawn-only，4 项 schema（program / args_json / workdir / launch_mode），
   无 `base_url`；不写 `[tts]`/`[llm]`、不探活、不换地址、不重启；`apply_settings` 恒 0 次。
   立即退出（1s 窗口）→ Failed 带 stderr 尾；之后退出只进 `state_json`。
