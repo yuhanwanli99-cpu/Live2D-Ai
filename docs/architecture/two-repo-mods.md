@@ -18,7 +18,7 @@
 | `local-engine` | `/home/skystar/live2d-ai-mod-local-engine` | crate `live2d-ai-mod-local-engine`，id `local-engine`（spawn-only） |
 | `a2a` | `/home/skystar/live2d-ai-mod-a2a` | crate `live2d-ai-mod-a2a`，id `a2a` |
 
-七个 Mod 仓库都是**独立 git 仓库**，仓库根 = crate 根；**都没有远端、未 push**。
+七个 Mod 仓库都是**独立 git 仓库**，仓库根 = crate 根。公开地址在 [CURRENT.md](CURRENT.md) §8，分支 `main` 已推。
 每个都是主仓的 sibling checkout，不是 git submodule，也不是 vendored 副本。
 旧目录 `/home/skystar/Live2D-Ai-mods` **保留**（历史来源），已不被主仓引用；主仓清单、
 脚本与 pytest 都不再引用它（pytest 的 Melo 路径已改指 `../live2d-ai-mod-local-tts/melo/serve.py`）。
@@ -110,5 +110,4 @@ cargo clippy --all-targets -- -D warnings
   `.gitignore` 负责自己的安装产物与权重。
 - `local-tts` 仓库只含源码 / 脚本 / `melo/serve.py` / `start.sh` / 许可证说明，
   不含 `melo/weights/`、`engine/` 里的权重和虚拟环境。
-- 远端未建、不 push；公开前也不需要 CI 双 checkout 或必选 `git` 依赖——
-  缺省构建只用主仓自己的树。
+- 公开仓库只是源码索引。缺省构建仍只用主仓自己的树，不需要 CI 双 checkout，也不把 Mod 写成必选 `git` 依赖。

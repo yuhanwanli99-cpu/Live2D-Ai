@@ -26,7 +26,7 @@
 - **0.3.8 已落地（2026-10-18，本地 tag `v0.3.8-rc.1`…`v0.3.8-rc.3`，未 push）**：当前这一路 `[llm]` 对外暴露 A2A（agent card + JSON-RPC `message/send` / `tasks/get`）；皮套回合仍纯对话、不调工具，皮套链路未接 A2A。产品侧 A2A 是扩展，不是核心；A2A 已在 0.3.9 进第二仓 Mod `a2a`（缺省停用），宿主只留门 `web_api/a2a_gate.rs`，与 §1 的归属一致。不并进 `0.4.0` / `0.4.1`。发布说明 `docs/releases/v0.3.8-rc.3.md`。真机补验（Pi 从 GitHub 克隆、浏览器看隐藏）见 [`PLAN-0.3.8-verify-pi-browser-2026-10-18.md`](../plans/PLAN-0.3.8-verify-pi-browser-2026-10-18.md)。真 Ollama 本轮不拉模型，记为 3.0 遗留，不写入 `0.4.0`。
 - **0.3.9 已落地（2026-10-19，本地 tag `v0.3.9-rc.1` / `v0.3.9-rc.2` 同在提交 `6d841e4`（主仓非 standalone，拆两次会让 rc.1 不能单独构建），`v0.3.9-rc.3`（主仓 `a36421a`，第二仓同 tag `519a3e0`）逐个落地，rc.4 只清理（tag `v0.3.9-rc.4` 在 `41096fa`），未 push）**：A2A（含已写进 `web_api` 的路由）拆出核心，进第二仓新 Mod `a2a`（缺省停用，工厂 6 → 7）；TTS/LLM 的多厂商选择器留在核心，但收成「云端 / 本地 + 二级设置」，厂商目录与 `vendors.*` 快照已删；旧 toml 仍能加载、写回不再写出 `vendor` / `vendors`。发布说明 [`docs/releases/v0.3.9-rc.4.md`](../releases/v0.3.9-rc.4.md)。不并进 `0.4.0` / `0.4.1`。范围 [`PLAN-0.3.9-core-boundary-2026-10-19.md`](../plans/PLAN-0.3.9-core-boundary-2026-10-19.md)。
 - **0.3.10 已收口（2026-10-19，本地 tag `v0.3.10-rc.1` = `3a7f6c0`、`v0.3.10-rc.2` = `cab3996`，rc.3 只清理（tag `v0.3.10-rc.3` 在 `6a0a1ef`），未 push）**：标红修复（`live2d_stage.dart` 844 → 785 + 新 `director_cue_plan.dart`；pytest Melo 路径指第二仓）、项目声明收成单一 AGPL-3.0（商业付费 = 单独书面协议，见 §11）、皮套入库与仓库分发分开、活文档对齐；`0.4.0` 未开始。发布说明 [`docs/releases/v0.3.10-rc.3.md`](../releases/v0.3.10-rc.3.md)。范围 [`PLAN-0.3.10-red-docs-statement-2026-10-19.md`](../plans/PLAN-0.3.10-red-docs-statement-2026-10-19.md)。
-- **仓库（2026-10-19，已落地）**：主仓只留核心链路，克隆并填好 `[llm]` / `[tts]` 就能编译并跑，不需要任何 Mod 实现。`AVAILABLE_MOD_FACTORIES` 为空（工厂 **0**），`default_mods_manifest` 的 `mods` 为空对象——缺省不再启用 `external-input` 与 `local-tts-melo`。七个实现各自一个**本机仓库**（都没有远端、未 push）：`/home/skystar/live2d-ai-mod-external-input`、`-persona`、`-voice-input`、`-memory`、`-local-tts`（id `local-tts-melo`，工厂 `MELO_FACTORY`）、`-local-engine`、`-a2a`。旧目录 `/home/skystar/Live2D-Ai-mods` 保留作历史来源，已不被主仓引用。挂载 = 维护者手动把 crate 的 path 依赖加回根 `[workspace.dependencies]` 与 desktop 依赖、加回 `AVAILABLE_MOD_FACTORIES`、恢复该 Mod 的宿主路由/集成代码；没有动态加载器，缺省提交里没有这些。执行单 [`PLAN-main-core-mod-repos-2026-10-19.md`](../plans/PLAN-main-core-mod-repos-2026-10-19.md)。项目经理 2026-10-19 抽查验收：主仓 `15cdfa077946eb1540c47bdc9eaf04c5524f3174`（父提交即 `v0.3.10-rc.3`），**不占版本号、未打 tag**。分支 `main` 已快进推到 `origin`（`7178e6f..15cdfa0`）；附注 tag 与已删除的远端 `v0.3.1` 都不在这次推送里。七个 Mod 公开仓库仍未建：当前 GitHub token 不能 `createRepository`，本机首提交不变。全门禁按执行报告，本会话未重跑。接受的偏差：persona 取消对 memory 的 dev-dep 与 3 条共存测试；external / voice / a2a 的真实 handler 从父提交取回；`turn_in_flight` 保留并 `allow(dead_code)`；`live2d-ai-runtime` 四处历史注释未改；`AGENTS.md` 历史段未改；Flutter Web 未重编。S2 仍开：`external-input` 与 `memory` 仍调用 `secrets::lookup`。`0.4.0` 仍未开始。
+- **仓库（2026-10-19，已落地）**：主仓只留核心链路，克隆并填好 `[llm]` / `[tts]` 就能编译并跑，不需要任何 Mod 实现。`AVAILABLE_MOD_FACTORIES` 为空（工厂 **0**），`default_mods_manifest` 的 `mods` 为空对象——缺省不再启用 `external-input` 与 `local-tts-melo`。七个实现各自一个本机仓库，公开地址见 §8（分支 `main` 已推）：`/home/skystar/live2d-ai-mod-external-input`、`-persona`、`-voice-input`、`-memory`、`-local-tts`（id `local-tts-melo`，工厂 `MELO_FACTORY`）、`-local-engine`、`-a2a`。旧目录 `/home/skystar/Live2D-Ai-mods` 保留作历史来源，已不被主仓引用。挂载 = 维护者手动把 crate 的 path 依赖加回根 `[workspace.dependencies]` 与 desktop 依赖、加回 `AVAILABLE_MOD_FACTORIES`、恢复该 Mod 的宿主路由/集成代码；没有动态加载器，缺省提交里没有这些。执行单 [`PLAN-main-core-mod-repos-2026-10-19.md`](../plans/PLAN-main-core-mod-repos-2026-10-19.md)。项目经理 2026-10-19 抽查验收：主仓 `15cdfa077946eb1540c47bdc9eaf04c5524f3174`（父提交即 `v0.3.10-rc.3`），**不占版本号、未打 tag**。分支 `main` 已快进推到 `origin`（`7178e6f..15cdfa0`）；附注 tag 与已删除的远端 `v0.3.1` 都不在这次推送里。七个 Mod 公开仓库已建并推了 `main`，见 §8。附注 tag 仍只在本地。全门禁按执行报告，本会话未重跑。接受的偏差：persona 取消对 memory 的 dev-dep 与 3 条共存测试；external / voice / a2a 的真实 handler 从父提交取回；`turn_in_flight` 保留并 `allow(dead_code)`；`live2d-ai-runtime` 四处历史注释未改；`AGENTS.md` 历史段未改；Flutter Web 未重编。S2 仍开：`external-input` 与 `memory` 仍调用 `secrets::lookup`。`0.4.0` 仍未开始。
 - **多 Live2D（0.3.5）**：设置 → 模型库可加载本机 `model3`。唯一真源仍是
   `model_registry.json.active_id`；`GET /api/v1/app/status` 同时派生 `active_model_url`
   （空 = 无模型），不加 DisplayPrefs/localStorage 字段、不加端点。白模 `bai` 出厂
@@ -134,17 +134,17 @@
 
 `AVAILABLE_MOD_FACTORIES` 为空，工厂 **0**；`default_mods_manifest` 的 `mods` 为空对象，缺省**不启用**任何 Mod（含 `external-input` / `local-tts-melo`）。七个实现各自一个**本机仓库**，主仓不依赖、缺省不编译：
 
-| 本机仓库 | crate | id |
+| 本机仓库 | 公开仓库 | id |
 |---|---|---|
-| `/home/skystar/live2d-ai-mod-external-input` | `live2d-ai-mod-external-input` | `external-input` |
-| `/home/skystar/live2d-ai-mod-persona` | `live2d-ai-mod-persona` | `persona` |
-| `/home/skystar/live2d-ai-mod-voice-input` | `live2d-ai-mod-voice-input` | `voice-input` |
-| `/home/skystar/live2d-ai-mod-memory` | `live2d-ai-mod-memory` | `memory` |
-| `/home/skystar/live2d-ai-mod-local-tts` | `live2d-ai-mod-local-tts` | `local-tts-melo`（工厂 `MELO_FACTORY`） |
-| `/home/skystar/live2d-ai-mod-local-engine` | `live2d-ai-mod-local-engine` | `local-engine` |
-| `/home/skystar/live2d-ai-mod-a2a` | `live2d-ai-mod-a2a` | `a2a` |
+| `/home/skystar/live2d-ai-mod-external-input` | [live2d-ai-mod-external-input](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-external-input) | `external-input` |
+| `/home/skystar/live2d-ai-mod-persona` | [live2d-ai-mod-persona](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-persona) | `persona` |
+| `/home/skystar/live2d-ai-mod-voice-input` | [live2d-ai-mod-voice-input](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-voice-input) | `voice-input` |
+| `/home/skystar/live2d-ai-mod-memory` | [live2d-ai-mod-memory](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-memory) | `memory` |
+| `/home/skystar/live2d-ai-mod-local-tts` | [live2d-ai-mod-local-tts](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-local-tts) | `local-tts-melo`（工厂 `MELO_FACTORY`） |
+| `/home/skystar/live2d-ai-mod-local-engine` | [live2d-ai-mod-local-engine](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-local-engine) | `local-engine` |
+| `/home/skystar/live2d-ai-mod-a2a` | [live2d-ai-mod-a2a](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-a2a) | `a2a` |
 
-- 七个仓库都**没有远端、未 push**；旧目录 `/home/skystar/Live2D-Ai-mods` 保留作历史来源，已不被主仓引用。`live2d-ai-mod-system` 与出厂协议仍在主仓。
+- 七个公开仓库的分支 `main` 已推；旧目录 `/home/skystar/Live2D-Ai-mods` 保留作历史来源，已不被主仓引用。`live2d-ai-mod-system` 与出厂协议仍在主仓。主仓缺省构建仍不依赖它们。
 - **挂载**由维护者手动完成：把该 crate 的 `path` 依赖加回根 `[workspace.dependencies]` 与 `live2d-ai-desktop` 依赖、加回 `AVAILABLE_MOD_FACTORIES`（并同步计数 / id 断言）、恢复该 Mod 的宿主路由 / 集成代码。**没有动态加载器**；缺省提交里没有这些。
 - **未挂载时**：`POST /api/v1/external/chat`、`POST /api/v1/voice/transcript`、`GET /.well-known/agent-card.json`、`POST /api/v1/a2a` 一律回 **404**，body `error.code = "mod_disabled"`，不打 LLM、不 `say`。
 - `a2a`（0.3.9）：协议核在本机仓库 `live2d-ai-mod-a2a`（agent card、JSON-RPC dispatch、`message/send` / `tasks/get`、进程内任务表上限 32、错误脱敏）；宿主只留门 `web_api/a2a_gate.rs`——loopback + Origin + Content-Type 校验与「Mod 未挂载则不调用」。挂回后线格式与 0.3.8 逐字一致（取消仍拒绝）；密钥仍只在宿主按 `[llm].api_key_env` 查，Mod 与响应 / 日志 / 卡片都拿不到值。

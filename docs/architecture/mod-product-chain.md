@@ -7,7 +7,7 @@
 ## 1. 定位
 
 Mod 是**编译进当前二进制的静态模块**（Rust crate）。2026-10-19 起
-**一 Mod 一本地仓库**：七个实现各自一个本机仓库（远端未建、未 push），
+**一 Mod 一本地仓库**：七个实现各自一个本机仓库，公开地址见 [CURRENT.md](CURRENT.md) §8（分支 `main` 已推），
 主仓 `AVAILABLE_MOD_FACTORIES` 为空、缺省一个都不编入。enable /
 disable / config 是**运行时开关**，不是加载器：
 

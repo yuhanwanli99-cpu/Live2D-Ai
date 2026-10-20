@@ -31,8 +31,9 @@ It ships one **white (bai) model** so a fresh clone renders out of the box; the 
 - **The default build compiles 0 Mod factories** (`AVAILABLE_MOD_FACTORIES` is empty;
   `default_mods_manifest` has an empty `mods` object), so no Mod — not even
   `external-input` or `local-tts-melo` — is enabled out of the box.
-- Seven factories exist, each in its **own local repo** (no remote yet, not cloned with
-  the core, not referenced by the core's Cargo manifests):
+- Seven factories exist, each in its **own public repo** (not cloned with the core,
+  not referenced by the core's Cargo manifests). Addresses are in
+  [`docs/architecture/CURRENT.md`](docs/architecture/CURRENT.md) §8:
 
   | Repo (this machine) | crate | id |
   | --- | --- | --- |
