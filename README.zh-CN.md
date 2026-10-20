@@ -1,64 +1,64 @@
 # Live2D-Ai
 
-**v0.3.1** — 通用、最小的 **Live2D 形象 ↔ AI 对话** 接入平台。
+**v0.3.1** — 本地优先的 **Live2D 皮套 ↔ AI 对话** 接入服务。`Cargo.toml` 的版本串是 **0.3.1**。
 
-Live2D-Ai 只打磨一条核心链路，其余能力放在 Mod 边界之后：
+产品核心只有三块，其余都在 Mod 边界后面：
+
+1. **一路表演 LLM**（`[llm]`，纯对话）
+2. **二路导演**（按句清洗，这一句上屏、送 TTS，并按原文出动作）
+3. **一个 Web 前端**（渲染、动作、设置、对话）
 
 **文本 → LLM（纯对话）→ TTS → 口型 → Live2D 渲染 + Web UI**
 
-**不绑定**任何单一模型；出厂带白模型（条约见 [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md)，**不是**作者授权再分发），其余模型由你合法取得后自行导入；导入的模型只留在本机模型库，不写入仓库。外部输入、语音输入、会话记忆、导演序列等增强能力走 Mod，失败只关掉该 Mod，不影响主链路。
+出厂不设人设。不绑定任何单一模型；出厂带白模型（条约见 [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md)，**不是**作者授权再分发）。其余模型由你合法取得后自行导入，只留在本机模型库，不写入仓库。
+
+克隆主仓、填好 `[llm]` / `[tts]` 就能编译并跑，不需要旁边再克隆 Mod。云端 TTS 也不需要本机 Melo。
 
 > English (default): [README.md](./README.md)
+> 现行契约：[docs/architecture/CURRENT.md](docs/architecture/CURRENT.md)
 
 ---
 
 ## 功能
 
 ### 核心链路
-- **LLM 纯对话** — OpenAI 兼容 `/chat/completions`（SSE）。请求体不含 tools / function calling（有回归测试）。
-- **TTS 属于核心** — OpenAI 兼容 `/audio/speech`；端点来自 `live2d-ai.toml` 的 `[tts]`。
+- **LLM 纯对话** — OpenAI 兼容 `/chat/completions`（SSE）。请求体不含 tools / function calling（有回归测试）。`[llm].mode` 只有 `cloud | local`。
+- **TTS 属于核心** — OpenAI 兼容 `/audio/speech`；端点来自 `live2d-ai.toml` 的 `[tts]`，可以是云端 API。`[tts].mode` 缺省 `local`（本机 Melo 地址 `http://127.0.0.1:8091/v1`）。
 - **一句一单元** — 按真实句读切分；口型由逐句音频与音量包络驱动。
+- **导演在核心里**，常开，没有启用开关。动作走 `action_cue` → 渲染面 `preset`。`action_tx` 仍休眠。
 - **纯 reducer**（`live2d-ai-core`）— epoch 闸门 + 闩锁，无 IO、无 async。
 - **Supervisor** — 独立线程 + 事件循环推进 turn。
 
 ### Live2D 与界面
 - **渲染** — [Ayagami](https://github.com/AyagamiDev/ayagami)（MIT OR Apache-2.0）+ wgpu；Rust 基线**不依赖** Live2D Cubism 专有 SDK。
-- **Web UI** — 主入口（`--web`）；舞台 + 对话区、设置面板，离线友好构建门禁。
+- **Web UI** — 主入口（`--web`）。现在 `GET /` 与 `GET /index.html` **302 到 `/app/`**。Flutter 产物是 `shell/flutter/build/web`。
 - **WASM 渲染** — `/render` 与 `/models/*`（`l2d-wasm-demo`）。
+- **0.3.11 已指定、尚未落地**：启动前加一页小前端（可改本次确认哪些已注册 Mod、预启动开或关、以及由此算出的拉起数量），带加载动画，然后再进 `/app/`。自动预启动撤掉，也不再为本地 TTS 空等 600 秒。落地前以下面的点火说明为准。执行单 [`docs/plans/PLAN-0.3.11-launcher-2026-10-20.md`](docs/plans/PLAN-0.3.11-launcher-2026-10-20.md)。
 
 ### Mod
-- trait 注册中心（`live2d-ai-mod-system`）：运行时 enable / disable / restart。
-- 已编译进二进制的 Mod（**7 个注册工厂**）：`external-input`、`persona`、`voice-input`、
-  `memory`、`local-tts-melo`、`local-engine`、`a2a`。**缺省启用 `external-input` 与
-  `local-tts-melo`**（后者开机拉起仓库内 MeloTTS；见编译期
-  `cli_entry::default_mods_manifest`），其余五个都要手动开
-  （`memory` 会写 `persona.system_prompt`，必须由用户明确打开；`a2a` 与 `local-engine`
-  只注册、缺省停用）。
-- `local-engine`（0.3.4）：**spawn-only**，只拉起进程；不写 `[tts]` / `[llm]`、不探活、
-  不换地址。
-- `a2a`（0.3.9）：产品侧是扩展，不是核心。agent card 与 JSON-RPC 分发住第二仓 Mod
-  `a2a`；宿主只留门（`web_api/a2a_gate.rs`），Mod 停用时回 `403 mod_disabled`。工厂 6 → 7。
-- **`director` 已不是 Mod**：规则表在核心，director crate 已退出 `AVAILABLE_MOD_FACTORIES`、
-  不再投递，**禁止挂回**；按句的第二路导演是核心常驻（常开，无启用开关）。现状真源：
-  `docs/architecture/CURRENT.md` §4。
-- `local-tts`（CosyVoice3）**已封存、未注册**：crate 与 `engine/` 留在树上（可编译可测），
-  **未适配前不要挂回**。
-- `wallpaper` 与 `pet-desktop` **已封存（ARCHIVED，本波不做）**：**不再注册、不再
-  编译进 binary**；crate 已于 2026-10-01 **物理删除**（只存在于 tag
-  `checkpoint/pre-d1-dormant`），**禁止挂回**。
-  理由与恢复条件见 [`docs/architecture/ARCHIVED-mods.md`](docs/architecture/ARCHIVED-mods.md)。
-  用户手动的舞台/壳背景能力（`DisplayPrefs`）**保留**——与被封存的 wallpaper **Mod** 是两回事。
-- `local-llm` **已废除启动**（`0.2.0-rc.1` 移出注册表；crate 已于 2026-10-01 删除）。
-  rc.2 删除的那个**动作驱动** director 的归档分支 `archive/action-layer-p6` **已不存在**
-  （2026-10-06 复核：本地 / 远端 / 历史 bundle 里都没有）；被删内容可从 `main` 历史取回：
-  `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`。
-- 语音输入：本机 ASR **sidecar**（你自己起的进程）把转写 POST 到
-  `POST /api/v1/voice/transcript`；**ASR 不进 binary**。
-- Mod 失败仅 disable 自身，主链路继续。
+- trait 注册中心（`live2d-ai-mod-system`）留在主仓。**缺省构建的工厂数是 0**（`AVAILABLE_MOD_FACTORIES` 为空，`default_mods_manifest` 的 `mods` 是空对象）。`external-input` 与 `local-tts-melo` 都不再缺省启用，也没有被编进缺省二进制。
+- 七个实现各自一个公开源码仓库，主仓不依赖它们。没有动态加载器，也没有打包好的二进制 Mod。要加进正在跑的进程，把仓库放到主仓同级，再按 [`docs/architecture/two-repo-mods.md`](docs/architecture/two-repo-mods.md) §4 重新编译。`mods.json` 只能开关**已经编进去**的 id。
 
-### 本基线平台
-- 主力：**Linux / WSL2**。
-- Android、原生 Windows 桌面不在 `0.1.0` RC 线范围内。
+  | 公开仓库 | id |
+  | --- | --- |
+  | [live2d-ai-mod-external-input](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-external-input) | `external-input` |
+  | [live2d-ai-mod-persona](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-persona) | `persona` |
+  | [live2d-ai-mod-voice-input](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-voice-input) | `voice-input` |
+  | [live2d-ai-mod-memory](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-memory) | `memory` |
+  | [live2d-ai-mod-local-tts](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-local-tts) | `local-tts-melo` |
+  | [live2d-ai-mod-local-engine](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-local-engine) | `local-engine` |
+  | [live2d-ai-mod-a2a](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-a2a) | `a2a` |
+
+- 未挂载时这些路由回 **404**，`error.code = "mod_disabled"`，不打 LLM、不 `say`：`POST /api/v1/external/chat`、`POST /api/v1/voice/transcript`、`GET /.well-known/agent-card.json`、`POST /api/v1/a2a`。
+- `local-tts-melo` 只拉起外部 Melo 进程，不写 `[tts]`。权重不在公开仓库里。缺省构建不会自动拉起 Melo。
+- `local-engine` 只拉起进程（program / args_json / workdir / launch_mode），不写 `[llm]` / `[tts]`，不探活。设置里不显示这张卡。
+- CosyVoice 的 `local-tts`、`local-llm`、`wallpaper`、`pet-desktop` 已删除或封存，**不要挂回**。见 [`docs/architecture/ARCHIVED-mods.md`](docs/architecture/ARCHIVED-mods.md)。用户自己的舞台/壳背景（`DisplayPrefs`）还在。
+- 导演 crate 还在主仓，但已退出工厂表，**不要再注册成 Mod**。
+- Mod 失败只关掉该 Mod，主链路继续。
+
+### 平台
+- 主力：**Linux / WSL2**。服务进程只在这边起；Windows 只开浏览器。
+- 原生第二壳已于 2026-10-01 移出构建。`0.4.0`（Windows 上跑同一套 `--web`）和 `0.4.1`（新的桌面透传）都还没开始。
 
 ---
 
@@ -80,23 +80,31 @@ cp live2d-ai.toml.example live2d-ai.toml   # OpenAI 兼容 LLM/TTS
 
 `flutter` 是 `~/flutter` 里的 Flutter SDK（`scripts/ignite.sh` 会把 `$HOME/flutter/bin` 放进 `PATH`）。
 `./scripts/ignite.sh --build` 编的是**调试版后端**并启动；`shell/flutter/build/web/index.html`
-已存在时**不会重编 Flutter**，所以第一行必须先跑。脚本会**等全部就绪**——本机 TTS 等到
-`GET {tts}/models` 返回 200、云端或未配置 TTS 等到 `GET /app/` 返回 200——之后才打印地址，
-并用默认浏览器打开；脚本不退出，体检另开终端跑 `./scripts/ignite.sh --check`。
+已存在时**不会重编 Flutter**，所以第一行必须先跑。
+
+**现在的脚本**会等页面就绪，并且在 `[tts].mode=local` 时再等 `GET {tts}/models` 返回 200（最长 600 秒）才打印地址、才打开浏览器。`mode=cloud` 不等本机 8091。缺省二进制不拉起 Melo；8091 上没有进程时，这次等待会停在超时。脚本不退出（超时那条路径会以非 0 离开，服务进程可能还在）。体检另开终端跑 `./scripts/ignite.sh --check`。
 
 出厂带白（bai）模型，克隆后即可渲染——资产说明见 [`assets/models/README.md`](assets/models/README.md)，
 条约见 [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md)
 （作者条约，**不是**授权再分发）。
 
 ### 常用 CLI
+
+主入口是 `scripts/ignite.sh` 拉起的这一条：
+
 ```bash
 --web [--http-port P]   # Web UI（主入口）
---audio-smoke           # 音频冒烟
+```
+
+原生第二壳已经不在构建里：`--chat` / `--window-smoke` / `--model-smoke` / `--pet-mode` / `--benchmark*` 都没有了。还在的工具项：
+
+```bash
+--audio-smoke [--audio-smoke-secs S] [--audio-smoke-silence]   # 音频冒烟
 ```
 
 ### 点火（WSL2 → Windows 浏览器）
 
-**开发与「服务进程」都在 WSL2 侧**；Windows 只负责开浏览器（不跑二进制、不编 Flutter）。
+**开发与服务进程都在 WSL2**；Windows 只开浏览器（不跑二进制、不编 Flutter）。
 
 标准构建 + 启动（仓库根执行，顺序不可换）：
 
@@ -107,12 +115,10 @@ cp live2d-ai.toml.example live2d-ai.toml   # OpenAI 兼容 LLM/TTS
 ./scripts/ignite.sh --build
 ```
 
-`flutter` 是 `~/flutter` 里的 SDK。`./scripts/ignite.sh --build` 编的是**调试版后端**并启动；
-`shell/flutter/build/web/index.html` 已存在时**不会重编 Flutter**——所以第一行必须先跑。
-脚本**等全部就绪**后打印地址并打开默认浏览器；另开终端做点火体检：
+另开终端做点火体检：
 
 ```bash
-./scripts/ignite.sh --check    # 对**已启动**的服务做点火体检
+./scripts/ignite.sh --check    # 对已启动的服务做点火体检
 ```
 
 然后打开 <http://127.0.0.1:18080/app/>（`/` 会 302 跳到 `/app/`）。
@@ -139,20 +145,21 @@ crates/
   l2d                      Live2D 渲染（Ayagami + wgpu）
   live2d-ai-core           纯 reducer 状态机
   live2d-ai-runtime        LLM / TTS / 对话 / 设置
-  live2d-ai-desktop        Supervisor + Web API + 桌面壳
+  live2d-ai-desktop        Supervisor + Web API
   l2d-wasm-demo            Web WASM 渲染
   live2d-ai-mod-system     Mod trait / 注册
-  live2d-ai-mod-*          可选 Mod
+  live2d-ai-mod-director   规则表已迁入核心；不要再注册成 Mod
+  live2d-ai-mod-template   新 Mod 脚手架
 ```
 
-文档索引：[docs/README.md](./docs/README.md)
+七个 Mod 实现不在这棵树里。文档索引：[docs/README.md](./docs/README.md)
 
 ---
 
 ## 许可与资产
 
 - **项目自有代码：** [AGPL-3.0-only](LICENSE) © 2026 Sakura Motion Project——项目自有代码的**唯一**公开许可证。照 AGPL 履约即可商业使用，不需要另买许可。
-- **想避开 AGPL 的源码义务？** 那不是第二份公开许可证，而是**商业付费 + 单独书面协议**，见 [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)（联系方式在该文件里）。
+- **想避开 AGPL 的源码义务？** 那不是第二份公开许可证，而是**商业付费 + 单独书面协议**，见 [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)。
 - **第三方：** 见 [NOTICE](NOTICE)、[CREDITS.md](CREDITS.md)
 - **Live2D 模型 / 贴图：** 不受 AGPL 覆盖；须合法取得并自行导入。出厂白模型**渲染必需的那几份已跟踪**（`bai.moc3`、`texture_00_4096.png`），条约见 [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md)——**不是**作者授权再分发；用户导入的模型只留本机模型库、不进仓库。范围说明：[LICENSE-SCOPE.md](LICENSE-SCOPE.md)
 

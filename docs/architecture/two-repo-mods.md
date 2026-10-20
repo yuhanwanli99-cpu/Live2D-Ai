@@ -65,6 +65,8 @@ cargo clippy --all-targets -- -D warnings
 
 ## 4. 缺省态与挂载步骤
 
+`0.3.11` 的启动器（已派、未落地，见 [`PLAN-0.3.11-launcher-2026-10-20.md`](../plans/PLAN-0.3.11-launcher-2026-10-20.md)）不代替下面五步，也不能凭页面上的数字把 Mod 装进来。
+
 缺省提交里：`AVAILABLE_MOD_FACTORIES` 为空（工厂 **0**），`default_mods_manifest` 的
 `mods` 为空对象——**一个 Mod 都不启用**（`external-input` / `local-tts-melo`
 也不再缺省启用）。未挂载时 `POST /api/v1/external/chat`、

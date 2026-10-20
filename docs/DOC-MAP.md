@@ -21,6 +21,7 @@
 | **0.3.9 核心边界复位（计划 / 发布说明）** | [`PLAN-0.3.9-core-boundary-2026-10-19.md`](plans/PLAN-0.3.9-core-boundary-2026-10-19.md) · [`v0.3.9-rc.4.md`](releases/v0.3.9-rc.4.md) | 2026-10-19；A2A 拆出核心进第二仓 Mod `a2a`（缺省停用，工厂 6 → 7），设置收成「云端 / 本地 + 二级字段」，旧 toml 仍能加载 |
 | **0.3.10 标红 / 声明 / 皮套分发（计划 / 发布说明）** | [`PLAN-0.3.10-red-docs-statement-2026-10-19.md`](plans/PLAN-0.3.10-red-docs-statement-2026-10-19.md) · [`v0.3.10-rc.3.md`](releases/v0.3.10-rc.3.md) | 2026-10-19；两处标红恢复全绿（`dart-800` 归零、pytest 12 passed）、声明收成单一 AGPL-3.0、皮套入库≠仓库分发、活文档对齐；`0.4.0` 未开始 |
 | **主仓只留核心 / 一 Mod 一本地仓库（执行单）** | [`PLAN-main-core-mod-repos-2026-10-19.md`](plans/PLAN-main-core-mod-repos-2026-10-19.md) · 公开地址见 [`CURRENT.md`](architecture/CURRENT.md) §8 | 2026-10-19；主仓不依赖任何 Mod 实现、工厂 0、缺省 manifest 空；七个公开仓库的 `main` 已推 |
+| **0.3.11 启动器（执行单，未执行）** | [`PLAN-0.3.11-launcher-2026-10-20.md`](plans/PLAN-0.3.11-launcher-2026-10-20.md) | 2026-10-20；已派、未落地。撤掉自动预启动。启动前一页可改已注册 Mod 的确认与拉起，加载动画后进 `/app/`。无动态加载器 |
 | 0.2 时代收口 / 身份收口两单（历史） | **已移出工作树**（2026-10-17 rc2）——取回见 [REMOVED-docs-index-2026-10-06.md](REMOVED-docs-index-2026-10-06.md) §8 | 0.2.7 已发布，任务已收口；现行计划看上一行 |
 | 底座一致性索引（已有测试点名） | `docs/architecture/base-conformance.md` | 索引，非契约真源；协议仍以 `performance-protocol-v1.md` / `core-chain-baseline.md` 为准 |
 | 外部输入（弹幕 / 礼物） | `docs/external-input.md` | B 站抓取在 Win sidecar，不在主仓 |

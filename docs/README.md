@@ -152,6 +152,8 @@
   `live2d_stage.dart` 844 → 785（`dart-800` 归零）、pytest Melo 路径指第二仓；项目声明收成单一 AGPL-3.0（商业付费 = 单独书面协议）；皮套入库 ≠ 仓库分发；README 工厂 6 → 7、A2A 旧句对齐
 - [**主仓只留核心 / 一 Mod 一本地仓库（2026-10-19 执行单）**](plans/PLAN-main-core-mod-repos-2026-10-19.md)
   ——主仓工厂 0、`default_mods_manifest` 空、七个公开仓库见 [CURRENT.md](architecture/CURRENT.md) §8；旧 `Live2D-Ai-mods` 只作历史来源
+- [**0.3.11 启动器（2026-10-20，已派、未执行）**](plans/PLAN-0.3.11-launcher-2026-10-20.md)
+  ——撤掉自动预启动。`/` 在落地前仍 302 到 `/app/`；落地后是启动前的一页（确认 / 拉起只改已注册 Mod，加载动画后进 `/app/`）。不再为 local TTS 空等 600 秒。不建动态加载器
 - **0.2 时代收口（2026-10-13，已收口）**：执行单、范围计划与身份收口两单已随 rc2 移出工作树，
   逐字取回见 [已移出工作树的文档索引](REMOVED-docs-index-2026-10-06.md) §8
 
