@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
-# Live2D-Ai 点火脚本（2026-09-10 定，2026-10-13 改「等就绪再给地址」）——核心链路闭环。
+# Live2D-Ai 点火脚本（2026-09-10 定，2026-10-13 改「等就绪再给地址」，2026-10-20 0.3.11
+# 撤掉「等本机 TTS 就绪」与启动前清理 Melo 子进程）——核心链路闭环。
 #
 # 它做五件事：
-#   1) 预检：读 live2d-ai.toml（LLM/TTS 端点 + TTS 是否本机），探测云端端点；
+#   1) 预检：读 live2d-ai.toml 的 LLM/TTS 端点，只探测**当前写下的**那一份地址
+#      （只报告，不改档、不写 toml）；
 #   2) 确保渲染面产物：crates/l2d-wasm-demo/dist（/render 用）；
 #   3) 确保前端产物：shell/flutter/build/web（/app/ 用，可选 --build 自动构建）；
-#   4) 后台启动 live2d-ai-desktop --web，脚本前台等待：先等 GET /app/ = 200
-#      （最长 90 秒）；[tts].mode=local 时再等 GET {tts.base_url}/models = 200（最长 600 秒，
-#      cloud 不等——出声端点是云端 API 时不需要本机 Melo 进程）；
-#      服务进程退出 = 提前停下。
-#   5) 全部就绪才打印点火入口，并用默认浏览器打开页面（WSL 走 Windows 的
-#      Start-Process；LIVE2D_AI_NO_BROWSER=1 只打印）。页面未就绪或本机 TTS
-#      超时：不打印成功横幅、不打开浏览器。脚本不退出（服务停了它才停）；
-#      点火体检另开终端跑 --check。
+#   4) 后台启动 live2d-ai-desktop --web，脚本前台等待：GET / = 200（启动器页，
+#      最长 90 秒；**不再**为 [tts].mode=local 等 GET {tts}/models 600 秒）。
+#      旧构建（/ 仍是 302 → /app/）回落等 GET /app/ = 200——这是启动器落地前的
+#      兼容，不删。服务进程退出 = 提前停下。
+#   5) 就绪后打印点火入口 http://127.0.0.1:${PORT}/（启动器页）并用默认浏览器打开
+#      （WSL 走 Windows 的 Start-Process；LIVE2D_AI_NO_BROWSER=1 只打印）。页面未就绪
+#      不打印成功横幅、不打开浏览器。脚本不退出（服务停了它才停）；点火体检另开终端
+#      跑 --check。
 #
 # 用法：
 #   ./scripts/ignite.sh                 # 预检 + 启动 + 等就绪 + 打开浏览器
@@ -23,10 +25,9 @@
 #
 # 服务在后台启动，本脚本前台等待就绪并保持不退出（Ctrl+C 会停掉服务）。
 #
-# 说明：本地 LLM / 云端 TTS 由你自己提供（任何 OpenAI 兼容实现）。**缺省构建不挂
-#       local-tts Mod**，Melo 不会被主链自动拉起：要么把该 Mod 挂回去，要么先手动跑
-#       ../live2d-ai-mod-local-tts/melo/start.sh；GET /models = 200 之前不打印页面地址
-#       （等待逻辑不变）。本脚本不下载模型、不启动推理进程。
+# 说明（0.3.11）：本脚本**不拉起任何 Mod**，也不跑 melo/start.sh；缺省二进制不拥有那些
+#       进程，所以也**不清理**用户自己拉起的 Melo。启动器页上的「预启动」开关由页面按
+#       现有启停接口触发。本脚本不下载模型、不启动推理进程。
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -74,7 +75,7 @@ while [ $# -gt 0 ]; do
     --check-dir=*) DO_CHECK_DIR="${1#*=}" ;;
     --port) shift; PORT="${1:-18080}" ;;
     --port=*) PORT="${1#*=}" ;;
-    -h|--help) sed -n "2,23p" "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
     *) echo "[warn] 未知参数：$1" ;;
   esac
   shift || true
@@ -96,22 +97,36 @@ fi
 # shellcheck source=scripts/lib/cdn_probe.sh
 . "$CDN_PROBE_LIB"
 
+# 取 HTTP 状态码：**只留三位**。
+#
+# curl -w "%{http_code}" 在失败时自己会打印 000 并返回非 0，再跟一句
+# || echo 000 就会把失败码拼成 000000（执行单 §4 点名的旧写法）。
+# 这里统一成「拿不到就是 000」，调用方只比较三位串。
+http_code() {
+  local url="$1" max="$2" code
+  max="${max:-4}"
+  code=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$max" "$url" 2>/dev/null || true)
+  printf '%s' "${code:0:3}"
+}
+
 if [ "$DO_CHECK" = "1" ]; then
   base="http://127.0.0.1:${PORT}"
   fail=0
   echo "==> 点火体检：$base（--check 不自启服务；请先在另一终端跑 ./scripts/ignite.sh）"
 
-  headers=$(curl -s -o /dev/null -D - --max-time 5 "$base/" 2>/dev/null || true)
-  root_code=$(printf '%s\n' "$headers" | awk 'NR==1{print $2}')
-  root_loc=$(printf '%s\n' "$headers" | awk 'tolower($1)=="location:"{print $2}' | tr -d '\r' | head -1)
-  if [ "$root_code" = "302" ] && [ "$root_loc" = "/app/" ]; then
-    echo "    [ok]   GET / → 302 Location: /app/"
+  # 0.3.11：GET / 是启动器页（200 + 标记），不再是 302 到 /app/。
+  root_code=$(http_code "$base/" 5)
+  root_body=$(curl -s --max-time 5 "$base/" 2>/dev/null || true)
+  if [ "$root_code" = "200" ] && grep -q "live2d-ai-launcher" <<<"$root_body"; then
+    echo "    [ok]   GET / → 200 启动器页（含 live2d-ai-launcher 标记）"
+    # 启动器正文同样不得引用 Google CDN（离线红线；与 /app/ 产物同一份判据）。
+    cdn_judge "/" static "$root_body" || fail=1
   else
-    echo "    [FAIL] GET / 期望 302 → /app/，实得 ${root_code:-无响应} Location=${root_loc:-无}"
+    echo "    [FAIL] GET / 期望 200 启动器页（正文含 live2d-ai-launcher），实得 ${root_code:-无响应}"
     fail=1
   fi
 
-  app_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$base/app/" 2>/dev/null || echo 000)
+  app_code=$(http_code "$base/app/" 10)
   if [ "$app_code" = "200" ]; then
     echo "    [ok]   GET /app/ → 200"
   else
@@ -124,7 +139,7 @@ if [ "$DO_CHECK" = "1" ]; then
   cdn_scan_http "$base" || fail=1
 
   if [ "$fail" = "0" ]; then
-    echo "==> 体检通过（Windows 浏览器打开 ${base}/app/ 做最后一步肉眼看/听）"
+    echo "==> 体检通过（Windows 浏览器打开 ${base}/ 启动器页做最后一步肉眼看/听）"
   else
     echo "==> 体检失败：见上面的 [FAIL]"
   fi
@@ -184,18 +199,23 @@ LLM_BASE="${ENDPOINTS[0]}"
 TTS_BASE="${ENDPOINTS[1]}"
 TTS_MODE="${ENDPOINTS[2]}"
 TTS_HOST_LOCAL="${ENDPOINTS[3]}"
-# 只有「本地」模式才由本次点火拉起并等待本机 TTS 进程。
+# 0.3.11：点火**不再**等本机 TTS 就绪。
+#
+# 旧行为（0.3.9–0.3.10）：[tts].mode=local 时空等 GET {tts}/models 最长 600 秒，
+# 超时 exit 1——维护者 2026-10-20 的点火日志里服务明明已就绪却卡了 10 分钟。
+# 现在：不等；缺省二进制也不拉起 Mod / melo/start.sh，Melo 进程由用户自己准备。
+#
+# 判据仍**只认 [tts].mode**（不看 base_url 主机名）：cloud 继续「不等本机进程」，
+# local 也无条件不等。pytest 对这两句文案有断言（tests/test_shell_scripts_syntax.py）。
 #
 # 2026-10-19 修（rc.4 验证抓到）：这里原来把两句话写成
 # `echo "...（$([ ... ] && echo 甲 || echo 乙））"`——用**全角** `）` 去收
 # `$( ... )`，而命令替换只认 ASCII `)`，于是 `$(` 一直不闭合，bash 读到
 # EOF 报 `unexpected EOF while looking for matching "`（**整脚本跑不起来**）。
 # 现在先算成两个变量再插值：既避开全角/半角陷阱，也不再在双引号里嵌套双引号。
-TTS_LOCAL=0
 TTS_WAIT_TEXT="云端端点，不等本机进程"
 if [ "$TTS_MODE" = "local" ]; then
-  TTS_LOCAL=1
-  TTS_WAIT_TEXT="等待本机 TTS 就绪（缺省不自动拉起）"
+  TTS_WAIT_TEXT="本机端点，点火不等它就绪（缺省不自动拉起）"
 fi
 if [ "$TTS_HOST_LOCAL" = "1" ]; then
   TTS_HOST_TEXT="本机 / 局域网"
@@ -211,7 +231,7 @@ probe() {
   local name="$1" base="$2"
   local b="${base%/}"
   local code
-  code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 "${b}/models" 2>/dev/null || echo 000)
+  code=$(http_code "${b}/models" 4)
   if [ "$code" = "200" ]; then
     echo "    [ok]   $name 就绪：${b}/models"
     return 0
@@ -228,16 +248,14 @@ probe() {
   echo "    [warn] $name 未就绪：$base（继续；也可先启动你的实现）"
   return 1
 }
-echo "==> 探测本地实现（OpenAI 标准接口）"
+# 只探测**当前写下的那一份**地址（执行单 §5：只报告，不改 mode / base_url、
+# 不写 toml）。探不到只是 [warn]，不阻塞启动与地址打印。
+echo "==> 探测当前端点（只报告，不改档）"
 probe "LLM" "$LLM_BASE" || true
-if [ "$TTS_LOCAL" = "1" ]; then
-  # 缺省构建不挂 local-tts Mod，Melo 不会由主链自动拉起：预检探不到是常态（模型加载
-  # 要几十秒到几分钟）。真正的就绪判据仍是启动后的 GET /models = 200（行为不变）。
-  echo "    [ok]   TTS 本机（${TTS_BASE%/}/models）：缺省不自动拉起；挂回 Mod 或手动跑 start.sh 后，GET /models = 200 才给页面地址"
-elif [ -n "$TTS_BASE" ]; then
+if [ -n "$TTS_BASE" ]; then
   probe "TTS" "$TTS_BASE" || true
 else
-  echo "    [skip] TTS 未配置（选型待定）：本轮只跑「文本 → LLM」，不出声、不驱动口型"
+  echo "    [skip] TTS 未配置：本轮只跑「文本 → LLM」，不出声、不驱动口型"
 fi
 
 # ---- 2) 渲染面产物（/render） --------------------------------------------
@@ -279,38 +297,16 @@ fi
 pkill -f "live2d-ai-desktop --web" 2>/dev/null || true
 sleep 0.5
 
-# 本地 TTS 子进程（MeloTTS / CosyVoice3）是**外部长驻进程**。缺省构建不挂
-# local-tts Mod，桌面端不会 spawn 它；手动跑 melo/start.sh 时同样可能留下孤儿进程。
+# 0.3.11：启动前**不再**清理同级的 melo/serve.py 与 engine/ 进程。
 #
-# 桌面端被 **SIGKILL/强杀**（不走 shutdown()）时，它们会被 reparent 成孤儿并继续
-# 占着端口 —— 本机实测：8091 上残留旧 melo → 新 melo 绑定 `Address already in use`
-# 立即退出 → 主链对着卡死的旧进程发请求得到 `tts_upstream_502`。
-#
-# 新代码已给 spawn 出的子进程装 `PR_SET_PDEATHSIG`（父死即内核收掉，见
-# `../live2d-ai-mod-local-tts/src/child.rs`）；但**升级之前**留下的孤儿还在，
-# 这里按**本机仓库路径**精确点名清掉（只认 melo/serve.py 与 engine/，不碰其它进程）。
-# 2026-10-19 起 local-tts 仓库根 = crate 根（主仓不再引用它）。
-MODS_REPO="$(cd "$PWD/../live2d-ai-mod-local-tts" 2>/dev/null && pwd || true)"
-stale_patterns=()
-if [ -n "$MODS_REPO" ]; then
-  stale_patterns+=(
-    "$MODS_REPO/melo/serve.py"
-    "$MODS_REPO/engine/"
-  )
-fi
-for pat in "${stale_patterns[@]}"; do
-  stale="$(pgrep -f "$pat" 2>/dev/null | tr '\n' ' ' || true)"
-  if [ -n "${stale// /}" ]; then
-    echo "[warn] 清理残留的本地 TTS 子进程（旧桌面被强杀留下的孤儿）：$pat → pid ${stale}"
-    pkill -f "$pat" 2>/dev/null || true
-  fi
-done
-sleep 0.5
+# 理由（执行单 §1/§4）：缺省二进制不拥有这些进程，用户可能自己拉起 Melo；
+# 点火脚本没有资格杀它。替换本服务的那条 pkill（上面 live2d-ai-desktop --web）
+# 保留。0.3.9 起 local-tts 已移出主仓，它的进程生命周期归第二仓自己管。
 
 echo
 echo "==> 启动 web 服务（音频单源=browser：由浏览器出声并驱动口型）"
-echo "==> 就绪判据：GET /app/ = 200（[tts].mode=local 还要再等 GET {tts}/models = 200；cloud 不等），"
-echo "    就绪前**不给**页面地址、不开浏览器。服务在后台，本脚本前台等待。"
+echo "==> 就绪判据：GET / = 200（启动器页；/ 仍是 302 的旧构建回落 GET /app/ = 200），"
+echo "    就绪前**不给**页面地址、不开浏览器；不再等待本机 TTS。服务在后台，本脚本前台等待。"
 
 ./target/debug/live2d-ai-desktop --web --http-port "${PORT}" &
 SVC_PID=$!
@@ -323,73 +319,60 @@ cleanup() {
 }
 trap cleanup INT TERM
 
-# ---- 5a) 等页面就绪：GET /app/ = 200，超时 90 秒；进程先死就停。------------
+# ---- 5a) 等启动器页就绪：GET / = 200（最长 90 秒）。旧构建（302 → /app/）回落。
+# 0.3.11：不再有「等本机 TTS 就绪」那一段（执行单 §4）。进程先死就停。
+ROOT_MODE=""
 page_ready() {
-  local deadline=$((SECONDS + 90)) code
+  local deadline=$((SECONDS + 90)) code app_code
   while :; do
-    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 "http://127.0.0.1:${PORT}/app/" 2>/dev/null || echo 000)
+    code=$(http_code "http://127.0.0.1:$PORT/" 4)
     if [ "$code" = "200" ]; then
-      return 0
+      # 启动器页已就绪；顺手确认 /app/ 产物也在（点「进入」不该吃 503）。
+      app_code=$(http_code "http://127.0.0.1:$PORT/app/" 10)
+      if [ "$app_code" = "200" ]; then
+        ROOT_MODE="launcher"
+        return 0
+      fi
+      echo "[error] 启动器页已 200，但 GET /app/ 不是 200（实得 $app_code）——Flutter 产物缺失？"
+      exit 1
+    fi
+    if [ "$code" = "302" ]; then
+      # 启动器落地前的旧构建：/ 仍是 302 → /app/。中间 rc 兼容（执行单 §4），不删。
+      app_code=$(http_code "http://127.0.0.1:$PORT/app/" 10)
+      if [ "$app_code" = "200" ]; then
+        ROOT_MODE="legacy-app"
+        return 0
+      fi
     fi
     if ! kill -0 "$SVC_PID" 2>/dev/null; then
-      echo "[error] 服务进程已退出（页面从未就绪，GET /app/ 一直是 $code）——不打开浏览器"
+      echo "[error] 服务进程已退出（页面从未就绪，GET / 一直是 $code）——不打开浏览器"
       exit 1
     fi
     if [ $SECONDS -ge "$deadline" ]; then
-      echo "[error] 90 秒内页面未就绪（GET /app/ 一直是 $code）——不打开浏览器；日志见上方服务输出"
+      echo "[error] 90 秒内页面未就绪（GET / 一直是 $code）——不打开浏览器；日志见上方服务输出"
       exit 1
     fi
     sleep 1
   done
 }
-echo "==> 等待页面就绪（GET http://127.0.0.1:${PORT}/app/ = 200，最长 90 秒）…"
+echo "==> 等待启动器页就绪（GET http://127.0.0.1:$PORT/ = 200，最长 90 秒）…"
 page_ready
-echo "    [ok] 页面就绪：GET /app/ = 200"
-
-# ---- 5b) 仅 [tts].mode=local：等 GET {tts}/models = 200，超时 600 秒，15 秒一行「仍在等待」。
-# cloud 模式整段跳过——出声端点在云端，本机 Melo 进程在不在跑与这一跳无关。
-if [ "$TTS_LOCAL" = "1" ]; then
-  TTS_MODELS_URL="${TTS_BASE%/}/models"
-  # 只有 local 模式才可能由本次点火拉起；base_url 不在本机时明确说清不是我们起的。
-  tts_ready() {
-    local tts_deadline=$((SECONDS + 600)) code last_note=0
-    while :; do
-      code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 "$TTS_MODELS_URL" 2>/dev/null || echo 000)
-      if [ "$code" = "200" ]; then
-        return 0
-      fi
-      if ! kill -0 "$SVC_PID" 2>/dev/null; then
-        echo "[error] 服务进程已退出，本机 TTS 不会就绪——不打开浏览器"
-        exit 1
-      fi
-      if [ $SECONDS -ge "$tts_deadline" ]; then
-        echo "[error] 600 秒内本机 TTS 未就绪（GET $TTS_MODELS_URL 一直是 $code）——不打开浏览器；"
-        echo "        页面其实已就绪，可稍后手动打开 http://127.0.0.1:${PORT}/app/"
-        exit 1
-      fi
-      if [ $((SECONDS - last_note)) -ge 15 ]; then
-        echo "    仍在等待本机 TTS（GET $TTS_MODELS_URL = $code，剩余 $((tts_deadline - SECONDS)) 秒）"
-        last_note=$SECONDS
-      fi
-      sleep 2
-    done
-  }
-  echo "==> 等待本机 TTS 就绪（GET $TTS_MODELS_URL = 200，最长 600 秒；缺省不自动拉起）…"
-  tts_ready
-  echo "    [ok] 本机 TTS 就绪：GET $TTS_MODELS_URL = 200"
+if [ "$ROOT_MODE" = "launcher" ]; then
+  echo "    [ok] 启动器页就绪：GET / = 200"
+else
+  echo "    [ok] 旧构建页面就绪：GET /app/ = 200（/ 仍 302；启动器落地后这里变成 GET / = 200）"
 fi
 
 # ---- 5c) 全部就绪：横幅 + 默认浏览器。--------------------------------------
-APP_URL="http://127.0.0.1:${PORT}/app/"
+ENTRY_URL="http://127.0.0.1:$PORT/"
+APP_URL="$ENTRY_URL"app/
 echo
 echo "=========================================================="
-echo "  点火入口： $APP_URL"
-echo "  渲染面  ： http://127.0.0.1:${PORT}/render"
-echo "  Mod 状态： http://127.0.0.1:${PORT}/api/v1/mods"
+echo "  点火入口： $ENTRY_URL"
+echo "  Flutter ： $APP_URL"
+echo "  渲染面  ： $ENTRY_URL"render
+echo "  Mod 状态： $ENTRY_URL"api/v1/mods
 echo "  自测清单： docs/verification/ignition-core-loop.md"
-if [ "$TTS_LOCAL" = "1" ]; then
-  echo "  本地 TTS： GET $TTS_MODELS_URL = 200（本机；缺省不自动拉起）"
-fi
 echo "=========================================================="
 echo
 
@@ -397,14 +380,14 @@ if [ "${LIVE2D_AI_NO_BROWSER:-0}" = "1" ]; then
   echo "==> LIVE2D_AI_NO_BROWSER=1：不自动打开浏览器（地址在上面）"
 elif [ -r /proc/version ] && grep -qi microsoft /proc/version && command -v powershell.exe >/dev/null 2>&1; then
   # WSL：本脚本（在 WSL 里）没有默认浏览器，交给 Windows 侧的 Start-Process。
-  echo "==> 用 Windows 默认浏览器打开 $APP_URL"
-  powershell.exe -NoProfile -Command "Start-Process '$APP_URL'" >/dev/null 2>&1 &
+  echo "==> 用 Windows 默认浏览器打开 $ENTRY_URL"
+  powershell.exe -NoProfile -Command "Start-Process '$ENTRY_URL'" >/dev/null 2>&1 &
 else
   if command -v xdg-open >/dev/null 2>&1; then
-    echo "==> 用默认浏览器打开 $APP_URL"
-    xdg-open "$APP_URL" >/dev/null 2>&1 &
+    echo "==> 用默认浏览器打开 $ENTRY_URL"
+    xdg-open "$ENTRY_URL" >/dev/null 2>&1 &
   else
-    echo "[warn] 找不到可用的打开方式（WSL 无 powershell.exe，本机无 xdg-open），请手动打开：$APP_URL"
+    echo "[warn] 找不到可用的打开方式（WSL 无 powershell.exe，本机无 xdg-open），请手动打开：$ENTRY_URL"
   fi
 fi
 

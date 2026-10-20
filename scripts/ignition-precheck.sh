@@ -130,11 +130,21 @@ echo "    服务在线。\n"
 
 # ---------------------------------------------------------------- A. 托管层
 echo "-- A. 壳 / 静态托管（ignite.sh --check 的子集，便于一张表看全）"
-hdr=$(curl -s -o /dev/null -D - --max-time 5 "$BASE/" 2>/dev/null || true)
-root_code=$(printf '%s\n' "$hdr" | awk 'NR==1{print $2}')
-root_loc=$(printf '%s\n' "$hdr" | awk 'tolower($1)=="location:"{print $2}' | tr -d '\r' | head -1)
-check "GET / → 302 /app/" "302" "$root_code"
-check "GET / Location" "/app/" "$root_loc"
+# 0.3.11：GET / 是启动器页（200 + 标记），不再是 302 到 /app/。
+root_body=$(curl -s --max-time 5 "$BASE/" 2>/dev/null || true)
+root_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$BASE/" 2>/dev/null || true)
+root_code="${root_code:0:3}"
+if [ "$root_code" = "200" ] && grep -q 'live2d-ai-launcher' <<<"$root_body"; then
+  record PASS "GET / → 200 启动器页" "200 且含 live2d-ai-launcher" "$root_code"
+  # 启动器正文不得引用 Google CDN（判据与 /app/ 产物共用 scripts/lib/cdn_probe.sh）。
+  if out=$(cdn_judge "/" static "$root_body"); then
+    record PASS "/ 离线判定（static）" "通过离线红线" "$(printf '%s' "$out" | tail -1 | sed 's/^ *//')"
+  else
+    record FAIL "/ 离线判定（static）" "通过离线红线" "$(printf '%s' "$out" | tail -1 | sed 's/^ *//' | cut -c1-120)"
+  fi
+else
+  record FAIL "GET / → 200 启动器页" "200 且含 live2d-ai-launcher" "${root_code:-无响应}"
+fi
 
 app_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/app/" 2>/dev/null || echo 000)
 if [ "$app_code" = "200" ]; then
