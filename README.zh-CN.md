@@ -31,9 +31,9 @@
 
 ### Live2D 与界面
 - **渲染** — [Ayagami](https://github.com/AyagamiDev/ayagami)（MIT OR Apache-2.0）+ wgpu；Rust 基线**不依赖** Live2D Cubism 专有 SDK。
-- **Web UI** — 主入口（`--web`）。现在 `GET /` 与 `GET /index.html` **302 到 `/app/`**。Flutter 产物是 `shell/flutter/build/web`。
+- **Web UI** — 主入口（`--web`）。`GET /` 与 `GET /index.html` 返回**启动器页**（200）：勾选本次确认哪些已注册 Mod、预启动开或关，点「进入」后再到现有 `/app/`。Flutter 产物是 `shell/flutter/build/web`。
 - **WASM 渲染** — `/render` 与 `/models/*`（`l2d-wasm-demo`）。
-- **0.3.11 已指定、尚未落地**：启动前加一页小前端（可改本次确认哪些已注册 Mod、预启动开或关、以及由此算出的拉起数量），带加载动画，然后再进 `/app/`。自动预启动撤掉，也不再为本地 TTS 空等 600 秒。落地前以下面的点火说明为准。执行单 [`docs/plans/PLAN-0.3.11-launcher-2026-10-20.md`](docs/plans/PLAN-0.3.11-launcher-2026-10-20.md)。
+- **0.3.11 已落地**：启动前这一页只有三类操作——勾选本次确认哪些**已编进二进制的** Mod、预启动开或关（缺省关）、以及由此算出的三个数字（已注册 / 本次确认 / 本次拉起）。点「进入」后播放加载动画，按勾选调用现有启停接口，再对当前 `[llm]` / `[tts]` 地址各探测一次（只报告，不改档），然后进入 `/app/`。自动预启动撤掉，也不再为本地 TTS 空等 600 秒。执行单 [`docs/plans/PLAN-0.3.11-launcher-2026-10-20.md`](docs/plans/PLAN-0.3.11-launcher-2026-10-20.md)。
 
 ### Mod
 - trait 注册中心（`live2d-ai-mod-system`）留在主仓。**缺省构建的工厂数是 0**（`AVAILABLE_MOD_FACTORIES` 为空，`default_mods_manifest` 的 `mods` 是空对象）。`external-input` 与 `local-tts-melo` 都不再缺省启用，也没有被编进缺省二进制。
@@ -82,7 +82,7 @@ cp live2d-ai.toml.example live2d-ai.toml   # OpenAI 兼容 LLM/TTS
 `./scripts/ignite.sh --build` 编的是**调试版后端**并启动；`shell/flutter/build/web/index.html`
 已存在时**不会重编 Flutter**，所以第一行必须先跑。
 
-**现在的脚本**会等页面就绪，并且在 `[tts].mode=local` 时再等 `GET {tts}/models` 返回 200（最长 600 秒）才打印地址、才打开浏览器。`mode=cloud` 不等本机 8091。缺省二进制不拉起 Melo；8091 上没有进程时，这次等待会停在超时。脚本不退出（超时那条路径会以非 0 离开，服务进程可能还在）。体检另开终端跑 `./scripts/ignite.sh --check`。
+**脚本现在等的是启动器页**：`GET /` 返回 200（启动器页；仍是 302 的旧构建回落等 `GET /app/` = 200）才打印 `http://127.0.0.1:<port>/` 并打开浏览器。**不再等本机 TTS**——旧行为是 `[tts].mode=local` 时等 `GET {tts}/models` 返回 200（最长 600 秒），0.3.11 已删掉。缺省二进制不拉起 Melo；点火也不会清理你自己拉起的 Melo 进程。脚本不退出；体检另开终端跑 `./scripts/ignite.sh --check`。
 
 出厂带白（bai）模型，克隆后即可渲染——资产说明见 [`assets/models/README.md`](assets/models/README.md)，
 条约见 [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md)
@@ -121,13 +121,13 @@ cp live2d-ai.toml.example live2d-ai.toml   # OpenAI 兼容 LLM/TTS
 ./scripts/ignite.sh --check    # 对已启动的服务做点火体检
 ```
 
-然后打开 <http://127.0.0.1:18080/app/>（`/` 会 302 跳到 `/app/`）。
+然后打开 <http://127.0.0.1:18080/>——启动器页。勾选本次确认的 Mod、按需打开预启动，点「进入」后进入现有 `/app/`（直接打开 `/app/` 也不会跳回启动器）。
 前端产物的单一真源是 `shell/flutter/build/web`；`LIVE2D_AI_FLUTTER_WEB_DIR`
 请保持 **WSL 路径**（脚本已替你设好）。
 
-`--check` 会断言 `GET /` = 302 → `/app/`、`GET /app/` = 200，以及服务吐出的
-`index.html` / `main.dart.js` **不含** `gstatic.com/flutter-canvaskit` 引用
-（断网红线——走了 CDN 就是断网白屏）。
+`--check` 会断言 `GET /` = 200 启动器页（正文含 `live2d-ai-launcher`）、`GET /app/` = 200，
+以及启动器正文与服务吐出的 `index.html` / `main.dart.js` / `flutter_bootstrap.js`
+**都不含** `gstatic.com/flutter-canvaskit` 引用（断网红线——走了 CDN 就是断网白屏）。
 
 ### 测试
 ```bash

@@ -8,7 +8,7 @@
 ## 项目主线（一句话）
 
 **Rust 核心（`crates/`）+ Flutter Web 前端（`shell/flutter/`）** 双主导；
-唯一产品入口是 `--web` + `scripts/ignite.sh`（`/` 302 → `/app/`）。
+唯一产品入口是 `--web` + `scripts/ignite.sh`（`/` 是启动器页，点「进入」后到 `/app/`）。
 增强能力只经 Mod 边界（`live2d-ai-mod-system`）接入。
 
 ## 开发环境与门禁

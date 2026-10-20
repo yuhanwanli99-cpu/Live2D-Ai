@@ -224,8 +224,9 @@
 
 - **唯一实现主线 = 核心层 Rust workspace**（`crates/`）：`l2d` / `live2d-ai-core` /
   `live2d-ai-runtime` / `live2d-ai-desktop` / `l2d-wasm-demo` / `xtask` / `live2d-ai-mod-system`。
-- **前端以 Flutter Web 为准**（`shell/flutter/`），**且只有一个入口**：
-  `GET /` 与 `GET /index.html` **302 到 `/app/`**。
+- **前端以 Flutter Web 为准**（`shell/flutter/`），**且只有一个产品入口**：
+  `GET /` 与 `GET /index.html` 是**启动器页**（200，2026-10-20 0.3.11 起；不再是 302），
+  点「进入」后到现有 `/app/`；直接打开 `/app/` 也照常服务、不跳回启动器。
   旧的**原生 JS 前端**（`web_api/index.html` + `app.js` + `chat.js` + `style.css`
   + `index_html.rs`）已于 **2026-09-11 删除**——它曾在 `/` 提供一套**与 `/app`
   不同**的界面：同一个服务两个产品，打开哪个 URL 看到哪个，是明确的坑。
@@ -268,15 +269,16 @@
   `flutter` = Flutter SDK 在 `~/flutter`（`ignite.sh` 把 `$HOME/flutter/bin` 放进 `PATH`）；
   `./scripts/ignite.sh --build` 编的是**调试版后端**并启动，**在
   `shell/flutter/build/web/index.html` 已存在时不会重编 Flutter**，所以第一行必须先跑；
-  脚本等到本机 TTS 的 `GET {tts}/models` 为 200（云端或未配置 TTS 则等到 `GET /app/`
-  为 200）后打印地址，并用默认浏览器打开；**脚本不退出**，体检仍另开终端
+  脚本等到启动器页 `GET /` = 200（仍是 302 的旧构建回落等到 `GET /app/` = 200）后
+  打印 `http://127.0.0.1:<port>/`，并用默认浏览器打开；**不再等本机 TTS**
+  （0.3.11 删掉了 `GET {tts}/models` 的 600 秒等待）；**脚本不退出**，体检仍另开终端
   `./scripts/ignite.sh --check`。
 - `scripts/ignite.sh` 会把 `LIVE2D_AI_FLUTTER_WEB_DIR` 锚定成仓库内绝对路径，
   所以「cwd 不对 → `/app/` 503」不该再出现；503 响应体现在会**列出实际找过的每个路径**。
 - **点火体检**：服务跑起来后另开一个终端跑 `./scripts/ignite.sh --check`，断言
-  `GET /` = 302 → `/app/`、`GET /app/` = 200、`index.html` 与 `main.dart.js`
-  **不含 `gstatic.com/flutter-canvaskit`**（断网红线）。这三条只有真起过一次服务才验得到，
-  单元测试覆盖不了托管层与产物内容。
+  `GET /` = 200 启动器页（正文含 `live2d-ai-launcher`）、`GET /app/` = 200、启动器正文与
+  `index.html` / `main.dart.js` **不含 `gstatic.com/flutter-canvaskit`**（断网红线）。
+  这三条只有真起过一次服务才验得到，单元测试覆盖不了托管层与产物内容。
 
 详细分工与验收：`docs/legacy/plans/PLAN-rc2-second-baseline-2026-09-12.md` §3。
 

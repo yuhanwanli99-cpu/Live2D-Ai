@@ -514,3 +514,84 @@ fn config_post_reloads_supervisor_for_motion_bias() {
     let _ = std::fs::remove_file(&tmp);
     drop(supervisor);
 }
+
+/// 0.3.11 启动器「进入」序列（执行单 §7）：夹具注册 local-tts-melo（拉起类替身）。
+///
+/// 页面在「进入」时只发现有接口的 POST：
+/// - 预启动关 → 对已启用的拉起类 id 发 disable（不得 spawn）；
+/// - 预启动开且勾选 → 发 enable（spawn 一次）。
+///
+/// 本测试直接调用同一条路由，钉住服务端语义；页面 JS 的判定规则与之对应。
+/// manifest 是临时构造的，ModRegistry 的 manifest 路径未设，不碰仓库根 mods.json。
+#[test]
+fn launcher_enter_flow_controls_the_launch_class_mod() {
+    use std::sync::atomic::Ordering;
+
+    fn wait_status(ctx: &crate::web_api::ServerContext, id: &str, want: &str) {
+        for _ in 0..200 {
+            let status = {
+                let registry = ctx.mod_registry.lock().unwrap();
+                registry
+                    .list()
+                    .into_iter()
+                    .find(|(d, _, _)| d.id == id)
+                    .map(|(_, s, _)| s.as_str().to_string())
+            };
+            if status.as_deref() == Some(want) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("Mod {id} 未在 2s 内进入 {want}");
+    }
+
+    // 阶段 1：预启动关。进入前该 Mod 已启用（= 缺省启用，start_all 已拉起一次）。
+    MELO_STARTS.store(0, Ordering::SeqCst);
+    let ctx = ctx_with_launch_mod(serde_json::json!({
+        "mods": {"local-tts-melo": {"enabled": true}}
+    }));
+    let boot = MELO_STARTS.load(Ordering::SeqCst);
+    assert!(
+        boot >= 1,
+        "缺省启用应在 start_all 时启动一次（实际 {boot}）"
+    );
+    let resp = handle_mods_route(
+        &ctx,
+        &Method::Post,
+        "/api/v1/mods/local-tts-melo/disable",
+        "",
+        Some("http://127.0.0.1:18099"),
+        None,
+    )
+    .unwrap();
+    assert_eq!(resp.status_code(), StatusCode(202));
+    wait_status(&ctx, "local-tts-melo", "disabled");
+    assert_eq!(
+        MELO_STARTS.load(Ordering::SeqCst),
+        boot,
+        "预启动关着：进入只 disable，不得再 spawn"
+    );
+
+    // 阶段 2：预启动开且勾选。进入前该 Mod 停用（manifest enabled=false）。
+    MELO_STARTS.store(0, Ordering::SeqCst);
+    let ctx = ctx_with_launch_mod(serde_json::json!({
+        "mods": {"local-tts-melo": {"enabled": false}}
+    }));
+    assert_eq!(MELO_STARTS.load(Ordering::SeqCst), 0);
+    let resp = handle_mods_route(
+        &ctx,
+        &Method::Post,
+        "/api/v1/mods/local-tts-melo/enable",
+        "",
+        Some("http://127.0.0.1:18099"),
+        None,
+    )
+    .unwrap();
+    assert_eq!(resp.status_code(), StatusCode(202));
+    wait_status(&ctx, "local-tts-melo", "running");
+    assert_eq!(
+        MELO_STARTS.load(Ordering::SeqCst),
+        1,
+        "预启动开且勾选：走现有 enable 生进程一次"
+    );
+}

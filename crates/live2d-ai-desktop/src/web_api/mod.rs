@@ -15,8 +15,9 @@
 //!   端点 dispatch 前做 `Origin` + `Content-Type` 校验。详见 [`security`] 模块。
 //!
 //! 路径派发表（method + path → 路由 ID）：
-//! - `GET /` 或 `GET /index.html` → **302 到 `/app/`**（Flutter 前端入口；
-//!   原生 JS 前端已于 2026-09-11 删除，见 `flutter_app::root_redirect`）
+//! - `GET /` 或 `GET /index.html` → **启动器页（200）**（0.3.11；见
+//!   [`launcher`]）。`GET /launcher/*.woff2` → 同源自托管字体。
+//!   原生 JS 前端已于 2026-09-11 删除；`/app/` 才是 Flutter）
 //! - `GET /app*` → Flutter Web 产物（`shell/flutter/build/web/`）
 //! - `GET /api/v1/app/capabilities` → `app.capabilities`
 //! - `GET /api/v1/app/status` → `app.status`
@@ -79,6 +80,9 @@ mod env_routes_tests;
 pub mod external_routes;
 /// Flutter Web 前端托管（`/app` 与 `/app/*`；2026-09-10 点火轮）。
 pub mod flutter_app;
+/// 启动器页（0.3.11）：`GET /` / `GET /index.html` 的这一页 + 同源字体。
+/// 页面逻辑全在 `assets/launcher.html` 的内联 CSS/JS 里，不新增 API 路由。
+pub mod launcher;
 pub mod log_routes;
 /// **唯一模型根**（rc.2，2026-09-12）：静态 `/models/*` 与模型库 registry /
 /// import 共用的那一个根。两个根会导致「激活了但没换皮」，见模块头注。

@@ -156,3 +156,61 @@ pub(super) fn ctx_with_state_mod(enabled: bool) -> ServerContext {
     *ctx.mod_registry.lock().unwrap() = registry;
     ctx
 }
+
+// ------------------------------------ 0.3.11：启动器「进入」夹具
+
+/// 替身：id 就是 local-tts-melo（启动器「拉起类」id 之一）。
+///
+/// 真 Mod 的 start() 会 spawn 外部进程；这里只把调用次数记进 MELO_STARTS——
+/// 「预启动关着点进入不得生进程」这条判据就靠它。
+pub(super) static MELO_STARTS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+pub(super) struct MeloLikeFactory;
+
+impl live2d_ai_mod_system::ModFactory for MeloLikeFactory {
+    fn descriptor(&self) -> &'static live2d_ai_mod_system::ModDescriptor {
+        static D: live2d_ai_mod_system::ModDescriptor = live2d_ai_mod_system::ModDescriptor {
+            id: "local-tts-melo",
+            name: "MeloLike",
+            version: "0.1.0",
+            api_version: 1,
+        };
+        &D
+    }
+    fn create(
+        &self,
+        _: live2d_ai_mod_system::ModServices,
+        _: serde_json::Value,
+    ) -> Result<Box<dyn live2d_ai_mod_system::ModRuntime>, live2d_ai_mod_system::ModError> {
+        Ok(Box::new(MeloLikeRuntime))
+    }
+}
+
+pub(super) struct MeloLikeRuntime;
+
+impl live2d_ai_mod_system::ModRuntime for MeloLikeRuntime {
+    fn start(
+        &mut self,
+        _: &mut dyn live2d_ai_mod_system::ModRegistrar,
+    ) -> Result<(), live2d_ai_mod_system::ModError> {
+        MELO_STARTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+pub(super) static LAUNCH_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &[&MeloLikeFactory];
+
+/// 带「拉起类」替身 + 临时 manifest 的 ServerContext。
+///
+/// manifest 路径故意不设（ModRegistry::new 缺省 None）：enable / disable 的
+/// persist_manifest() 是 no-op，绝不读写仓库根那份 mods.json
+/// （执行单 §3：单测用临时 manifest）。
+pub(super) fn ctx_with_launch_mod(manifest: serde_json::Value) -> ServerContext {
+    let sec = SecurityContext::new(18099, true);
+    let ctx = dummy_ctx(sec);
+    let mut registry = crate::mod_registry::ModRegistry::new(LAUNCH_FACTORIES, &manifest);
+    registry.start_all();
+    *ctx.mod_registry.lock().unwrap() = registry;
+    ctx
+}

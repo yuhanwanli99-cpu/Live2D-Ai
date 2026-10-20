@@ -101,9 +101,10 @@ needed to build or run it (with cloud TTS, not even Melo).
 `flutter` is the Flutter SDK in `~/flutter` (`scripts/ignite.sh` puts `$HOME/flutter/bin` on `PATH`).
 `./scripts/ignite.sh --build` builds the **debug backend** and starts it; it does **not** rebuild Flutter
 when `shell/flutter/build/web/index.html` already exists, so the first line must come first. The script
-then waits until everything is ready — a local TTS until `GET {tts}/models` returns 200, otherwise
-until `GET /app/` returns 200 — and only then prints the URL and opens it in the default browser.
-The script does not exit; run `./scripts/ignite.sh --check` from another terminal.
+then waits until `GET /` returns 200 (the launcher page; a pre-launcher build that still answers 302
+falls back to `GET /app/` = 200) and only then prints `http://127.0.0.1:<port>/` and opens it in the
+default browser. It no longer waits for a local TTS (`GET {tts}/models`) — that 600-second wait was
+removed in 0.3.11. The script does not exit; run `./scripts/ignite.sh --check` from another terminal.
 
 The white (**bai**) model ships with the repo, so a fresh clone renders out of the box — see
 [`assets/models/README.md`](assets/models/README.md), terms in
@@ -146,21 +147,24 @@ Standard build + start (from the repo root; order matters):
 
 `flutter` is the SDK in `~/flutter`. `./scripts/ignite.sh --build` builds the **debug backend** and
 starts it; it does **not** rebuild Flutter when `shell/flutter/build/web/index.html` already exists —
-hence line 1 first. The script then waits until everything is ready — a local TTS until
-`GET {tts}/models` returns 200, otherwise until `GET /app/` returns 200 — and only then prints the
-URL and opens it in the default browser; probe it from another terminal:
+hence line 1 first. The script then waits until `GET /` returns 200 (the launcher page) and only then prints the URL and opens it
+in the default browser. It no longer waits for a local TTS — the 600-second `GET {tts}/models` wait
+was removed in 0.3.11; probe it from another terminal:
 
 ```bash
 ./scripts/ignite.sh --check    # health-probe an already running server
 ```
 
-Then open <http://127.0.0.1:18080/app/> (`/` 302-redirects to `/app/`).
+Then open <http://127.0.0.1:18080/> — the launcher page. Tick which already-compiled Mods to
+confirm, flip 预启动 (pre-start) if you want the process-spawning ones launched, click 进入, and it
+hands over to `/app/` (opening `/app/` directly still works and does not bounce back).
 `shell/flutter/build/web` is the single source of truth for the front-end artifacts;
 keep `LIVE2D_AI_FLUTTER_WEB_DIR` a **WSL path** (the script sets it for you).
 
-`--check` asserts `GET /` = 302 → `/app/`, `GET /app/` = 200, and that the served
-`index.html` / `main.dart.js` contain **no** `gstatic.com/flutter-canvaskit` reference
-(offline red line — a CDN build means a white screen without network).
+`--check` asserts `GET /` = 200 launcher page (body contains `live2d-ai-launcher`), `GET /app/` = 200,
+and that neither the launcher page nor the served `index.html` / `main.dart.js` / `flutter_bootstrap.js`
+reference `gstatic.com/flutter-canvaskit` (offline red line — a CDN build means a white screen without
+network).
 
 ### Tests
 ```bash

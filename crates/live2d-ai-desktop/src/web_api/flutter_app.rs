@@ -1,4 +1,8 @@
-//! Flutter Web 前端托管（`GET /app` 与 `GET /app/*`）。
+//! Flutter Web 前端托管（`GET /app` 与 `GET /app/*`）+ 根路径启动器。
+//!
+//! 2026-10-20（0.3.11）：`GET /` 与 `GET /index.html` **不再 302** 到
+//! `/app/`，而是返回启动器页（[crate::web_api::launcher]）。`/app/` 与
+//! `/app/*` 的托管一行未改；直接打开 `/app/` 不会跳回启动器。
 //!
 //! 服务 `shell/flutter/build/web/` 下的 Flutter Web 构建产物
 //! （`cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn`）。
@@ -78,7 +82,7 @@ fn build_dir_candidates() -> Vec<PathBuf> {
 ///
 /// 两个条件都要：`crates/*/Cargo.toml` 遍地都是，单看 `Cargo.toml` 会在
 /// `crates/live2d-ai-desktop/` 就停下来，拼出来的路径必然不对。
-fn repo_root(start: &Path) -> Option<PathBuf> {
+pub(crate) fn repo_root(start: &Path) -> Option<PathBuf> {
     start
         .ancestors()
         .find(|d| d.join("Cargo.toml").is_file() && d.join("shell/flutter").is_dir())
@@ -107,45 +111,28 @@ fn missing_build_hint(candidates: &[PathBuf]) -> String {
     )
 }
 
-/// 根路径（`/` 与 `/index.html`）→ **302 到 `/app/`**。
-///
-/// # 为什么要有这个跳转（2026-09-11 用户反馈）
-///
-/// 「之前残留老前端 `/` 和 `/app` 不一样」。确实：`/` 曾经是**原生 JS 前端**
-/// （`index_html.rs` + `index.html`/`app.js`/`chat.js`/`style.css`），
-/// 与 `/app` 的 Flutter 前端是**两套不同的界面**。同一个服务、同一个端口，
-/// 打开哪个 URL 看到哪个产品——而且老那套不包含这一轮的任何界面改动。
-///
-/// AGENTS.md 早就把 JS 前端定为遗留（「只修致命缺陷、不再加新功能」），
-/// 那就**不该让它继续占着根路径**：留着就是「写好了但过时了还看得到」。
-/// 现在 `/` 是 Flutter 前端的入口，老前端整套已删除。
-///
-/// 302（不是 301）：这是「界面入口暂时在这儿」的语义，不是永久别名；
-/// 哪天要换入口，301 会被浏览器永久缓存住，很难撤。
-fn root_redirect() -> Response<std::io::Cursor<Vec<u8>>> {
-    use tiny_http::Header;
-    Response::from_data(Vec::new())
-        .with_status_code(StatusCode(302))
-        .with_header(Header::from_bytes(&b"Location"[..], &b"/app/"[..]).expect("Location 头"))
-        .with_header(
-            Header::from_bytes(&b"Cache-Control"[..], &b"no-store"[..]).expect("Cache-Control 头"),
-        )
-}
-
 /// 是否为根路径（`/` 或 `/index.html`）。
+///
+/// 2026-10-20（0.3.11）：这两个路径**不再是 302**，改由
+/// [crate::web_api::launcher] 返回启动器页（200）。`/app/` 才是 Flutter。
 pub(crate) fn is_root_path(path: &str) -> bool {
     path == "/" || path == "/index.html"
 }
 
-/// 处理 `/`（→ `/app/`）与 `/app*`。返回 `None` 表示非本模块路径（交还 dispatch）。
+/// 处理启动器（`/` / `/index.html` / 同源字体）与 `/app*`。
+/// 返回 `None` 表示非本模块路径（交还 dispatch）。
 pub fn handle_flutter_app(
     method: &Method,
     path: &str,
 ) -> Option<Response<std::io::Cursor<Vec<u8>>>> {
+    // 启动器字体（同源自托管子集；`/launcher/*.woff2`）。
+    if let Some(resp) = crate::web_api::launcher::handle_launcher_asset(method, path) {
+        return Some(resp);
+    }
     if is_root_path(path) {
         // 非 GET 交给 dispatch 走既有的 405 / 404 语义（别在这里造第二套）。
         return if *method == Method::Get {
-            Some(root_redirect())
+            Some(crate::web_api::launcher::root_response())
         } else {
             None
         };
@@ -296,28 +283,62 @@ mod tests {
         assert_eq!(resp.status_code().0, 405);
     }
 
-    /// 根路径 → 302 到 `/app/`（2026-09-11：不再让老 JS 前端占着 `/`）。
+    /// 根路径 → **200 启动器页**（0.3.11：不再 302 到 `/app/`）。
     ///
-    /// 这条守的是「**一个服务只有一个界面入口**」：`/` 与 `/app` 曾经是两套
-    /// 不同的前端，用户打开哪个 URL 看到哪个产品。
+    /// 执行单 §3/§4：`GET /` 与 `GET /index.html` 返回启动器这一页，
+    /// 由用户点「进入」后再去 `/app/`。`/app/` 的托管不受影响。
     #[test]
-    fn root_paths_redirect_to_the_flutter_app() {
+    fn root_paths_serve_the_launcher_page() {
         for path in ["/", "/index.html"] {
             assert!(is_root_path(path), "{path} 应被认作根路径");
             let resp = handle_flutter_app(&Method::Get, path).expect("本模块接管根路径");
-            assert_eq!(resp.status_code().0, 302, "{path} 应是 302");
-            let loc = resp
-                .headers()
+            assert_eq!(resp.status_code().0, 200, "{path} 应是 200 启动器页");
+            let headers = resp.headers();
+            let ct = headers
                 .iter()
-                .find(|h| h.field.equiv("Location"))
+                .find(|h| h.field.equiv("Content-Type"))
                 .map(|h| h.value.as_str().to_string())
-                .expect("Location 头");
-            assert_eq!(loc, "/app/", "{path} 应跳到 Flutter 前端");
+                .expect("Content-Type 头");
+            assert!(ct.starts_with("text/html"), "{path} 必须是 HTML：{ct}");
+            let cache = headers
+                .iter()
+                .find(|h| h.field.equiv("Cache-Control"))
+                .map(|h| h.value.as_str().to_string())
+                .expect("Cache-Control 头");
+            let has_location = headers.iter().any(|h| h.field.equiv("Location"));
+            assert_eq!(cache, "no-store", "{path} 不得缓存");
+            assert!(!has_location, "{path} 不得再 302");
+            let mut body = String::new();
+            use std::io::Read;
+            resp.into_reader()
+                .read_to_string(&mut body)
+                .expect("读 body");
+            assert!(
+                body.contains(crate::web_api::launcher::LAUNCHER_MARKER),
+                "{path} 必须是启动器页（缺标记）"
+            );
         }
         // 别的路径不受影响。
         assert!(!is_root_path("/app/"));
         assert!(!is_root_path("/app"));
         assert!(!is_root_path("/render"));
+    }
+
+    /// `/app/` 不走启动器：直接打开 `/app/` 不跳回启动器（执行单 §3）。
+    #[test]
+    fn flutter_app_paths_are_not_the_launcher() {
+        // 产物目录缺失时 `/app/` 回 503（而不是启动器 200）；有产物时回 Flutter
+        // 的 index.html——两种情况都必须**不是**启动器页。
+        let resp = handle_flutter_app(&Method::Get, "/app/").expect("本模块接管 /app/");
+        let mut body = String::new();
+        use std::io::Read;
+        resp.into_reader()
+            .read_to_string(&mut body)
+            .expect("读 body");
+        assert!(
+            !body.contains(crate::web_api::launcher::LAUNCHER_MARKER),
+            "/app/ 不得返回启动器页"
+        );
     }
 
     /// 根路径的非 GET 不在这里拦——交回 dispatch 走既有的 method 语义。
