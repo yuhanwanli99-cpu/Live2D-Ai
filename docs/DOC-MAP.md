@@ -23,8 +23,8 @@
 | **主仓只留核心 / 一 Mod 一本地仓库（执行单）** | [`PLAN-main-core-mod-repos-2026-10-19.md`](plans/PLAN-main-core-mod-repos-2026-10-19.md) · 公开地址见 [`CURRENT.md`](architecture/CURRENT.md) §8 | 2026-10-19；主仓不依赖任何 Mod 实现、工厂 0、缺省 manifest 空；七个公开仓库的 `main` 已推 |
 | **0.3.11 启动器（执行单 / 发布说明）** | [`PLAN-0.3.11-launcher-2026-10-20.md`](plans/PLAN-0.3.11-launcher-2026-10-20.md) · [`v0.3.11-rc.3.md`](releases/v0.3.11-rc.3.md) | 2026-10-20；`/` 与 `/index.html` 改为启动器页（200），加载动画后进 `/app/`；点火撤掉 600 秒本机 TTS 等待，不再清理 Melo 子进程；探测当前 `[llm]`/`[tts]` 地址只报告不改档。工厂仍 0，无动态加载器 |
 | **0.3.12 文件夹清单预检（执行单 / 发布说明）** | [`PLAN-0.3.12-mod-folder-scan-2026-10-20.md`](plans/PLAN-0.3.12-mod-folder-scan-2026-10-20.md) · [`v0.3.12-rc.3.md`](releases/v0.3.12-rc.3.md) | 2026-10-20；已落地。只读 `mods/<id>/mod.toml`，启动器显示已发现 / 不可用；不执行、不 spawn、工厂仍 0；点进入只记勾选 |
-| **Mod 怎么放（用户）** | [`mods-user.md`](mods-user.md) | 2026-10-21。固定目录 `mods/<目录名>/mod.toml`；看见并记勾选；不运行。那 7 个公开仓库不是可拖入的包 |
-| **0.3.13 进入时启动文件夹（执行单）** | [`PLAN-0.3.13-folder-spawn-2026-10-21.md`](plans/PLAN-0.3.13-folder-spawn-2026-10-21.md) | 2026-10-21；**已派、未执行**。勾选的 `process` / `with_app` 在进入时启动；扫描与刷新不执行。不并进 0.3.12 |
+| **Mod 怎么放（用户）** | [`mods-user.md`](mods-user.md) | 2026-10-21。固定目录 `mods/<目录名>/mod.toml`；看见并记勾选；0.3.13 起点进入会启动勾选的程序。那 7 个公开仓库不是可拖入的包 |
+| **0.3.13 进入时启动文件夹（执行单 / 发布说明）** | [`PLAN-0.3.13-folder-spawn-2026-10-21.md`](plans/PLAN-0.3.13-folder-spawn-2026-10-21.md) · [`v0.3.13-rc.3.md`](releases/v0.3.13-rc.3.md) | 2026-10-21；已落地。勾选的 `process` / `with_app` 在进入时启动；扫描与刷新不执行；工厂仍 0 |
 | 0.2 时代收口 / 身份收口两单（历史） | **已移出工作树**（2026-10-17 rc2）——取回见 [REMOVED-docs-index-2026-10-06.md](REMOVED-docs-index-2026-10-06.md) §8 | 0.2.7 已发布，任务已收口；现行计划看上一行 |
 | 底座一致性索引（已有测试点名） | `docs/architecture/base-conformance.md` | 索引，非契约真源；协议仍以 `performance-protocol-v1.md` / `core-chain-baseline.md` 为准 |
 | 外部输入（弹幕 / 礼物） | `docs/external-input.md` | B 站抓取在 Win sidecar，不在主仓 |

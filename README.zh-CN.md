@@ -34,11 +34,11 @@
 - **Web UI** — 主入口（`--web`）。`GET /` 与 `GET /index.html` 返回**启动器页**（200）：勾选本次确认哪些已注册 Mod、预启动开或关，点「进入」后再到现有 `/app/`。Flutter 产物是 `shell/flutter/build/web`。
 - **WASM 渲染** — `/render` 与 `/models/*`（`l2d-wasm-demo`）。
 - **0.3.11 已落地**：启动前这一页只有三类操作——勾选本次确认哪些**已编进二进制的** Mod、预启动开或关（缺省关）、以及由此算出的三个数字（已注册 / 本次确认 / 本次拉起）。点「进入」后播放加载动画，按勾选调用现有启停接口，再对当前 `[llm]` / `[tts]` 地址各探测一次（只报告，不改档），然后进入 `/app/`。自动预启动撤掉，也不再为本地 TTS 空等 600 秒。执行单 [`docs/plans/PLAN-0.3.11-launcher-2026-10-20.md`](docs/plans/PLAN-0.3.11-launcher-2026-10-20.md)。
-- **0.3.12 已落地**：启动器只读扫描工作目录 `mods/<id>/mod.toml`，在上一页列出「已发现 / 不可用（原因）」；**只预检清单**——不执行里面的程序、不 spawn，也不把 Mod 编回缺省二进制（工厂仍 0）。点「进入」时文件夹只记下勾选（写 `mods.json`），已编进二进制的 Mod 仍走上一版的启停。执行单 [`docs/plans/PLAN-0.3.12-mod-folder-scan-2026-10-20.md`](docs/plans/PLAN-0.3.12-mod-folder-scan-2026-10-20.md)。
+- **0.3.13 已落地**：启动器扫描工作目录 `mods/<id>/mod.toml`，列出「已发现 / 不可用（原因）」；点「进入」时，勾选的 `process` / `with_app` 会**启动本目录里的程序**（`on_demand` 只记勾选），扫描与「刷新」仍不执行。子进程不经过 shell、不传密钥，父进程退出时收到 `SIGTERM`。工厂仍 0，Mod 不会被编回缺省二进制。执行单 [`docs/plans/PLAN-0.3.13-folder-spawn-2026-10-21.md`](docs/plans/PLAN-0.3.13-folder-spawn-2026-10-21.md)。
 
 ### Mod
 - trait 注册中心（`live2d-ai-mod-system`）留在主仓。**缺省构建的工厂数是 0**（`AVAILABLE_MOD_FACTORIES` 为空，`default_mods_manifest` 的 `mods` 是空对象）。`external-input` 与 `local-tts-melo` 都不再缺省启用，也没有被编进缺省二进制。
-- 七个实现各自一个公开源码仓库，主仓不依赖它们。没有动态加载器，也没有打包好的二进制 Mod。要加进正在跑的进程，把仓库放到主仓同级，再按 [`docs/architecture/two-repo-mods.md`](docs/architecture/two-repo-mods.md) §4 重新编译。`mods.json` 只能开关**已经编进去**的 id。往 `mods/` 放文件夹、让启动器看见并记住勾选的步骤见 [`docs/mods-user.md`](docs/mods-user.md)：本版不运行文件夹里的程序。
+- 七个实现各自一个公开源码仓库，主仓不依赖它们。没有动态加载器，也没有打包好的二进制 Mod。要加进正在跑的进程，把仓库放到主仓同级，再按 [`docs/architecture/two-repo-mods.md`](docs/architecture/two-repo-mods.md) §4 重新编译。`mods.json` 只能开关**已经编进去**的 id。往 `mods/` 放文件夹、让启动器看见并记住勾选的步骤见 [`docs/mods-user.md`](docs/mods-user.md)：0.3.13 起点「进入」会启动勾选的文件夹程序；它仍不是把代码载入主进程。
 
   | 公开仓库 | id |
   | --- | --- |
