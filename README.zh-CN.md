@@ -38,7 +38,7 @@
 
 ### Mod
 - trait 注册中心（`live2d-ai-mod-system`）留在主仓。**缺省构建的工厂数是 0**（`AVAILABLE_MOD_FACTORIES` 为空，`default_mods_manifest` 的 `mods` 是空对象）。`external-input` 与 `local-tts-melo` 都不再缺省启用，也没有被编进缺省二进制。
-- 七个实现各自一个公开源码仓库，主仓不依赖它们。没有动态加载器，也没有打包好的二进制 Mod。要加进正在跑的进程，把仓库放到主仓同级，再按 [`docs/architecture/two-repo-mods.md`](docs/architecture/two-repo-mods.md) §4 重新编译。`mods.json` 只能开关**已经编进去**的 id。
+- 七个实现各自一个公开源码仓库，主仓不依赖它们。没有动态加载器，也没有打包好的二进制 Mod。要加进正在跑的进程，把仓库放到主仓同级，再按 [`docs/architecture/two-repo-mods.md`](docs/architecture/two-repo-mods.md) §4 重新编译。`mods.json` 只能开关**已经编进去**的 id。往 `mods/` 放文件夹、让启动器看见并记住勾选的步骤见 [`docs/mods-user.md`](docs/mods-user.md)：本版不运行文件夹里的程序。
 
   | 公开仓库 | id |
   | --- | --- |

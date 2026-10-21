@@ -162,6 +162,7 @@ hands over to `/app/` (opening `/app/` directly still works and does not bounce 
 working directory is validated and shown as discovered / unavailable (with a reason). Preflight
 only — nothing is executed, no process is spawned, and a folder is never added to the compiled
 factory table; ticking one on 进入 only records the check in `mods.json`.
+How to place a folder: [docs/mods-user.md](docs/mods-user.md) (Chinese).
 `shell/flutter/build/web` is the single source of truth for the front-end artifacts;
 keep `LIVE2D_AI_FLUTTER_WEB_DIR` a **WSL path** (the script sets it for you).
 
