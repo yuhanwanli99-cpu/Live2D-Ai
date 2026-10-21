@@ -47,7 +47,7 @@ api_version = 1
 kind = "process"
 entry = "run.sh"
 EOF
-printf '#!/bin/sh\n' > mods/demo-mod/run.sh
+printf '#!/bin/sh\n' > mods/demo-mod/run.sh && chmod +x mods/demo-mod/run.sh
 ```
 
 刷新后「已发现」为 1，这一行可以勾。进入后 `mods.json` 里有 `demo-mod`，`run.sh` 会被启动——要有可执行位，否则日志报启动失败。

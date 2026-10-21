@@ -160,9 +160,10 @@ confirm, flip 预启动 (pre-start) if you want the process-spawning ones launch
 hands over to `/app/` (opening `/app/` directly still works and does not bounce back).
 0.3.12 adds a read-only folder list to the same page: `mods/<id>/mod.toml` under the process
 working directory is validated and shown as discovered / unavailable (with a reason).
-0.3.13 keeps GET / refresh read-only, but pressing 进入 now starts the checked folder's program
-(`process` / `with_app`; `on_demand` only records the check); a folder is still never added to
-the compiled factory table. How to place a folder: [docs/mods-user.md](docs/mods-user.md) (Chinese).
+That version stayed preflight-only — nothing executed, no process spawned. Since 0.3.13, 进入
+starts the checked folder's program (`process` / `with_app`; `on_demand` only records the
+check); a folder is still never added to the compiled factory table. How to place a folder:
+[docs/mods-user.md](docs/mods-user.md) (Chinese).
 `shell/flutter/build/web` is the single source of truth for the front-end artifacts;
 keep `LIVE2D_AI_FLUTTER_WEB_DIR` a **WSL path** (the script sets it for you).
 
