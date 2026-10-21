@@ -95,6 +95,13 @@ mod platform;
 /// 见 mod_count_is_zero）。缺省核心（对话 / 导演 motion_bias / TTS / 前端）不受影响。
 pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &[];
 
+/// 0.3.12：工作目录 `mods/<目录名>/mod.toml` 的**只读清单预检**。
+///
+/// 只读校验、不执行 entry / program、不把文件夹写进 `AVAILABLE_MOD_FACTORIES`。
+/// 扫描根 = 进程当前目录下的 `mods/`（执行单 §3）。
+mod mods_scan;
+/// `mod.toml` 的严格 TOML 子集解析（不新增依赖；子集外一律判不可用）。
+mod mods_scan_toml;
 mod session_scope;
 mod supervisor;
 mod web_api;

@@ -5,6 +5,12 @@
 //! （action ∈ enable/disable/restart/config/command），把 host 端 `ModRegistry` 的
 //! 运行状态与可编辑配置透出给前端。
 //!
+//! 0.3.12 追加两条**文件夹清单**路由（与工厂列表严格分开）：
+//! `GET /api/v1/mods/discovered`——只读预检工作目录 `mods/<id>/mod.toml`，
+//! 不执行、不 spawn、不写盘；`POST /api/v1/mods/discovered`——点「进入」时
+//! **只把勾选写进 `mods.json`**（不 enable / disable）。工厂表仍是 0，
+//! 文件夹永远不进 `GET /api/v1/mods`。
+//!
 //! `command`（产品级加强波次）是**一次性动作**通道（body
 //! `{"command":"clear","args":{}}`）：与 `config` 的差别是它不改配置、
 //! 也不重启 Mod，只让 Mod 执行一个有副作用的本地动作（如清空记忆库）。
@@ -38,6 +44,12 @@ const MODS_LIST_PATH: &str = "/api/v1/mods";
 
 /// Mod 管理路由前缀（用于 starts_with 判定）。
 const MODS_PREFIX: &str = "/api/v1/mods/";
+
+/// 0.3.12：文件夹清单的**只读 preflight**（`GET`）与「进入」时只记勾选（`POST`）。
+///
+/// 与 `GET /api/v1/mods` 分开：那个列表仍**只代表工厂**（Flutter 设置继续只看
+/// 见已注册的运行时），文件夹行永远不进它。
+const MODS_DISCOVERED_PATH: &str = "/api/v1/mods/discovered";
 
 /// 构造一个 JSON 响应（status + body；Content-Type application/json）。
 fn ok_response(status: StatusCode, body: &str) -> Response<Cursor<Vec<u8>>> {
@@ -92,6 +104,19 @@ pub fn handle_mods_route(
             "method_not_allowed",
             "GET /api/v1/mods 仅支持 GET".to_string(),
         ));
+    }
+
+    // 0.3.12：工作目录 `mods/<id>/mod.toml` 的清单预检（只读）+ 勾选写回。
+    if path == MODS_DISCOVERED_PATH {
+        return Some(match *method {
+            Method::Get => handle_discovered(ctx),
+            Method::Post => handle_discovered_select(ctx, body, origin, content_type),
+            _ => json_error(
+                StatusCode(405),
+                "method_not_allowed",
+                "GET / POST /api/v1/mods/discovered".to_string(),
+            ),
+        });
     }
 
     // /api/v1/mods/{id}/{action}
@@ -476,6 +501,106 @@ fn handle_mod_state_get(ctx: &ServerContext, id: &str) -> Response<Cursor<Vec<u8
             format!("Mod {id} 运行态当前不可读（未启用 / 未实现 state_json / worker 正忙）"),
         ),
     }
+}
+
+/// `GET /api/v1/mods/discovered`：工作目录 `mods/` 的只读清单预检（0.3.12）。
+///
+/// 只读：**不执行** `entry` / `launch.program`、不 spawn、不写盘；扫描失败也
+/// 只是空列表（进程启动与进入 `/app/` 都不受影响）。文件夹行**不**塞进
+/// `GET /api/v1/mods`（那个列表仍只代表工厂）。
+///
+/// 每行带 `enabled`（该 id 在 `mods.json` 里是否 `enabled = true`）：启动器页
+/// 的初始勾选按执行单 `4 用「可选 + enabled」决定。
+fn handle_discovered(ctx: &ServerContext) -> Response<Cursor<Vec<u8>>> {
+    let (registered, manifest) = {
+        let registry = lock_registry(ctx);
+        (registry.ids(), registry.manifest_value())
+    };
+    let rows = crate::mods_scan::scan(&crate::mods_scan::scan_root(), &registered);
+    let body = crate::mods_scan::discovered_json(&rows, &manifest).to_string();
+    ok_response(StatusCode(200), &body)
+}
+
+/// `POST /api/v1/mods/discovered`：把「本次勾选」**只记进 `mods.json`**（0.3.12）。
+///
+/// body：`{"enabled":["id",…]}`（可选文件夹 id 的子集；空数组 = 全不勾）。
+/// 服务端**重新扫描**决定哪些文件夹 id 可写，只覆写这些 id 的 `enabled`：
+/// 不 enable / disable、不 spawn、不碰工厂表、不碰不认识的旧 id。
+///
+/// 状态码：200 `{"ok":true,"changed":N,"selectable":M}` / 400 坏 body /
+/// 409 `persist_failed`（磁盘写不进去——**不谎报**成功）/ 415 / 403（Origin）。
+fn handle_discovered_select(
+    ctx: &ServerContext,
+    body: &str,
+    origin: Option<&str>,
+    content_type: Option<&str>,
+) -> Response<Cursor<Vec<u8>>> {
+    if !crate::web_api::security::is_json_content_type(content_type) {
+        return json_error(
+            StatusCode(415),
+            "unsupported_media_type",
+            "Content-Type 必须为 application/json".to_string(),
+        );
+    }
+    if !crate::web_api::security::is_allowed_origin(origin, &ctx.security) {
+        let err = match origin {
+            Some(origin) => crate::web_api::security::MutatingCheckError::BadOrigin {
+                got: Some(origin.to_string()),
+            },
+            None => crate::web_api::security::MutatingCheckError::NoOrigin,
+        };
+        return crate::web_api::security::mutating_check_error_response(&err);
+    }
+    let parsed = match serde_json::from_str::<serde_json::Value>(body) {
+        Ok(value) => value,
+        Err(err) => {
+            return json_error(
+                StatusCode(400),
+                "bad_request",
+                format!("无效 JSON body：{err}"),
+            );
+        }
+    };
+    let Some(enabled) = parsed.get("enabled").and_then(serde_json::Value::as_array) else {
+        return json_error(
+            StatusCode(400),
+            "bad_request",
+            "body 必须包含字符串数组「enabled」".to_string(),
+        );
+    };
+    let mut selected: Vec<String> = Vec::with_capacity(enabled.len());
+    for item in enabled {
+        let Some(id) = item.as_str() else {
+            return json_error(
+                StatusCode(400),
+                "bad_request",
+                "body 必须包含字符串数组「enabled」".to_string(),
+            );
+        };
+        selected.push(id.to_string());
+    }
+
+    let registry = lock_registry(ctx);
+    let registered = registry.ids();
+    let rows = crate::mods_scan::scan(&crate::mods_scan::scan_root(), &registered);
+    let selectable: Vec<String> = rows
+        .iter()
+        .filter(|row| row.selectable)
+        .map(|row| row.id.clone())
+        .collect();
+    let changed = match registry.persist_folder_selection(&selectable, &selected) {
+        Ok(changed) => changed,
+        Err(err) => {
+            return json_error(StatusCode(409), "persist_failed", err.to_string());
+        }
+    };
+    let body = serde_json::json!({
+        "ok": true,
+        "changed": changed,
+        "selectable": selectable.len(),
+    })
+    .to_string();
+    ok_response(StatusCode(200), &body)
 }
 
 /// 把 `ModSettingsSpec` 序列化成前端表单契约（`kind` 标签判类型）。

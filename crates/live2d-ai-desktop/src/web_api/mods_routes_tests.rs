@@ -595,3 +595,108 @@ fn launcher_enter_flow_controls_the_launch_class_mod() {
         "预启动开且勾选：走现有 enable 生进程一次"
     );
 }
+// ---------------------------------------------------------------- 0.3.12 文件夹清单
+
+/// `GET /api/v1/mods/discovered`：只读清单接口，且文件夹**不混进**工厂列表。
+///
+/// 测试进程的当前目录是 crate 目录（没有 `mods/`）→ 已发现 0；这里钉住的是
+/// **响应形状**与「两份列表分开」这条执行单 §4 的硬要求。
+#[test]
+fn discovered_route_is_read_only_and_separate_from_the_factory_list() {
+    let ctx = dummy_ctx(SecurityContext::new(18099, true));
+    let resp = handle_mods_route(
+        &ctx,
+        &Method::Get,
+        "/api/v1/mods/discovered",
+        "",
+        None,
+        None,
+    )
+    .expect("本族路由");
+    assert_eq!(resp.status_code(), StatusCode(200));
+    let body = body_string(resp);
+    let json: serde_json::Value = serde_json::from_str(&body).expect("JSON");
+    assert!(
+        json["discovered"].is_array(),
+        "必须回 discovered 数组：{body}"
+    );
+
+    let resp = handle_mods_route(&ctx, &Method::Get, "/api/v1/mods", "", None, None).unwrap();
+    let body = body_string(resp);
+    let json: serde_json::Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(
+        json["mods"],
+        serde_json::json!([]),
+        "工厂列表仍只代表工厂（缺省 0 条）：{body}"
+    );
+}
+
+/// `POST /api/v1/mods/discovered` 是 mutating：Origin + JSON Content-Type 都要过闸门；
+/// 合法 body 在「没有可写文件夹」时是 no-op（changed 0），绝不写仓库根 `mods.json`。
+#[test]
+fn discovered_select_requires_json_and_origin_and_is_a_noop_when_nothing_is_selectable() {
+    let path = "/api/v1/mods/discovered";
+    // 严格模式（allow_no_origin=false）：缺 Origin → 403。
+    let strict = dummy_ctx(SecurityContext::new(18099, false));
+    let resp = handle_mods_route(
+        &strict,
+        &Method::Post,
+        path,
+        r#"{"enabled":[]}"#,
+        None,
+        Some("application/json"),
+    )
+    .expect("本族路由");
+    assert_eq!(
+        resp.status_code(),
+        StatusCode(403),
+        "mutating 必须过 Origin 闸门"
+    );
+
+    // 缺 JSON Content-Type → 415。
+    let ctx = dummy_ctx(SecurityContext::new(18099, true));
+    let resp = handle_mods_route(
+        &ctx,
+        &Method::Post,
+        path,
+        r#"{"enabled":[]}"#,
+        Some("http://127.0.0.1:18099"),
+        Some("text/plain"),
+    )
+    .expect("本族路由");
+    assert_eq!(resp.status_code(), StatusCode(415));
+
+    // 合法：当前目录没有 `mods/` → 没有可写 id，changed 0（不写盘）。
+    let resp = handle_mods_route(
+        &ctx,
+        &Method::Post,
+        path,
+        r#"{"enabled":[]}"#,
+        Some("http://127.0.0.1:18099"),
+        Some("application/json"),
+    )
+    .expect("本族路由");
+    assert_eq!(resp.status_code(), StatusCode(200));
+    let body = body_string(resp);
+    let json: serde_json::Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(json["changed"], serde_json::json!(0), "body = {body}");
+    assert_eq!(json["selectable"], serde_json::json!(0), "body = {body}");
+}
+
+/// 坏 body（不是字符串数组）→ 400（不猜、不写盘）。
+#[test]
+fn discovered_select_rejects_bad_body() {
+    let ctx = dummy_ctx(SecurityContext::new(18099, true));
+    for body in [r#"{"enabled":"x"}"#, "{}", "not json"] {
+        let resp = handle_mods_route(
+            &ctx,
+            &Method::Post,
+            "/api/v1/mods/discovered",
+            body,
+            Some("http://127.0.0.1:18099"),
+            Some("application/json"),
+        )
+        .expect("本族路由");
+        assert_eq!(resp.status_code(), StatusCode(400), "body = {body}");
+    }
+}
