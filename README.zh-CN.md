@@ -34,6 +34,7 @@
 - **Web UI** — 主入口（`--web`）。`GET /` 与 `GET /index.html` 返回**启动器页**（200）：勾选本次确认哪些已注册 Mod、预启动开或关，点「进入」后再到现有 `/app/`。Flutter 产物是 `shell/flutter/build/web`。
 - **WASM 渲染** — `/render` 与 `/models/*`（`l2d-wasm-demo`）。
 - **0.3.11 已落地**：启动前这一页只有三类操作——勾选本次确认哪些**已编进二进制的** Mod、预启动开或关（缺省关）、以及由此算出的三个数字（已注册 / 本次确认 / 本次拉起）。点「进入」后播放加载动画，按勾选调用现有启停接口，再对当前 `[llm]` / `[tts]` 地址各探测一次（只报告，不改档），然后进入 `/app/`。自动预启动撤掉，也不再为本地 TTS 空等 600 秒。执行单 [`docs/plans/PLAN-0.3.11-launcher-2026-10-20.md`](docs/plans/PLAN-0.3.11-launcher-2026-10-20.md)。
+- **0.3.12 已指定、尚未落地**：启动器将只读扫描 `mods/<id>/mod.toml`，列出已发现和不可用的文件夹。不执行里面的程序，也不把 Mod 编回缺省二进制。落地前以上一条为准。执行单 [`docs/plans/PLAN-0.3.12-mod-folder-scan-2026-10-20.md`](docs/plans/PLAN-0.3.12-mod-folder-scan-2026-10-20.md)。
 
 ### Mod
 - trait 注册中心（`live2d-ai-mod-system`）留在主仓。**缺省构建的工厂数是 0**（`AVAILABLE_MOD_FACTORIES` 为空，`default_mods_manifest` 的 `mods` 是空对象）。`external-input` 与 `local-tts-melo` 都不再缺省启用，也没有被编进缺省二进制。
