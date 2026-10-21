@@ -3,21 +3,21 @@
 //! 背景（执行单 `docs/plans/PLAN-0.3.11-launcher-2026-10-20.md`
 //! 与 `PLAN-0.3.12-mod-folder-scan-2026-10-20.md` §4）：
 //! 0.3.11 撤掉「监听前自动预启动」，点火也不再为 local TTS 空等 600 秒。
-//! 桌面进程先听 HTTP，`GET /` 是**启动前的一页**。0.3.12 起页面读**两份**只读列表：
+//! 桌面进程先听 HTTP，`GET /` 是**启动前的一页**。0.3.12 起页面读**两份**列表：
 //!
 //! - **工厂** = `GET /api/v1/mods`（缺省 0 条）；
-//! - **文件夹** = `GET /api/v1/mods/discovered`（0.3.12 新增，只读预检工作目录
-//!   `mods/<id>/mod.toml`，见 `crate::mods_scan`）。**不执行、不 spawn**；
+//! - **文件夹** = `GET /api/v1/mods/discovered`（0.3.12 只读预检工作目录
+//!   `mods/<id>/mod.toml`，见 `crate::mods_scan`）。GET 与「刷新」**不执行、
+//!   不 spawn**；0.3.13 起点「进入」会启动勾选的 `process` / `with_app`；
 //! - **已发现** = 可选行条数（工厂 + 校验通过的文件夹）；**本次确认** = 勾选条数；
-//!   **本次拉起** = 预启动开着时，勾选里的 `local-tts-melo` / `local-engine`
-//!   **工厂**条数——文件夹里的 `process` / `launcher` 本版不计入；
-//! - 预启动缺省关，拨动它只改页面上的数字：不发请求、不写
+//!   **本次拉起** = 预启动开着时勾选的 `local-tts-melo` / `local-engine`
+//!   **工厂**条数 + 勾选且会启动的文件夹（`process` / `with_app`，`on_demand` 不计）；
+//! - 预启动缺省关，只管工厂：拨动它只改页面上的数字，不发请求、不写
 //!   `live2d-ai.toml`，也不写 `mods.json`；「刷新」只重扫清单，不执行、不写盘；
 //! - 「进入」：工厂 id 按勾选调用**现有** `POST /api/v1/mods/{id}/{enable,disable}`；
-//!   可选文件夹 id **只**把勾选写进 `mods.json`（`POST /api/v1/mods/discovered`，
-//!   不 enable / disable、不 spawn）。然后对**当前这一份** `[llm]` / `[tts]`
-//!   的 `base_url` 各探测一次（复用现有 `POST /api/v1/settings/test/{llm,tts}`
-//!   的短超时与分类），再 `location.assign('/app/')`。失败也进入。
+//!   文件夹把勾选写进 `mods.json` 并让服务端启动 / 结束子进程
+//!   （`POST /api/v1/mods/discovered`；失败只写日志，不挡进入）。然后对
+//!   **当前这一份** `[llm]` / `[tts]` 的 `base_url` 各探测一次，再进 `/app/`。
 //!
 //! 探测**只报告、不改档**（执行单 §5）：0.3.9 之后 LLM / TTS 各只有一份
 //! `base_url` 加一个 `mode` 标签，`vendors.*` 已删，没有「另一档」可探；
@@ -254,7 +254,7 @@ mod tests {
         );
     }
 
-    /// 「本次拉起」只认两个会生进程的 id（执行单 §3）。
+    /// 工厂里「本次拉起」只认这两个会生进程的 id（文件夹按 launch_mode 另算）。
     #[test]
     fn launcher_html_knows_the_launch_class_ids() {
         for id in ["local-tts-melo", "local-engine"] {
@@ -262,12 +262,12 @@ mod tests {
         }
     }
 
-    /// 0.3.12：页面另外读**只读**的文件夹清单，并只把勾选写回 `mods.json`。
+    /// 0.3.13：页面把文件夹的行交给 POST 启动 / 结束，不再只是「记勾选」。
     ///
-    /// 判据：清单接口在、「刷新」在、进入时文件夹只发 `{enabled:[…]}`、
-    /// 空态覆盖「工厂 0 + 无文件夹」、无效行能显示原因。
+    /// 判据：清单接口在、「刷新」在、POST 带 `{enabled:[…]}` 与失败原因日志、
+    /// 行里保留 `kind` / `launch_mode` 供「本次拉起」计数、空态文案仍在。
     #[test]
-    fn launcher_html_preflights_folders_and_only_records_the_checks() {
+    fn launcher_html_starts_checked_folders_on_enter() {
         assert!(
             LAUNCHER_HTML.contains("/api/v1/mods/discovered"),
             "页面必须读只读清单接口 /api/v1/mods/discovered"
@@ -275,7 +275,19 @@ mod tests {
         assert!(LAUNCHER_HTML.contains("刷新"), "清单必须有「刷新」按钮");
         assert!(
             LAUNCHER_HTML.contains("enabled: ids"),
-            "进入时文件夹只发 enabled 列表（只记勾选、不启停）"
+            "进入时文件夹只发 enabled 列表（启停由服务端按扫描结果决定）"
+        );
+        assert!(
+            LAUNCHER_HTML.contains("launch_mode") && LAUNCHER_HTML.contains("with_app"),
+            "页面必须保留 launch_mode 才能算「本次拉起」"
+        );
+        assert!(
+            LAUNCHER_HTML.contains("启动失败："),
+            "启动失败要能写进页面日志"
+        );
+        assert!(
+            !LAUNCHER_HTML.contains("只记下勾选"),
+            "0.3.13 起文件夹不再只是「记下勾选」"
         );
         assert!(
             LAUNCHER_HTML.contains("不可用"),

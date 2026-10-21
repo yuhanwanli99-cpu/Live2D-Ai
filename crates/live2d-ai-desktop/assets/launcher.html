@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="live2d-ai-launcher" content="0.3.12">
+<meta name="live2d-ai-launcher" content="0.3.13">
 <title>Live2D-Ai</title>
 <style>
   @font-face {
@@ -176,7 +176,7 @@
 <body>
 <main class="card">
   <h1>Live2D-Ai</h1>
-  <p class="tagline">进入前确认：工厂只改本次启停；文件夹只记下勾选。</p>
+  <p class="tagline">进入前确认：工厂只改本次启停；文件夹按勾选启动。</p>
 
   <div class="figures">
     <div class="figure"><span class="figure-label">已发现</span><strong id="num-discovered">0</strong></div>
@@ -187,12 +187,12 @@
   <div class="row">
     <label class="switch"><input id="prestart" type="checkbox"><span>预启动</span></label>
     <button id="refresh" type="button" class="ghost">刷新</button>
-    <p id="prestart-hint" class="hint">预启动关着：只确认，不拉起进程。</p>
+    <p id="prestart-hint" class="hint">预启动关着：工厂拉起类不生进程；文件夹仍按勾选启动。</p>
   </div>
 
   <ul id="mods" class="mods"></ul>
   <p id="mods-empty" class="hint" hidden>没有可选的 Mod（工厂 0、也没有可用的文件夹）。仍可进入。</p>
-  <p class="hint">文件夹只预检清单，不执行。勾选只在点「进入」后生效。</p>
+  <p class="hint">点「进入」时，勾选的 process / with_app 会启动；on_demand 只记勾选。</p>
 
   <button id="enter" type="button">进入</button>
 
@@ -235,11 +235,11 @@
 
   function isLaunch(id) { return LAUNCH_IDS.indexOf(id) >= 0; }
 
-  function kindOf(id) {
+  function findRow(id) {
     for (var i = 0; i < rows.length; i += 1) {
-      if (rows[i].id === id) return rows[i].kind;
+      if (rows[i].id === id) return rows[i];
     }
-    return "";
+    return null;
   }
 
   function checkedIds() {
@@ -273,7 +273,13 @@
     var launch = 0;
     var prestart = byId("prestart").checked;
     for (var i = 0; i < checked.length; i += 1) {
-      if (prestart && isLaunch(checked[i]) && kindOf(checked[i]) === "factory") launch += 1;
+      var row = findRow(checked[i]);
+      if (!row) continue;
+      if (row.kind === "factory") {
+        if (prestart && isLaunch(row.id)) launch += 1;
+      } else if (row.modKind === "process" || row.launchMode === "with_app") {
+        launch += 1;
+      }
     }
     setText("num-discovered", String(selectableRows().length));
     setText("num-confirmed", String(checked.length));
@@ -281,8 +287,8 @@
     setText(
       "prestart-hint",
       prestart
-        ? "预启动开着：勾选的拉起类 Mod 会生进程。"
-        : "预启动关着：只确认，不拉起进程。"
+        ? "预启动开着：工厂拉起类会生进程；文件夹按勾选启动。"
+        : "预启动关着：工厂拉起类不生进程；文件夹仍按勾选启动。"
     );
   }
 
@@ -355,6 +361,8 @@
       out.push({
         id: mod.id,
         kind: "factory",
+        modKind: "factory",
+        launchMode: null,
         selectable: true,
         enabled: mod.enabled === true,
         reason: null
@@ -365,6 +373,8 @@
       out.push({
         id: item.id,
         kind: "folder",
+        modKind: item.kind || "",
+        launchMode: item.launch_mode || null,
         selectable: item.selectable === true,
         enabled: item.enabled === true,
         reason: item.reason || null
@@ -503,19 +513,24 @@
   function applyFolders() {
     var want = currentChecks();
     var ids = [];
-    var anyFolder = false;
     for (var i = 0; i < rows.length; i += 1) {
       if (rows[i].kind !== "folder" || !rows[i].selectable) continue;
-      anyFolder = true;
       if (want[rows[i].id] === true) ids.push(rows[i].id);
     }
-    if (!anyFolder) return Promise.resolve();
+    // 没有文件夹也发：服务端借这次「进入」结束本进程起过的残留进程。
     return readJson("/api/v1/mods/discovered", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: ids })
     }).then(function (res) {
-      if (!res.ok) log("文件夹勾选未写入（HTTP " + res.status + "）。");
+      if (!res.ok) {
+        log("文件夹勾选未写入（HTTP " + res.status + "）。");
+        return;
+      }
+      var failed = res.data && res.data.failed ? res.data.failed : [];
+      for (var j = 0; j < failed.length; j += 1) {
+        log("Mod " + failed[j].id + " 启动失败：" + (failed[j].reason || "原因未注明"));
+      }
     }).catch(function () {
       log("文件夹勾选请求失败。");
     });
