@@ -307,6 +307,13 @@ fn discovered_json_carries_selectable_reason_and_enabled() {
     tree.write("mods/demo-mod/run.sh", "");
     tree.write("mods/director/mod.toml", &process_manifest("director"));
     tree.write("mods/director/run.sh", "");
+    tree.write(
+        "mods/lazy-mod/mod.toml",
+        "schema = 1\nid = \"lazy-mod\"\nname = \"lazy\"\nversion = \"0.1.0\"\n\
+         api_version = 1\nkind = \"launcher\"\n[launch]\nprogram = \"bin/start\"\n\
+         mode = \"on_demand\"\n",
+    );
+    tree.write("mods/lazy-mod/bin/start", "");
     let rows = scan(&tree.join("mods"), &[]);
     let manifest = serde_json::json!({
         "mods": { "demo-mod": { "enabled": true } }
@@ -320,6 +327,11 @@ fn discovered_json_carries_selectable_reason_and_enabled() {
     assert_eq!(demo["selectable"], serde_json::json!(true));
     assert_eq!(demo["enabled"], serde_json::json!(true));
     assert_eq!(demo["reason"], serde_json::Value::Null);
+    assert_eq!(
+        demo["launch_mode"],
+        serde_json::json!("with_app"),
+        "process 归一为 with_app"
+    );
     let director = list
         .iter()
         .find(|row| row["id"] == "director")
@@ -331,6 +343,12 @@ fn discovered_json_carries_selectable_reason_and_enabled() {
             .is_some_and(|reason| reason.contains("保留"))
     );
     assert_eq!(director["enabled"], serde_json::json!(false));
+    assert_eq!(director["launch_mode"], serde_json::Value::Null);
+    let lazy = list
+        .iter()
+        .find(|row| row["id"] == "lazy-mod")
+        .expect("lazy-mod 行");
+    assert_eq!(lazy["launch_mode"], serde_json::json!("on_demand"));
 }
 
 // ---------------------------------------------------------------- 选择写回

@@ -681,6 +681,10 @@ fn discovered_select_requires_json_and_origin_and_is_a_noop_when_nothing_is_sele
     let json: serde_json::Value = serde_json::from_str(&body).expect("JSON");
     assert_eq!(json["changed"], serde_json::json!(0), "body = {body}");
     assert_eq!(json["selectable"], serde_json::json!(0), "body = {body}");
+    // 0.3.13：没有可启动的文件夹 → 三个新字段都是空数组。
+    assert_eq!(json["started"], serde_json::json!([]), "body = {body}");
+    assert_eq!(json["stopped"], serde_json::json!([]), "body = {body}");
+    assert_eq!(json["failed"], serde_json::json!([]), "body = {body}");
 }
 
 /// 坏 body（不是字符串数组）→ 400（不猜、不写盘）。
@@ -699,4 +703,165 @@ fn discovered_select_rejects_bad_body() {
         .expect("本族路由");
         assert_eq!(resp.status_code(), StatusCode(400), "body = {body}");
     }
+}
+
+// ---------------------------------------------------------------- 0.3.13 文件夹启动
+
+/// 建一棵临时 `mods/` 树；返回（root, mods.json 路径）。
+#[cfg(unix)]
+fn spawn_tree(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "l2d-0313-routes-{}-{}-{tag}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::SeqCst)
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("mods")).expect("临时 mods/");
+    (root.clone(), root.join("mods.json"))
+}
+
+#[cfg(unix)]
+fn write_exec(path: &std::path::Path, body: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(path.parent().expect("父目录")).expect("父目录");
+    std::fs::write(path, body).expect("写脚本");
+    let mut perms = std::fs::metadata(path).expect("metadata").permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(path, perms).expect("chmod");
+}
+
+#[cfg(unix)]
+fn ctx_with_manifest_path(path: &std::path::Path) -> ServerContext {
+    let ctx = dummy_ctx(SecurityContext::new(18099, true));
+    let registry = crate::mod_registry::ModRegistry::new(&[], &serde_json::json!({}))
+        .with_manifest_path(path.to_path_buf());
+    *ctx.mod_registry.lock().unwrap() = registry;
+    ctx
+}
+
+#[cfg(unix)]
+fn wait_for(path: &std::path::Path) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if path.exists() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    false
+}
+
+#[cfg(unix)]
+fn post_select(
+    ctx: &ServerContext,
+    root: &std::path::Path,
+    body: &str,
+) -> (u16, serde_json::Value) {
+    let resp = super::discovered_select_with_root(
+        ctx,
+        root,
+        body,
+        Some("http://127.0.0.1:18099"),
+        Some("application/json"),
+    );
+    let status = resp.status_code().0;
+    (
+        status,
+        serde_json::from_str(&body_string(resp)).expect("JSON"),
+    )
+}
+
+#[cfg(unix)]
+#[test]
+fn discovered_select_spawns_checked_process_and_stops_when_unchecked() {
+    let (root, manifest) = spawn_tree("spawn");
+    let mods_root = root.join("mods");
+    let mod_dir = mods_root.join("demo-mod");
+    std::fs::create_dir_all(&mod_dir).expect("mod 目录");
+    std::fs::write(
+        mod_dir.join("mod.toml"),
+        "schema = 1\nid = \"demo-mod\"\nname = \"演示\"\nversion = \"0.1.0\"\n\
+         api_version = 1\nkind = \"process\"\nentry = \"run.sh\"\n",
+    )
+    .expect("清单");
+    write_exec(
+        &mod_dir.join("run.sh"),
+        "#!/bin/sh\ntouch marker\nsleep 30\n",
+    );
+    let ctx = ctx_with_manifest_path(&manifest);
+
+    let (status, json) = post_select(&ctx, &mods_root, r#"{"enabled":["demo-mod"]}"#);
+    assert_eq!(status, 200, "{json}");
+    assert_eq!(json["started"], serde_json::json!(["demo-mod"]), "{json}");
+    assert!(
+        wait_for(&mod_dir.join("marker")),
+        "POST 必须真的启动勾选的 process"
+    );
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest).expect("mods.json"))
+            .expect("JSON");
+    assert_eq!(doc["mods"]["demo-mod"]["enabled"], serde_json::json!(true));
+
+    // GET 是只读的：连刷两次也不会起第二个。
+    for _ in 0..2 {
+        let resp = super::handle_discovered_at(&ctx, &mods_root);
+        assert_eq!(resp.status_code().0, 200);
+    }
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert_eq!(
+        ctx.folder_processes.running_ids(),
+        vec!["demo-mod".to_string()],
+        "GET / 刷新不得启动进程"
+    );
+
+    let (status, json) = post_select(&ctx, &mods_root, r#"{"enabled":[]}"#);
+    assert_eq!(status, 200, "{json}");
+    assert_eq!(json["stopped"], serde_json::json!(["demo-mod"]), "{json}");
+    assert!(
+        ctx.folder_processes.running_ids().is_empty(),
+        "取消勾选后必须结束"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn discovered_select_skips_on_demand_and_reports_start_failure() {
+    let (root, manifest) = spawn_tree("mixed");
+    let mods_root = root.join("mods");
+    let lazy = mods_root.join("lazy-mod");
+    std::fs::create_dir_all(lazy.join("bin")).expect("lazy 目录");
+    write_exec(&lazy.join("bin/start"), "#!/bin/sh\ntouch marker\n");
+    std::fs::write(
+        lazy.join("mod.toml"),
+        "schema = 1\nid = \"lazy-mod\"\nname = \"lazy\"\nversion = \"0.1.0\"\n\
+         api_version = 1\nkind = \"launcher\"\n[launch]\nprogram = \"bin/start\"\n\
+         mode = \"on_demand\"\n",
+    )
+    .expect("lazy 清单");
+    let bad = mods_root.join("bad-mod");
+    std::fs::create_dir_all(&bad).expect("bad 目录");
+    std::fs::write(bad.join("run.sh"), "#!/bin/sh\ntouch marker\n").expect("无执行位");
+    std::fs::write(
+        bad.join("mod.toml"),
+        "schema = 1\nid = \"bad-mod\"\nname = \"bad\"\nversion = \"0.1.0\"\n\
+         api_version = 1\nkind = \"process\"\nentry = \"run.sh\"\n",
+    )
+    .expect("bad 清单");
+    let ctx = ctx_with_manifest_path(&manifest);
+
+    let (status, json) = post_select(&ctx, &mods_root, r#"{"enabled":["lazy-mod","bad-mod"]}"#);
+    assert_eq!(status, 200, "{json}");
+    assert_eq!(
+        json["started"],
+        serde_json::json!([]),
+        "on_demand 不启动：{json}"
+    );
+    assert_eq!(json["failed"][0]["id"], "bad-mod", "{json}");
+    assert!(!lazy.join("marker").exists(), "on_demand 不得被 POST 启动");
+    assert!(!bad.join("marker").exists());
+    assert!(ctx.folder_processes.running_ids().is_empty());
+    let _ = std::fs::remove_dir_all(&root);
 }

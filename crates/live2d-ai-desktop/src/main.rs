@@ -38,6 +38,9 @@
 mod app_event;
 mod audio;
 mod cli;
+/// 0.3.13：文件夹 Mod 的子进程生命周期（PDEATHSIG / 独立进程组 / env 清洗）。
+/// 只有 POST /api/v1/mods/discovered 在勾选写盘成功后调用；扫描与刷新不碰它。
+mod folder_spawn;
 mod logging;
 mod mod_registry;
 mod platform;

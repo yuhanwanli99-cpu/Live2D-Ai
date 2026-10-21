@@ -27,6 +27,7 @@ pub(super) fn dummy_ctx(sec: SecurityContext) -> ServerContext {
         mod_registry: std::sync::Arc::new(std::sync::Mutex::new(
             crate::mod_registry::ModRegistry::new(&[], &serde_json::json!({})),
         )),
+        folder_processes: std::sync::Arc::new(crate::folder_spawn::FolderProcesses::new()),
     }
 }
 

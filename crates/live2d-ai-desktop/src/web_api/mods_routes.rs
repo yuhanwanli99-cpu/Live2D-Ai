@@ -8,8 +8,11 @@
 //! 0.3.12 追加两条**文件夹清单**路由（与工厂列表严格分开）：
 //! `GET /api/v1/mods/discovered`——只读预检工作目录 `mods/<id>/mod.toml`，
 //! 不执行、不 spawn、不写盘；`POST /api/v1/mods/discovered`——点「进入」时
-//! **只把勾选写进 `mods.json`**（不 enable / disable）。工厂表仍是 0，
-//! 文件夹永远不进 `GET /api/v1/mods`。
+//! 把勾选写进 `mods.json`。工厂表仍是 0，文件夹永远不进 `GET /api/v1/mods`。
+//!
+//! 0.3.13：POST 在**勾选写盘成功之后**才按同一份扫描结果启动 `process` /
+//! `with_app`（子进程表在 `ServerContext::folder_processes`），并结束未勾选
+//! 的、本进程起过的那些进程；`GET` 与「刷新」仍然只读、不启动。
 //!
 //! `command`（产品级加强波次）是**一次性动作**通道（body
 //! `{"command":"clear","args":{}}`）：与 `config` 的差别是它不改配置、
@@ -505,32 +508,56 @@ fn handle_mod_state_get(ctx: &ServerContext, id: &str) -> Response<Cursor<Vec<u8
 
 /// `GET /api/v1/mods/discovered`：工作目录 `mods/` 的只读清单预检（0.3.12）。
 ///
-/// 只读：**不执行** `entry` / `launch.program`、不 spawn、不写盘；扫描失败也
-/// 只是空列表（进程启动与进入 `/app/` 都不受影响）。文件夹行**不**塞进
+/// 只读：**不执行** `entry` / `launch.program`、不 spawn、不写盘（0.3.13 的
+/// 启动只在 POST 路径、且要等勾选写盘成功之后）。文件夹行**不**塞进
 /// `GET /api/v1/mods`（那个列表仍只代表工厂）。
 ///
-/// 每行带 `enabled`（该 id 在 `mods.json` 里是否 `enabled = true`）：启动器页
-/// 的初始勾选按执行单 §4 用「可选 + enabled」决定。
+/// 每行带 `enabled`（该 id 在 `mods.json` 里是否 `enabled = true`）与
+/// `launch_mode`：process 归一为 `with_app`、launcher 取清单 mode、不可用为 null。
 fn handle_discovered(ctx: &ServerContext) -> Response<Cursor<Vec<u8>>> {
+    handle_discovered_at(ctx, &crate::mods_scan::scan_root())
+}
+
+/// 与 handle_discovered 同一段逻辑；`root` 可注入（测试用临时目录）。
+fn handle_discovered_at(ctx: &ServerContext, root: &std::path::Path) -> Response<Cursor<Vec<u8>>> {
     let (registered, manifest) = {
         let registry = lock_registry(ctx);
         (registry.ids(), registry.manifest_value())
     };
-    let rows = crate::mods_scan::scan(&crate::mods_scan::scan_root(), &registered);
+    let rows = crate::mods_scan::scan(root, &registered);
     let body = crate::mods_scan::discovered_json(&rows, &manifest).to_string();
     ok_response(StatusCode(200), &body)
 }
 
-/// `POST /api/v1/mods/discovered`：把「本次勾选」**只记进 `mods.json`**（0.3.12）。
+/// `POST /api/v1/mods/discovered`：先写勾选，再启动 / 结束文件夹进程（0.3.13）。
 ///
 /// body：`{"enabled":["id",…]}`（可选文件夹 id 的子集；空数组 = 全不勾）。
-/// 服务端**重新扫描**决定哪些文件夹 id 可写，只覆写这些 id 的 `enabled`：
-/// 不 enable / disable、不 spawn、不碰工厂表、不碰不认识的旧 id。
+/// 服务端**重新扫描**决定哪些文件夹 id 可写，只覆写这些 id 的 `enabled`；
+/// 写盘成功后才按同一份扫描结果启动 `process` / `with_app`，并结束不再勾选
+/// 的、**本进程**起过的那些进程（`on_demand` 只记勾选）。
 ///
-/// 状态码：200 `{"ok":true,"changed":N,"selectable":M}` / 400 坏 body /
-/// 409 `persist_failed`（磁盘写不进去——**不谎报**成功）/ 415 / 403（Origin）。
+/// 状态码：200（在 0.3.12 的 ok / changed / selectable 上追加 started /
+/// stopped / failed）/ 400 坏 body / 409 `persist_failed`（磁盘写不进去——
+/// **不谎报**成功，也不启动）/ 415 / 403（Origin）。
 fn handle_discovered_select(
     ctx: &ServerContext,
+    body: &str,
+    origin: Option<&str>,
+    content_type: Option<&str>,
+) -> Response<Cursor<Vec<u8>>> {
+    discovered_select_with_root(
+        ctx,
+        &crate::mods_scan::scan_root(),
+        body,
+        origin,
+        content_type,
+    )
+}
+
+/// 与 handle_discovered_select 同一段逻辑；`root` 可注入（测试用临时目录）。
+fn discovered_select_with_root(
+    ctx: &ServerContext,
+    root: &std::path::Path,
     body: &str,
     origin: Option<&str>,
     content_type: Option<&str>,
@@ -580,27 +607,66 @@ fn handle_discovered_select(
         selected.push(id.to_string());
     }
 
-    let registry = lock_registry(ctx);
-    let registered = registry.ids();
-    let rows = crate::mods_scan::scan(&crate::mods_scan::scan_root(), &registered);
-    let selectable: Vec<String> = rows
-        .iter()
-        .filter(|row| row.selectable)
-        .map(|row| row.id.clone())
-        .collect();
-    let changed = match registry.persist_folder_selection(&selectable, &selected) {
-        Ok(changed) => changed,
-        Err(err) => {
-            return json_error(StatusCode(409), "persist_failed", err.to_string());
-        }
+    // 勾选先落盘：失败 409 且**不启动任何进程**（执行单 §30）。
+    let (rows, selectable, changed) = {
+        let registry = lock_registry(ctx);
+        let registered = registry.ids();
+        let rows = crate::mods_scan::scan(root, &registered);
+        let selectable: Vec<String> = rows
+            .iter()
+            .filter(|row| row.selectable)
+            .map(|row| row.id.clone())
+            .collect();
+        let changed = match registry.persist_folder_selection(&selectable, &selected) {
+            Ok(changed) => changed,
+            Err(err) => {
+                return json_error(StatusCode(409), "persist_failed", err.to_string());
+            }
+        };
+        (rows, selectable, changed)
     };
+
+    // 再对齐子进程：启动失败只进 failed，HTTP 仍是 200（执行单 §17）。
+    let report = ctx
+        .folder_processes
+        .reconcile(&desired_spawns(&rows, &selected));
+    let failed: Vec<serde_json::Value> = report
+        .failed
+        .iter()
+        .map(|failure| serde_json::json!({"id": &failure.id, "reason": &failure.reason}))
+        .collect();
     let body = serde_json::json!({
         "ok": true,
         "changed": changed,
         "selectable": selectable.len(),
+        "started": report.started,
+        "stopped": report.stopped,
+        "failed": failed,
     })
     .to_string();
     ok_response(StatusCode(200), &body)
+}
+
+/// 本次「进入」希望运行的文件夹 Mod：可选 + 勾选 + 启动类别。
+///
+/// `process` 在扫描阶段已归一为 `with_app`；`launcher` 的 `on_demand` 不启动
+/// （执行单 §13：只记勾选）。勾选里的未知 / 不可选 id 一律忽略。
+fn desired_spawns(
+    rows: &[crate::mods_scan::DiscoveredMod],
+    selected: &[String],
+) -> Vec<crate::folder_spawn::DesiredSpawn> {
+    rows.iter()
+        .filter(|row| row.selectable)
+        .filter(|row| selected.iter().any(|id| id == &row.id))
+        .filter(|row| row.launch_mode.as_deref() == Some("with_app"))
+        .filter_map(|row| {
+            Some(crate::folder_spawn::DesiredSpawn {
+                id: row.id.clone(),
+                dir: row.dir.clone(),
+                program: row.program.clone()?,
+            })
+        })
+        .collect()
 }
 
 /// 把 `ModSettingsSpec` 序列化成前端表单契约（`kind` 标签判类型）。

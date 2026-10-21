@@ -334,6 +334,10 @@ pub struct ServerContext {
     /// `AVAILABLE_MOD_FACTORIES` + manifest）；其它路径（测试 / 缺省）
     /// 用空 registry 占位。handler 经 `lock()` 调用 enable/disable/restart/list。
     pub mod_registry: std::sync::Arc<std::sync::Mutex<crate::mod_registry::ModRegistry>>,
+    /// 0.3.13：文件夹 Mod 的子进程表（一个 id 至多一个）。
+    /// 只有 `POST /api/v1/mods/discovered` 在勾选写盘成功后读写它；
+    /// `GET` / 「刷新」/ 扫描函数不碰（执行单 §29）。
+    pub folder_processes: std::sync::Arc<crate::folder_spawn::FolderProcesses>,
 }
 
 impl ServerContext {
@@ -357,6 +361,7 @@ impl ServerContext {
             mod_registry: Arc::new(std::sync::Mutex::new(
                 crate::mod_registry::ModRegistry::new(&[], &serde_json::json!({})),
             )),
+            folder_processes: Arc::new(crate::folder_spawn::FolderProcesses::new()),
         }
     }
 

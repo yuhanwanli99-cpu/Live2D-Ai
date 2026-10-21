@@ -20,6 +20,9 @@
 //!
 //! 字段表与「保留 id」名单见执行单 §3；解析器见 `mods_scan_toml`（严格 TOML
 //! 子集，失败关闭）。
+//!
+//! 0.3.13 起可选行还带**已校验程序的绝对路径**与 `launch_mode`，供
+//! `folder_spawn` 在点「进入」时启动；扫描与「刷新」仍然一行都不执行。
 
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
@@ -80,11 +83,17 @@ pub struct DiscoveredMod {
     pub selectable: bool,
     /// 不可用的短原因（可选行为 `None`）。
     pub reason: Option<String>,
+    /// 规范化后的程序文件绝对路径（仅可选行有；扫描**不执行**它）。
+    pub program: Option<PathBuf>,
+    /// 该 Mod 目录的绝对路径（可选行 = 子进程工作目录）。
+    pub dir: PathBuf,
+    /// `process` → `with_app`；`launcher` → 清单 mode；不可用行 = `None`。
+    pub launch_mode: Option<String>,
 }
 
 impl DiscoveredMod {
-    /// 不可用行：只带目录名与原因（其余字段留空）。
-    fn invalid(id: &str, reason: impl Into<String>) -> Self {
+    /// 不可用行：目录名 + 目录 + 原因（程序路径与 launch_mode 留空）。
+    fn invalid(id: &str, dir: &Path, reason: impl Into<String>) -> Self {
         Self {
             id: id.to_string(),
             name: String::new(),
@@ -93,6 +102,9 @@ impl DiscoveredMod {
             kind: String::new(),
             selectable: false,
             reason: Some(reason.into()),
+            program: None,
+            dir: dir.to_path_buf(),
+            launch_mode: None,
         }
     }
 }
@@ -144,17 +156,25 @@ pub fn scan(root: &Path, registered: &[&str]) -> Vec<DiscoveredMod> {
             continue;
         }
         if is_symlink {
-            out.push(DiscoveredMod::invalid(&dir_name, "目录是符号链接，不跟随"));
+            out.push(DiscoveredMod::invalid(
+                &dir_name,
+                &dir,
+                "目录是符号链接，不跟随",
+            ));
             continue;
         }
         match std::fs::symlink_metadata(&manifest) {
             Ok(meta) if meta.file_type().is_file() => {}
             Ok(meta) if meta.file_type().is_symlink() => {
-                out.push(DiscoveredMod::invalid(&dir_name, "清单是符号链接，不跟随"));
+                out.push(DiscoveredMod::invalid(
+                    &dir_name,
+                    &dir,
+                    "清单是符号链接，不跟随",
+                ));
                 continue;
             }
             Ok(_) => {
-                out.push(DiscoveredMod::invalid(&dir_name, "清单不是普通文件"));
+                out.push(DiscoveredMod::invalid(&dir_name, &dir, "清单不是普通文件"));
                 continue;
             }
             Err(_) => continue, // 扫到一半被删：当作不存在。
@@ -164,6 +184,7 @@ pub fn scan(root: &Path, registered: &[&str]) -> Vec<DiscoveredMod> {
             Err(err) => {
                 out.push(DiscoveredMod::invalid(
                     &dir_name,
+                    &dir,
                     format!("读清单失败：{err}"),
                 ));
                 continue;
@@ -174,6 +195,7 @@ pub fn scan(root: &Path, registered: &[&str]) -> Vec<DiscoveredMod> {
             Err(reason) => {
                 out.push(DiscoveredMod::invalid(
                     &dir_name,
+                    &dir,
                     format!("清单解析失败：{reason}"),
                 ));
                 continue;
@@ -188,7 +210,7 @@ pub fn scan(root: &Path, registered: &[&str]) -> Vec<DiscoveredMod> {
             .map(str::to_string)
             .unwrap_or_else(|| dir_name.clone());
         if seen.contains_key(&dedupe_key) {
-            out.push(DiscoveredMod::invalid(&dir_name, "重复"));
+            out.push(DiscoveredMod::invalid(&dir_name, &dir, "重复"));
             continue;
         }
         seen.insert(dedupe_key, ());
@@ -202,8 +224,11 @@ pub fn scan(root: &Path, registered: &[&str]) -> Vec<DiscoveredMod> {
                 kind: info.kind,
                 selectable: true,
                 reason: None,
+                program: Some(info.program),
+                dir: dir.clone(),
+                launch_mode: Some(info.launch_mode),
             }),
-            Err(reason) => out.push(DiscoveredMod::invalid(&dir_name, reason)),
+            Err(reason) => out.push(DiscoveredMod::invalid(&dir_name, &dir, reason)),
         }
     }
     out
@@ -230,6 +255,10 @@ struct ModInfo {
     version: String,
     api_version: u32,
     kind: String,
+    /// 已规范化的程序绝对路径（process 的 entry / launcher 的 program）。
+    program: PathBuf,
+    /// process 恒为 with_app；launcher 取清单 mode。
+    launch_mode: String,
 }
 
 /// 字段校验（执行单 §3 的字段表 + §2 的禁止项）。`Err` = 一句短原因。
@@ -290,18 +319,21 @@ fn validate(
         Some(_) => return Err("`kind` 只能是 process 或 launcher".to_string()),
         None => return Err("缺少 `kind`".to_string()),
     };
+    let mut program: Option<PathBuf> = None;
+    let mut launch_mode: Option<String> = None;
     if kind == "process" {
         let entry = doc
             .top
             .get("entry")
             .and_then(toml_lite::Value::as_str)
             .ok_or_else(|| "`kind = process` 时必须有字符串 `entry`".to_string())?;
-        check_relative_file(dir, entry, "entry")?;
+        program = Some(check_relative_file(dir, entry, "entry")?);
+        launch_mode = Some("with_app".to_string());
     } else if let Some(entry) = doc.top.get("entry") {
         let entry = entry
             .as_str()
             .ok_or_else(|| "`entry` 必须是字符串".to_string())?;
-        check_relative_file(dir, entry, "entry")?;
+        let _ = check_relative_file(dir, entry, "entry")?;
     }
 
     if kind == "launcher" {
@@ -309,16 +341,17 @@ fn validate(
             .launch
             .as_ref()
             .ok_or_else(|| "`kind = launcher` 时必须有 `[launch]` 表".to_string())?;
-        let program = launch
+        let program_rel = launch
             .get("program")
             .and_then(toml_lite::Value::as_str)
             .ok_or_else(|| "`launch.program` 必填".to_string())?;
-        check_relative_file(dir, program, "launch.program")?;
+        program = Some(check_relative_file(dir, program_rel, "launch.program")?);
         let mode = launch
             .get("mode")
             .and_then(toml_lite::Value::as_str)
             .ok_or_else(|| "`launch.mode` 必填".to_string())?;
         check_mode(mode)?;
+        launch_mode = Some(mode.to_string());
     } else if let Some(launch) = &doc.launch {
         // process 清单若也写了 [launch]：按同一套词法校验（program 可省）。
         if let Some(program) = launch.get("program") {
@@ -342,12 +375,16 @@ fn validate(
         return Err("与已编进二进制的 Mod 冲突".to_string());
     }
 
+    let program = program.ok_or_else(|| "内部错误：缺程序路径".to_string())?;
+    let launch_mode = launch_mode.ok_or_else(|| "内部错误：缺 launch_mode".to_string())?;
     Ok(ModInfo {
         id: id.to_string(),
         name: name.to_string(),
         version: version.to_string(),
         api_version: u32::try_from(api_version).unwrap_or(0),
         kind,
+        program,
+        launch_mode,
     })
 }
 
@@ -385,7 +422,7 @@ fn check_mode(mode: &str) -> Result<(), String> {
 
 /// `entry` / `launch.program` 的检查：相对路径、无 `..`、**不跟随符号链接**、
 /// 规范化后仍在本 Mod 目录内、且是普通文件。**不要求可执行位**，也不执行它。
-fn check_relative_file(dir: &Path, rel: &str, label: &str) -> Result<(), String> {
+fn check_relative_file(dir: &Path, rel: &str, label: &str) -> Result<PathBuf, String> {
     let rel = rel.trim();
     if rel.is_empty() {
         return Err(format!("`{label}` 不能为空"));
@@ -419,7 +456,7 @@ fn check_relative_file(dir: &Path, rel: &str, label: &str) -> Result<(), String>
     if !canon.starts_with(&canon_dir) {
         return Err(format!("`{label}` 规范化后不在 Mod 目录内"));
     }
-    Ok(())
+    Ok(canon)
 }
 
 /// `GET /api/v1/mods/discovered` 的响应体。
@@ -448,6 +485,7 @@ pub fn discovered_json(
                 "selectable": entry.selectable,
                 "reason": entry.reason,
                 "enabled": enabled,
+                "launch_mode": entry.launch_mode,
             })
         })
         .collect();
