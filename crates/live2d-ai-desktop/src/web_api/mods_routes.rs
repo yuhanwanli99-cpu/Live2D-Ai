@@ -510,7 +510,7 @@ fn handle_mod_state_get(ctx: &ServerContext, id: &str) -> Response<Cursor<Vec<u8
 /// `GET /api/v1/mods`（那个列表仍只代表工厂）。
 ///
 /// 每行带 `enabled`（该 id 在 `mods.json` 里是否 `enabled = true`）：启动器页
-/// 的初始勾选按执行单 `4 用「可选 + enabled」决定。
+/// 的初始勾选按执行单 §4 用「可选 + enabled」决定。
 fn handle_discovered(ctx: &ServerContext) -> Response<Cursor<Vec<u8>>> {
     let (registered, manifest) = {
         let registry = lock_registry(ctx);

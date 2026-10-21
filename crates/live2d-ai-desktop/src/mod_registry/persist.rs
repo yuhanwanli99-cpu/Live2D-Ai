@@ -102,7 +102,7 @@ impl ModRegistry {
 
     /// 当前 `mods.json` 文档（**只读**；未注入路径 / 坏 JSON 时回构造时那份）。
     ///
-    /// 0.3.12 的启动器页用它决定文件夹行的**初始勾选**（执行单 `4：该 id 在
+    /// 0.3.12 的启动器页用它决定文件夹行的**初始勾选**（执行单 §4：该 id 在
     /// `mods.json` 里 `enabled = true` 才勾）；写回走 `persist_folder_selection`。
     pub fn manifest_value(&self) -> serde_json::Value {
         self.manifest_path
@@ -113,7 +113,7 @@ impl ModRegistry {
             .unwrap_or_else(|| self.raw_manifest.clone())
     }
 
-    /// 把**文件夹清单**的勾选写回 `mods.json`（0.3.12，执行单 `4 / `6）。
+    /// 把**文件夹清单**的勾选写回 `mods.json`（0.3.12，执行单 §4 / §6）。
     ///
     /// - 只覆写 `ids` 这些 id 的 `enabled`（`ids` = 本次扫描里**可选**的文件夹
     ///   id，由扫描模块给出；**不碰** `entries` / 工厂表 / 其它键）；
@@ -123,7 +123,7 @@ impl ModRegistry {
     /// - 返回**实际改动的 id 数**（0 = 没写盘）。
     ///
     /// 这是「点进入对文件夹只记下勾选」的落盘点：**不** enable / disable，
-    /// **不** spawn（执行单 `4）。
+    /// **不** spawn（执行单 §4）。
     pub fn persist_folder_selection(
         &self,
         ids: &[String],

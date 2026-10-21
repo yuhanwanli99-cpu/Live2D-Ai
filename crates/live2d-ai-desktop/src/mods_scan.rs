@@ -18,7 +18,7 @@
 //! - **失败不阻塞**：没有 `mods/` 目录 = 已发现 0（**不创建**它）；扫描失败 =
 //!   空列表 + 一行 warn。进程照常启动，照常能进 `/app/`。
 //!
-//! 字段表与「保留 id」名单见执行单 `3；解析器见 `mods_scan_toml`（严格 TOML
+//! 字段表与「保留 id」名单见执行单 §3；解析器见 `mods_scan_toml`（严格 TOML
 //! 子集，失败关闭）。
 
 use std::collections::BTreeMap;
@@ -35,7 +35,7 @@ const MANIFEST_FILE: &str = "mod.toml";
 /// 扫描根目录名（进程当前目录下）。
 const ROOT_DIR: &str = "mods";
 
-/// 保留 id：清单写得再对也不可选（执行单 `3）。
+/// 保留 id：清单写得再对也不可选（执行单 §3）。
 ///
 /// `director` 在核心里；`local-llm` / `wallpaper` / `pet-desktop` 已删除；
 /// CosyVoice 的 id 是 `local-tts`（封存）。原因统一写「保留，不能当文件夹装入」。
@@ -97,7 +97,7 @@ impl DiscoveredMod {
     }
 }
 
-/// 扫描根 = 当前目录下的 `mods/`（执行单 `3：**进程当前目录**，不猜仓库根）。
+/// 扫描根 = 当前目录下的 `mods/`（执行单 §3：**进程当前目录**，不猜仓库根）。
 pub fn scan_root() -> PathBuf {
     match std::env::current_dir() {
         Ok(dir) => dir.join(ROOT_DIR),
@@ -107,7 +107,7 @@ pub fn scan_root() -> PathBuf {
 
 /// 扫描 `root`（只读、不创建目录）。`registered` = 已编进二进制的工厂 id。
 ///
-/// 排序按**路径**（执行单 `3：重复 id 时路径排序后的第一份才可能可选）。
+/// 排序按**路径**（执行单 §3：重复 id 时路径排序后的第一份才可能可选）。
 /// 目录不存在 / 不可读 → 空列表（只记一行 warn，不打断任何东西）。
 pub fn scan(root: &Path, registered: &[&str]) -> Vec<DiscoveredMod> {
     let entries = match std::fs::read_dir(root) {
@@ -131,7 +131,7 @@ pub fn scan(root: &Path, registered: &[&str]) -> Vec<DiscoveredMod> {
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
-        // 以 `.` 开头的目录跳过（执行单 `3）。
+        // 以 `.` 开头的目录跳过（执行单 §3）。
         if dir_name.starts_with('.') {
             continue;
         }
@@ -180,7 +180,7 @@ pub fn scan(root: &Path, registered: &[&str]) -> Vec<DiscoveredMod> {
             }
         };
         // 去重键 = 清单声明的 id（没有就用目录名）。第一份（路径序）留下，
-        // 其余一律「重复」——即使第一份本身因别的字段不可用（执行单 `3）。
+        // 其余一律「重复」——即使第一份本身因别的字段不可用（执行单 §3）。
         let dedupe_key = doc
             .top
             .get("id")
@@ -232,7 +232,7 @@ struct ModInfo {
     kind: String,
 }
 
-/// 字段校验（执行单 `3 的字段表 + `2 的禁止项）。`Err` = 一句短原因。
+/// 字段校验（执行单 §3 的字段表 + §2 的禁止项）。`Err` = 一句短原因。
 fn validate(
     dir: &Path,
     dir_name: &str,
@@ -425,7 +425,7 @@ fn check_relative_file(dir: &Path, rel: &str, label: &str) -> Result<(), String>
 /// `GET /api/v1/mods/discovered` 的响应体。
 ///
 /// 每行带 `enabled`（该 id 在 `mods.json` 里是否 `enabled = true`）：
-/// 启动器页的**初始勾选**按执行单 `4 用「可选 + enabled」决定，不额外读盘。
+/// 启动器页的**初始勾选**按执行单 §4 用「可选 + enabled」决定，不额外读盘。
 pub fn discovered_json(
     entries: &[DiscoveredMod],
     manifest: &serde_json::Value,
