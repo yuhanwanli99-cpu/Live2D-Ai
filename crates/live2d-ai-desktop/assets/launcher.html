@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="live2d-ai-launcher" content="0.3.11">
+<meta name="live2d-ai-launcher" content="0.3.12">
 <title>Live2D-Ai</title>
 <style>
   @font-face {
@@ -102,7 +102,7 @@
     list-style: none;
     margin: 14px 0 10px;
     padding: 0;
-    max-height: 208px;
+    max-height: 240px;
     overflow: auto;
     border-top: 1px solid var(--line);
   }
@@ -113,6 +113,7 @@
   }
   .mods label { display: flex; align-items: center; gap: 9px; cursor: pointer; }
   .mods input { width: 15px; height: 15px; accent-color: var(--accent); }
+  .mods .unavailable { color: var(--muted); }
   button {
     width: 100%;
     margin-top: 14px;
@@ -127,6 +128,18 @@
     cursor: pointer;
   }
   button:disabled { opacity: 0.55; cursor: default; }
+  .ghost {
+    width: auto;
+    margin: 0;
+    padding: 6px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #121620;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .ghost:disabled { opacity: 0.55; cursor: default; }
   .busy { margin-top: 18px; }
   .bar {
     height: 4px;
@@ -163,22 +176,23 @@
 <body>
 <main class="card">
   <h1>Live2D-Ai</h1>
-  <p class="tagline">进入前确认：只影响本次进入，不写配置。</p>
+  <p class="tagline">进入前确认：工厂只改本次启停；文件夹只记下勾选。</p>
 
   <div class="figures">
-    <div class="figure"><span class="figure-label">已注册</span><strong id="num-registered">0</strong></div>
+    <div class="figure"><span class="figure-label">已发现</span><strong id="num-discovered">0</strong></div>
     <div class="figure"><span class="figure-label">本次确认</span><strong id="num-confirmed">0</strong></div>
     <div class="figure"><span class="figure-label">本次拉起</span><strong id="num-launch">0</strong></div>
   </div>
 
   <div class="row">
     <label class="switch"><input id="prestart" type="checkbox"><span>预启动</span></label>
+    <button id="refresh" type="button" class="ghost">刷新</button>
     <p id="prestart-hint" class="hint">预启动关着：只确认，不拉起进程。</p>
   </div>
 
   <ul id="mods" class="mods"></ul>
-  <p id="mods-empty" class="hint" hidden>没有已注册的 Mod（工厂 0）。仍可进入。</p>
-  <p class="hint">勾选只在点「进入」后生效。</p>
+  <p id="mods-empty" class="hint" hidden>没有可选的 Mod（工厂 0、也没有可用的文件夹）。仍可进入。</p>
+  <p class="hint">文件夹只预检清单，不执行。勾选只在点「进入」后生效。</p>
 
   <button id="enter" type="button">进入</button>
 
@@ -200,7 +214,8 @@
     { key: "tts", label: "本次语音", test: "/api/v1/settings/test/tts" }
   ];
 
-  var mods = [];
+  var rows = [];
+  var factories = [];
   var busy = false;
 
   function byId(id) { return document.getElementById(id); }
@@ -220,6 +235,13 @@
 
   function isLaunch(id) { return LAUNCH_IDS.indexOf(id) >= 0; }
 
+  function kindOf(id) {
+    for (var i = 0; i < rows.length; i += 1) {
+      if (rows[i].id === id) return rows[i].kind;
+    }
+    return "";
+  }
+
   function checkedIds() {
     var out = [];
     var boxes = document.querySelectorAll("#mods input[type=checkbox]");
@@ -229,14 +251,31 @@
     return out;
   }
 
+  function currentChecks() {
+    var out = {};
+    var boxes = document.querySelectorAll("#mods input[type=checkbox]");
+    for (var i = 0; i < boxes.length; i += 1) {
+      out[boxes[i].getAttribute("data-id")] = boxes[i].checked;
+    }
+    return out;
+  }
+
+  function selectableRows() {
+    var out = [];
+    for (var i = 0; i < rows.length; i += 1) {
+      if (rows[i].selectable) out.push(rows[i]);
+    }
+    return out;
+  }
+
   function updateNumbers() {
     var checked = checkedIds();
     var launch = 0;
     var prestart = byId("prestart").checked;
     for (var i = 0; i < checked.length; i += 1) {
-      if (prestart && isLaunch(checked[i])) launch += 1;
+      if (prestart && isLaunch(checked[i]) && kindOf(checked[i]) === "factory") launch += 1;
     }
-    setText("num-registered", String(mods.length));
+    setText("num-discovered", String(selectableRows().length));
     setText("num-confirmed", String(checked.length));
     setText("num-launch", String(launch));
     setText(
@@ -247,23 +286,35 @@
     );
   }
 
-  function renderMods() {
+  function render(keep) {
     var box = byId("mods");
     box.textContent = "";
-    for (var i = 0; i < mods.length; i += 1) {
-      var item = mods[i];
-      var row = document.createElement("li");
-      var label = document.createElement("label");
-      var box2 = document.createElement("input");
-      box2.type = "checkbox";
-      box2.setAttribute("data-id", item.id);
-      box2.addEventListener("change", updateNumbers);
-      label.appendChild(box2);
-      label.appendChild(document.createTextNode(" " + item.id));
-      row.appendChild(label);
-      box.appendChild(row);
+    for (var i = 0; i < rows.length; i += 1) {
+      var item = rows[i];
+      var line = document.createElement("li");
+      if (item.selectable) {
+        var label = document.createElement("label");
+        var cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.setAttribute("data-id", item.id);
+        if (keep && keep[item.id] !== undefined) {
+          cb.checked = keep[item.id];
+        } else {
+          cb.checked = item.enabled === true;
+        }
+        cb.addEventListener("change", updateNumbers);
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(" " + item.id));
+        line.appendChild(label);
+      } else {
+        var text = document.createElement("span");
+        text.className = "unavailable";
+        text.textContent = item.id + "：不可用（" + (item.reason || "原因未注明") + "）";
+        line.appendChild(text);
+      }
+      box.appendChild(line);
     }
-    byId("mods-empty").hidden = mods.length !== 0;
+    byId("mods-empty").hidden = selectableRows().length !== 0;
     updateNumbers();
   }
 
@@ -279,15 +330,72 @@
     });
   }
 
-  function loadMods() {
+  function fetchFactories() {
     return readJson("/api/v1/mods").then(function (res) {
       if (!res.ok || !res.data || !Array.isArray(res.data.mods)) {
         throw new Error("HTTP " + res.status);
       }
-      mods = res.data.mods;
-      renderMods();
-      return mods;
+      return res.data.mods;
     });
+  }
+
+  function fetchDiscovered() {
+    return readJson("/api/v1/mods/discovered").then(function (res) {
+      if (!res.ok || !res.data || !Array.isArray(res.data.discovered)) {
+        throw new Error("HTTP " + res.status);
+      }
+      return res.data.discovered;
+    });
+  }
+
+  function buildRows(list, discovered) {
+    var out = [];
+    for (var i = 0; i < list.length; i += 1) {
+      var mod = list[i];
+      out.push({
+        id: mod.id,
+        kind: "factory",
+        selectable: true,
+        enabled: mod.enabled === true,
+        reason: null
+      });
+    }
+    for (var j = 0; j < discovered.length; j += 1) {
+      var item = discovered[j];
+      out.push({
+        id: item.id,
+        kind: "folder",
+        selectable: item.selectable === true,
+        enabled: item.enabled === true,
+        reason: item.reason || null
+      });
+    }
+    return out;
+  }
+
+  function loadAll(keep) {
+    return Promise.all([
+      fetchFactories().catch(function () {
+        log("读取已编进二进制的 Mod 列表失败。");
+        return [];
+      }),
+      fetchDiscovered().catch(function () {
+        log("读取文件夹清单失败。");
+        return [];
+      })
+    ]).then(function (both) {
+      factories = both[0];
+      rows = buildRows(both[0], both[1]);
+      render(keep);
+      return rows;
+    });
+  }
+
+  function findMod(list, id) {
+    for (var i = 0; i < list.length; i += 1) {
+      if (list[i].id === id) return list[i];
+    }
+    return null;
   }
 
   function postMod(id, action) {
@@ -302,17 +410,10 @@
     });
   }
 
-  function findMod(list, id) {
-    for (var i = 0; i < list.length; i += 1) {
-      if (list[i].id === id) return list[i];
-    }
-    return null;
-  }
-
   function settleEnabled(ids) {
     var deadline = Date.now() + SETTLE_MS;
     function poll() {
-      return loadMods().then(function (list) {
+      return fetchFactories().then(function (list) {
         var starting = false;
         for (var i = 0; i < ids.length; i += 1) {
           var item = findMod(list, ids[i]);
@@ -320,7 +421,7 @@
         }
         if (!starting || Date.now() >= deadline) return list;
         return sleep(200).then(poll);
-      }).catch(function () { return mods; });
+      }).catch(function () { return factories; });
     }
     return poll();
   }
@@ -364,22 +465,22 @@
     });
   }
 
-  function applyMods() {
+  function applyFactories() {
+    var want = currentChecks();
     var enabledNow = [];
-    return loadMods().catch(function () {
-      log("读取 Mod 列表失败，跳过 Mod 步骤。");
-      return mods;
+    return fetchFactories().catch(function () {
+      log("读取 Mod 列表失败，跳过工厂启停。");
+      return factories;
     }).then(function (list) {
-      var checked = checkedIds();
       var jobs = [];
       for (var i = 0; i < list.length; i += 1) {
         var item = list[i];
-        var want = checked.indexOf(item.id) >= 0;
-        if (isLaunch(item.id) && !byId("prestart").checked) want = false;
-        if (want && !item.enabled) {
+        var on = want[item.id] === true;
+        if (isLaunch(item.id) && !byId("prestart").checked) on = false;
+        if (on && !item.enabled) {
           enabledNow.push(item.id);
           jobs.push(postMod(item.id, "enable"));
-        } else if (!want && item.enabled) {
+        } else if (!on && item.enabled) {
           jobs.push(postMod(item.id, "disable"));
         }
       }
@@ -399,14 +500,46 @@
     });
   }
 
+  function applyFolders() {
+    var want = currentChecks();
+    var ids = [];
+    var anyFolder = false;
+    for (var i = 0; i < rows.length; i += 1) {
+      if (rows[i].kind !== "folder" || !rows[i].selectable) continue;
+      anyFolder = true;
+      if (want[rows[i].id] === true) ids.push(rows[i].id);
+    }
+    if (!anyFolder) return Promise.resolve();
+    return readJson("/api/v1/mods/discovered", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: ids })
+    }).then(function (res) {
+      if (!res.ok) log("文件夹勾选未写入（HTTP " + res.status + "）。");
+    }).catch(function () {
+      log("文件夹勾选请求失败。");
+    });
+  }
+
+  function refresh() {
+    if (busy) return;
+    var keep = currentChecks();
+    loadAll(keep).catch(function () {
+      log("刷新失败，稍后可重试。");
+    });
+  }
+
   function enter() {
     if (busy) return;
     busy = true;
     byId("enter").disabled = true;
+    byId("refresh").disabled = true;
     byId("busy").hidden = false;
     setText("status", "正在应用本次确认…");
 
-    applyMods().catch(function () {
+    applyFactories().catch(function () {
+      log("有步骤失败，仍继续进入…");
+    }).then(applyFolders).catch(function () {
       log("有步骤失败，仍继续进入…");
     }).then(runProbes).catch(function () {
       log("探测失败，仍继续进入…");
@@ -419,9 +552,10 @@
   }
 
   byId("prestart").addEventListener("change", updateNumbers);
+  byId("refresh").addEventListener("click", refresh);
   byId("enter").addEventListener("click", enter);
 
-  loadMods().catch(function () {
+  loadAll(null).catch(function () {
     setText("status", "读取 Mod 列表失败。");
     log("读取 Mod 列表失败，稍后可重试进入。");
   });

@@ -1,18 +1,23 @@
 //! 启动器页（0.3.11）：`GET /` 与 `GET /index.html` 返回的这一页。
 //!
-//! 背景（执行单 `docs/plans/PLAN-0.3.11-launcher-2026-10-20.md` §0/§3）：
+//! 背景（执行单 `docs/plans/PLAN-0.3.11-launcher-2026-10-20.md`
+//! 与 `PLAN-0.3.12-mod-folder-scan-2026-10-20.md` §4）：
 //! 0.3.11 撤掉「监听前自动预启动」，点火也不再为 local TTS 空等 600 秒。
-//! 桌面进程先听 HTTP，`GET /` 是**启动前的一页**：
+//! 桌面进程先听 HTTP，`GET /` 是**启动前的一页**。0.3.12 起页面读**两份**只读列表：
 //!
-//! - **已注册** = `GET /api/v1/mods` 的条数（只读；工厂 0 显示 0）；
-//! - **本次确认** = 勾选条数；**本次拉起** = 预启动开着时，勾选里的
-//!   `local-tts-melo` / `local-engine` 条数；
+//! - **工厂** = `GET /api/v1/mods`（缺省 0 条）；
+//! - **文件夹** = `GET /api/v1/mods/discovered`（0.3.12 新增，只读预检工作目录
+//!   `mods/<id>/mod.toml`，见 `crate::mods_scan`）。**不执行、不 spawn**；
+//! - **已发现** = 可选行条数（工厂 + 校验通过的文件夹）；**本次确认** = 勾选条数；
+//!   **本次拉起** = 预启动开着时，勾选里的 `local-tts-melo` / `local-engine`
+//!   **工厂**条数——文件夹里的 `process` / `launcher` 本版不计入；
 //! - 预启动缺省关，拨动它只改页面上的数字：不发请求、不写
-//!   `live2d-ai.toml`，也不写 `mods.json`；
-//! - 「进入」后按勾选调用**现有** `POST /api/v1/mods/{id}/{enable,disable}`，
-//!   再对**当前这一份** `[llm]` / `[tts]` 的 `base_url` 各探测一次
-//!   （复用现有 `POST /api/v1/settings/test/{llm,tts}` 的短超时与分类），
-//!   然后 `location.assign('/app/')`。失败也进入。
+//!   `live2d-ai.toml`，也不写 `mods.json`；「刷新」只重扫清单，不执行、不写盘；
+//! - 「进入」：工厂 id 按勾选调用**现有** `POST /api/v1/mods/{id}/{enable,disable}`；
+//!   可选文件夹 id **只**把勾选写进 `mods.json`（`POST /api/v1/mods/discovered`，
+//!   不 enable / disable、不 spawn）。然后对**当前这一份** `[llm]` / `[tts]`
+//!   的 `base_url` 各探测一次（复用现有 `POST /api/v1/settings/test/{llm,tts}`
+//!   的短超时与分类），再 `location.assign('/app/')`。失败也进入。
 //!
 //! 探测**只报告、不改档**（执行单 §5）：0.3.9 之后 LLM / TTS 各只有一份
 //! `base_url` 加一个 `mode` 标签，`vendors.*` 已删，没有「另一档」可探；
@@ -21,9 +26,11 @@
 //! # 范围
 //!
 //! 本模块只做**托管**：页面 HTML（`assets/launcher.html`，`include_str!`）
-//! 与同源字体。页面逻辑是 HTML 里的内联 CSS/JS，**不新增任何 API 路由**——
-//! 所有动作都打现有端点（`/api/v1/mods`、`/api/v1/mods/{id}/*`、
-//! `/api/v1/app/status`、`/api/v1/settings/test/*`）。
+//! 与同源字体。页面逻辑是 HTML 里的内联 CSS/JS，本模块**不新增任何路由**——
+//! 页面只打既有端点（`/api/v1/mods`、`/api/v1/mods/{id}/*`、
+//! `/api/v1/app/status`、`/api/v1/settings/test/*`）与 0.3.12 的只读清单
+//! `GET /api/v1/mods/discovered` / 勾选写回 `POST` 同路径
+//! （实现见 `web_api::mods_routes` + `crate::mods_scan`）。
 //!
 //! # 字体（离线红线）
 //!
@@ -236,8 +243,9 @@ mod tests {
                 "启动器页不得出现 {banned} 编辑（不是第二套设置）"
             );
         }
-        // 三个数字的标签都在（只读展示 = `<dd>`，不是输入框）。
-        for label in ["已注册", "本次确认", "本次拉起"] {
+        // 三个数字的标签都在（只读展示 = `<strong>`，不是输入框）。
+        // 0.3.12：第一个数字由「已注册」改成「已发现」（工厂 + 可选文件夹）。
+        for label in ["已发现", "本次确认", "本次拉起"] {
             assert!(LAUNCHER_HTML.contains(label), "缺少数字标签 {label}");
         }
         assert!(
@@ -252,6 +260,31 @@ mod tests {
         for id in ["local-tts-melo", "local-engine"] {
             assert!(LAUNCHER_HTML.contains(id), "缺少拉起类 id {id}");
         }
+    }
+
+    /// 0.3.12：页面另外读**只读**的文件夹清单，并只把勾选写回 `mods.json`。
+    ///
+    /// 判据：清单接口在、「刷新」在、进入时文件夹只发 `{enabled:[…]}`、
+    /// 空态覆盖「工厂 0 + 无文件夹」、无效行能显示原因。
+    #[test]
+    fn launcher_html_preflights_folders_and_only_records_the_checks() {
+        assert!(
+            LAUNCHER_HTML.contains("/api/v1/mods/discovered"),
+            "页面必须读只读清单接口 /api/v1/mods/discovered"
+        );
+        assert!(LAUNCHER_HTML.contains("刷新"), "清单必须有「刷新」按钮");
+        assert!(
+            LAUNCHER_HTML.contains("enabled: ids"),
+            "进入时文件夹只发 enabled 列表（只记勾选、不启停）"
+        );
+        assert!(
+            LAUNCHER_HTML.contains("不可用"),
+            "无效文件夹行必须能显示原因"
+        );
+        assert!(
+            LAUNCHER_HTML.contains("没有可选的 Mod"),
+            "空态文案必须覆盖「工厂 0 + 无文件夹」"
+        );
     }
 
     /// 字体同源：页面引用 `/launcher/...woff2`，且该路由由本模块接管。
