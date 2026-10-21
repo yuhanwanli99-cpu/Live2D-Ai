@@ -158,6 +158,10 @@ was removed in 0.3.11; probe it from another terminal:
 Then open <http://127.0.0.1:18080/> — the launcher page. Tick which already-compiled Mods to
 confirm, flip 预启动 (pre-start) if you want the process-spawning ones launched, click 进入, and it
 hands over to `/app/` (opening `/app/` directly still works and does not bounce back).
+0.3.12 adds a read-only folder list to the same page: `mods/<id>/mod.toml` under the process
+working directory is validated and shown as discovered / unavailable (with a reason). Preflight
+only — nothing is executed, no process is spawned, and a folder is never added to the compiled
+factory table; ticking one on 进入 only records the check in `mods.json`.
 `shell/flutter/build/web` is the single source of truth for the front-end artifacts;
 keep `LIVE2D_AI_FLUTTER_WEB_DIR` a **WSL path** (the script sets it for you).
 

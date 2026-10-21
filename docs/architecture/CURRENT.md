@@ -27,8 +27,8 @@
 - **0.3.9 已落地（2026-10-19，本地 tag `v0.3.9-rc.1` / `v0.3.9-rc.2` 同在提交 `6d841e4`（主仓非 standalone，拆两次会让 rc.1 不能单独构建），`v0.3.9-rc.3`（主仓 `a36421a`，第二仓同 tag `519a3e0`）逐个落地，rc.4 只清理（tag `v0.3.9-rc.4` 在 `41096fa`），未 push）**：A2A（含已写进 `web_api` 的路由）拆出核心，进第二仓新 Mod `a2a`（缺省停用，工厂 6 → 7）；TTS/LLM 的多厂商选择器留在核心，但收成「云端 / 本地 + 二级设置」，厂商目录与 `vendors.*` 快照已删；旧 toml 仍能加载、写回不再写出 `vendor` / `vendors`。发布说明 [`docs/releases/v0.3.9-rc.4.md`](../releases/v0.3.9-rc.4.md)。不并进 `0.4.0` / `0.4.1`。范围 [`PLAN-0.3.9-core-boundary-2026-10-19.md`](../plans/PLAN-0.3.9-core-boundary-2026-10-19.md)。
 - **0.3.10 已收口（2026-10-19，本地 tag `v0.3.10-rc.1` = `3a7f6c0`、`v0.3.10-rc.2` = `cab3996`，rc.3 只清理（tag `v0.3.10-rc.3` 在 `6a0a1ef`），未 push）**：标红修复（`live2d_stage.dart` 844 → 785 + 新 `director_cue_plan.dart`；pytest Melo 路径指第二仓）、项目声明收成单一 AGPL-3.0（商业付费 = 单独书面协议，见 §11）、皮套入库与仓库分发分开、活文档对齐；`0.4.0` 未开始。发布说明 [`docs/releases/v0.3.10-rc.3.md`](../releases/v0.3.10-rc.3.md)。范围 [`PLAN-0.3.10-red-docs-statement-2026-10-19.md`](../plans/PLAN-0.3.10-red-docs-statement-2026-10-19.md)。
 - **仓库（2026-10-19，已落地）**：主仓只留核心链路，克隆并填好 `[llm]` / `[tts]` 就能编译并跑，不需要任何 Mod 实现。`AVAILABLE_MOD_FACTORIES` 为空（工厂 **0**），`default_mods_manifest` 的 `mods` 为空对象——缺省不再启用 `external-input` 与 `local-tts-melo`。七个实现各自一个本机仓库，公开地址见 §8（分支 `main` 已推）：`/home/skystar/live2d-ai-mod-external-input`、`-persona`、`-voice-input`、`-memory`、`-local-tts`（id `local-tts-melo`，工厂 `MELO_FACTORY`）、`-local-engine`、`-a2a`。旧目录 `/home/skystar/Live2D-Ai-mods` 保留作历史来源，已不被主仓引用。挂载 = 维护者手动把 crate 的 path 依赖加回根 `[workspace.dependencies]` 与 desktop 依赖、加回 `AVAILABLE_MOD_FACTORIES`、恢复该 Mod 的宿主路由/集成代码；没有动态加载器，缺省提交里没有这些。执行单 [`PLAN-main-core-mod-repos-2026-10-19.md`](../plans/PLAN-main-core-mod-repos-2026-10-19.md)。项目经理 2026-10-19 抽查验收：主仓 `15cdfa077946eb1540c47bdc9eaf04c5524f3174`（父提交即 `v0.3.10-rc.3`），**不占版本号、未打 tag**。分支 `main` 已快进推到 `origin`（`7178e6f..15cdfa0`）；附注 tag 与已删除的远端 `v0.3.1` 都不在这次推送里。七个 Mod 公开仓库已建并推了 `main`，见 §8。附注 tag 仍只在本地。全门禁按执行报告，本会话未重跑。接受的偏差：persona 取消对 memory 的 dev-dep 与 3 条共存测试；external / voice / a2a 的真实 handler 从父提交取回；`turn_in_flight` 保留并 `allow(dead_code)`；`live2d-ai-runtime` 四处历史注释未改；`AGENTS.md` 历史段未改；Flutter Web 未重编。S2 仍开：`external-input` 与 `memory` 仍调用 `secrets::lookup`。`0.4.0` 仍未开始。
-- **0.3.12 已派、未执行（2026-10-20）**：只读扫描工作目录 `mods/<id>/mod.toml`，在现有启动器上显示已发现与不可用。不执行 `entry` / `program`，不 spawn，不把文件夹写入 `AVAILABLE_MOD_FACTORIES`（工厂仍 0）。保留 id（`director`、`local-llm`、`wallpaper`、`pet-desktop`、`local-tts`）不可选。不改 `mod-product-chain` §8 与 `mod-community-license` §2。不并进 `0.3.11` / `0.4.0` / `0.4.1`。执行单 [`PLAN-0.3.12-mod-folder-scan-2026-10-20.md`](../plans/PLAN-0.3.12-mod-folder-scan-2026-10-20.md)。未落地前启动器仍按下面 0.3.11 的三个数字。
 - **0.3.11 已落地（2026-10-20，本地 tag `v0.3.11-rc.1` = `a728d4a`（点火）、`v0.3.11-rc.2` = `c7e5913`（启动器），rc.3 只清理（tag `v0.3.11-rc.3` 在 `85dc9e2`），未 push）**：点火不再为 local TTS 空等 600 秒、不再清理 Melo 子进程；`GET /` 与 `GET /index.html` 是启动器页（200；已注册数量只读；本次确认与本次拉起只在已编进二进制的 Mod 上改；预启动开关缺省关），加载动画结束后进入现有 `/app/`。只探测当前这一份 `[llm].base_url` 与 `[tts].base_url`，报告可达性，不改档、不写 toml；没有第二份地址，不恢复 `vendors.*`。工厂仍是 0。不并进 `0.4.0` / `0.4.1`。执行单 [`PLAN-0.3.11-launcher-2026-10-20.md`](../plans/PLAN-0.3.11-launcher-2026-10-20.md)，发布说明 [`docs/releases/v0.3.11-rc.3.md`](../releases/v0.3.11-rc.3.md)。
+- **0.3.12 已落地（2026-10-20，本地 tag `v0.3.12-rc.1` = `acc9ea4`（清单预检）、`v0.3.12-rc.2` = `28bfa69`（启动器「已发现」），rc.3 只清理（tag `v0.3.12-rc.3`），未 push）**：启动器只读扫描工作目录 `mods/<id>/mod.toml`（`GET /api/v1/mods/discovered`），显示已发现 / 不可用（带原因）；不执行 `entry` / `launch.program`、不 spawn、不把文件夹写进 `AVAILABLE_MOD_FACTORIES`（工厂仍 0），保留 id（`director`、`local-llm`、`wallpaper`、`pet-desktop`、`local-tts`）不可选。点「进入」：工厂仍走 0.3.11 的启停，可选文件夹**只记勾选**（写 `mods.json`，不启停）。不改 `mod-product-chain` §8 与 `mod-community-license` §2（仍是静态链接、不做动态 `.so`）。不并进 `0.3.11` / `0.4.0` / `0.4.1`。执行单 [`PLAN-0.3.12-mod-folder-scan-2026-10-20.md`](../plans/PLAN-0.3.12-mod-folder-scan-2026-10-20.md)，发布说明 [`docs/releases/v0.3.12-rc.3.md`](../releases/v0.3.12-rc.3.md)。
 - **多 Live2D（0.3.5）**：设置 → 模型库可加载本机 `model3`。唯一真源仍是
   `model_registry.json.active_id`；`GET /api/v1/app/status` 同时派生 `active_model_url`
   （空 = 无模型），不加 DisplayPrefs/localStorage 字段、不加端点。白模 `bai` 出厂
@@ -104,18 +104,29 @@
   旧行为（`[tts].mode=local` 时等 `GET {tts}/models` 最长 600 秒、超时退出 1）已删。
   `mode=cloud` 本来就不等 8091；现在 local 也不等。点火**不拉起任何 Mod**，也**不清理**
   用户自己拉起的 Melo 进程（只替换本服务的 `pkill live2d-ai-desktop --web`）。
-- **0.3.12 已派、未落地**：启动器将增加「已发现」文件夹清单（只校验 `mod.toml`，不执行）。落地前下面这一段仍是代码。执行单 [`PLAN-0.3.12-mod-folder-scan-2026-10-20.md`](../plans/PLAN-0.3.12-mod-folder-scan-2026-10-20.md)。
-- **`/` 是启动器页（0.3.11）**：`GET /` 与 `GET /index.html` 返回一页（200、`no-store`），
+- **0.3.12 已落地**：启动器增加「已发现」文件夹清单——只读工作目录
+  `mods/<id>/mod.toml`（`GET /api/v1/mods/discovered`），只校验、**不执行**
+  `entry` / `launch.program`、不 spawn，也不把文件夹写进 `AVAILABLE_MOD_FACTORIES`
+  （缺省工厂仍 0）。保留 id（`director`、`local-llm`、`wallpaper`、`pet-desktop`、
+  `local-tts`）不可选；扫描失败 / 单份清单无效不阻止启动，也不阻止进入 `/app/`。
+  执行单 [`PLAN-0.3.12-mod-folder-scan-2026-10-20.md`](../plans/PLAN-0.3.12-mod-folder-scan-2026-10-20.md)。
+- **`/` 是启动器页（0.3.11 / 0.3.12）**：`GET /` 与 `GET /index.html` 返回一页（200、`no-store`），
   `/app/` 与 `/app/*` 仍是现有 Flutter、直接打开不跳回。页面只做三件事：
-  - 三个数字全部由 `GET /api/v1/mods` 的列表算出（**没有数字输入框**）：**已注册**（只读条数）、
-    **本次确认**（勾选条数）、**本次拉起**（预启动开着时，勾选里的 `local-tts-melo` /
-    `local-engine` 条数）；工厂 0 时三个数字都是 0，仍可进入。
+  - 三个数字（**没有数字输入框**）：**已发现**（可选行条数 = 校验通过的文件夹 + 已编进
+    二进制的工厂；无效文件夹不计入，但列在下面并带原因）、**本次确认**（勾选条数）、
+    **本次拉起**（预启动开着时，勾选里的 `local-tts-melo` / `local-engine` **工厂**条数；
+    文件夹里的 `process` / `launcher` 本版不计入）。工厂 0 且没有文件夹时三个数字
+    都是 0，仍可进入。
+  - 文件夹行来自只读 `GET /api/v1/mods/discovered`；`mods.json` 里 `enabled = true`
+    的可选行**初始勾选**。「刷新」只重扫，不执行、不写盘。
   - **预启动**开关缺省关；拨动只改页面数字，不发请求、不写 `live2d-ai.toml` / `mods.json`。
-  - 点「进入」后播放加载动画，按勾选调用**现有**启停接口（预启动关时拉起类 id 一律 disable；
-    开且勾选才 enable），再对**当前这一份** `[llm].base_url` 与 `[tts].base_url` 各探测一次
-    （`GET {base_url}/models`，404 算可达、401/403 算鉴权失败、空地址不发请求），然后进入
-    `/app/`。探测**只报告、不改档**：不改 `mode` / `base_url`、不改本次进程出站端点、
-    不写 toml、不改 `.env`；没有「另一档」可探（`vendors.*` 不恢复）。
+  - 点「进入」后播放加载动画：工厂 id 按勾选调用**现有**启停接口（预启动关时拉起类
+    id 一律 disable；开且勾选才 enable）；可选文件夹 id **只把勾选写进 `mods.json`**
+    （`POST /api/v1/mods/discovered`，不 enable / disable、不 spawn，其余 id / 键原样
+    保留）。然后对**当前这一份** `[llm].base_url` 与 `[tts].base_url` 各探测一次
+    （`GET {base_url}/models`，404 算可达、401/403 算鉴权失败、空地址不发请求），
+    再进入 `/app/`。探测**只报告、不改档**：不改 `mode` / `base_url`、不改本次进程
+    出站端点、不写 toml、不改 `.env`；没有「另一档」可探（`vendors.*` 不恢复）。
     `0.3.9` 那条「**local 连不上不会偷偷切 cloud**」继续有效。
 - **缺省构建不挂 `local-tts-melo` Mod**，Melo 不会由主链自动拉起：本机出声要么按 §8 挂回该 Mod，要么自己准备 Melo 进程。点火不再等它，也不再替用户清理它。
 - **云端 / 本地两档（0.3.9 收束，原 0.3.4 多厂商）**：LLM 与 TTS 各一个模式开关，

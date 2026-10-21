@@ -65,7 +65,7 @@ cargo clippy --all-targets -- -D warnings
 
 ## 4. 缺省态与挂载步骤
 
-`0.3.11` 的启动器（已落地，见 [`PLAN-0.3.11-launcher-2026-10-20.md`](../plans/PLAN-0.3.11-launcher-2026-10-20.md)）只能勾选**已经编进本次二进制**的 id（工厂 0 时列表为空）；它不代替下面五步，也不能凭页面上的数字把 Mod 装进来。`0.3.12`（已派、未落地，见 [`PLAN-0.3.12-mod-folder-scan-2026-10-20.md`](../plans/PLAN-0.3.12-mod-folder-scan-2026-10-20.md)）只预检 `mods/<id>/mod.toml`，扫到文件夹仍不等于挂载。
+`0.3.11` 的启动器（已落地，见 [`PLAN-0.3.11-launcher-2026-10-20.md`](../plans/PLAN-0.3.11-launcher-2026-10-20.md)）只能勾选**已经编进本次二进制**的 id（工厂 0 时列表为空）；它不代替下面五步，也不能凭页面上的数字把 Mod 装进来。`0.3.12`（已落地，见 [`PLAN-0.3.12-mod-folder-scan-2026-10-20.md`](../plans/PLAN-0.3.12-mod-folder-scan-2026-10-20.md)）只预检 `mods/<id>/mod.toml`（只读、不执行、不 spawn）；**扫到文件夹不等于挂载**，挂载仍是下面五步（重新编译进二进制）。
 
 缺省提交里：`AVAILABLE_MOD_FACTORIES` 为空（工厂 **0**），`default_mods_manifest` 的
 `mods` 为空对象——**一个 Mod 都不启用**（`external-input` / `local-tts-melo`
