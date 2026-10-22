@@ -25,6 +25,8 @@ pub struct ModelRendererCore {
     gpu: Arc<GpuContext>,
     renderer: InnerRenderer,
     stack: PoseStack,
+    /// 嘴张开的写入名单（装载时按 `Groups` / `ParamMouthOpenY` 定，见 [`Self::load_model`]）。
+    mouth_ids: Vec<String>,
     /// 逻辑变换（Layout × 整画布；不含视口 aspect 修正）。
     transform: Affine2,
     /// 视口尺寸（mask 与之 1:1；aspect 修正按此计算）。
@@ -41,6 +43,7 @@ impl ModelRendererCore {
             gpu,
             renderer,
             stack: PoseStack::from_pose_map(Arc::new(ayagami::pose::PoseMap::new())),
+            mouth_ids: Vec::new(),
             transform: Affine2::IDENTITY,
             viewport: (1, 1),
             colorspace: RenderColorspace::SRgb,
@@ -77,6 +80,17 @@ impl ModelRendererCore {
         self.stack.clear_override_parameter(id)
     }
 
+    /// 按装载时定下的名单写嘴张开值（input 层；返回值一律丢掉）。
+    ///
+    /// 名单 = [`Self::load_model`] 里 `mouth_write_ids` 的结果：模型 `Groups` 的
+    /// `LipSync` 优先，组空才回落 `ParamMouthOpenY`。名单为空就一笔都不写；
+    /// 多个 id 写同一个值。逐字段借用（`self.mouth_ids` × `self.stack`），不克隆名单。
+    pub fn set_mouth_open(&mut self, value: f32) {
+        for id in &self.mouth_ids {
+            self.stack.set_parameter(id, value);
+        }
+    }
+
     /// 待机开关（默认 `true`）：转发给 [`PoseStack::set_idle_enabled`]。
     /// false 时 idle 层停写呼吸正弦与 `ParamAngleZ` 的 ±3° 摆头。
     pub fn set_idle_enabled(&mut self, enabled: bool) {
@@ -106,6 +120,14 @@ impl ModelRendererCore {
         // 确定性初始姿态：先同步一次合成结果（含物理 settle 输出）。
         let initial = self.stack.finalize();
         self.renderer.driver().apply_pose(&initial);
+
+        // 口型写入名单只在**装载成功路径末尾**写：首次装载与成功换模共用
+        // `load_model`，于是第一张皮（bai）也有名单；`load_fresh` 失败时新 core 被
+        // 丢掉，旧 core 的名单一个字段都没被碰过。
+        self.mouth_ids = crate::asset::lip_sync::mouth_write_ids(
+            &loaded.package().manifest().lip_sync_ids,
+            loaded.handle().has_parameter("ParamMouthOpenY"),
+        );
         Ok(())
     }
 

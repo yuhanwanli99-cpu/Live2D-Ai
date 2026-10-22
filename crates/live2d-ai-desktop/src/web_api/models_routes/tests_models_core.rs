@@ -306,6 +306,8 @@ fn stored_manifest_constructed_from_package_manifest() {
         physics_file: Some("phys.json".into()),
         display_info_file: None,
         layout,
+        // 口型名单装载时从 model3 重新解析，不持久化（StoredManifest 没有这个字段）。
+        lip_sync_ids: Vec::new(),
     };
     let sm = StoredManifest::from(&pm);
     assert_eq!(sm.version, 3);

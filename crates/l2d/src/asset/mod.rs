@@ -25,6 +25,7 @@
 //! 磁盘缺失 → [`LoadError::Io`]；内存映射缺失 → [`LoadError::MissingResource`]；
 //! 不做任何推断或降级。
 
+pub(crate) mod lip_sync;
 mod manifest;
 mod report;
 
@@ -127,6 +128,13 @@ pub struct PackageManifest {
     pub display_info_file: Option<String>,
     /// `Layout` 构图框（缺省整画布）。
     pub layout: LayoutBox,
+    /// model3 `Groups` 里 `Target == "Parameter"` 且 `Name == "LipSync"` 的 `Ids`
+    /// （按出现顺序拼接）。
+    ///
+    /// 只是**解析结果**，不含 `ParamMouthOpenY` 回落——回落要等 moc3 装载后由
+    /// `mouth_write_ids` 结合模型实际参数决定（见
+    /// [`crate::renderer::ModelRendererCore::load_model`]）。
+    pub lip_sync_ids: Vec<String>,
 }
 
 /// 已加载的 model3 皮套包：清单 + 各文件字节。
@@ -232,6 +240,7 @@ impl ModelPackage {
                 physics_file: refs.physics.clone(),
                 display_info_file: refs.display_info.clone(),
                 layout: LayoutBox::from_json(json.get("Layout")),
+                lip_sync_ids: lip_sync::lip_sync_ids(&json),
             },
             base_dir,
             moc3_bytes,
