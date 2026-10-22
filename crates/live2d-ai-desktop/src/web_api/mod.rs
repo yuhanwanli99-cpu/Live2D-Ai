@@ -523,6 +523,10 @@ pub fn start_server(ctx: ServerContext, port: u16) -> std::io::Result<tiny_http:
     // 0.4.0 rc.1：Windows 包在监听成功后自开启动器页（只有生产 --web 会 arm）。
     #[cfg(windows)]
     crate::browser::open_launcher_after_listen(port);
+    // 0.4.3 rc.2：`--desk-pet` 的宠物窗——**bind 成功且已打印「已监听」之后**才开
+    // （只有生产 `--desk-pet` 进程会 arm）。非 Windows 是空实现；窗口失败只记
+    // `tracing::error!`，HTTP 服务继续、退出码不变。**真实窗口未验**。
+    crate::desk_pet::start_if_armed();
 
     // **D-P0B**：把监听端口注入 ctx.security；`allow_no_origin` 走环境变量
     // `LIVE2D_AI_ALLOW_NO_ORIGIN`（caller 已在 ctx 里设的 flag 保留）。

@@ -41,6 +41,10 @@ mod audio;
 #[cfg(windows)]
 mod browser;
 mod cli;
+/// 0.4.3 rc.2：桌宠 demo（`--desk-pet`）的分层窗。本模块平台无关（纯函数 + 单测）；
+/// 真正的 Win32 代码在 `desk_pet/window.rs` 与 `desk_pet/win32.rs`，只
+/// `#[cfg(windows)]` 编译。**真实窗口未验**。
+mod desk_pet;
 /// 0.4.0 rc.1：Windows 文件夹子进程的 Job Object（KILL_ON_JOB_CLOSE）。
 #[cfg(windows)]
 mod folder_job;
@@ -178,12 +182,15 @@ fn main() -> ExitCode {
             ExitCode::from(web_api::cli_entry::run_web_mode(port, dev_mode))
         }
         cli::Command::DeskPet { port, dev_mode } => {
-            // 0.4.3 rc.1：`--desk-pet` 隐含 `--web`。本笔**只做参数解析与非
-            // Windows 拒绝**（拒绝发生在 cli 层，走不到这里），执行与 Web 相同；
-            // 宠物窗在 0.4.3 rc.2 加——本笔还没有 `desk_pet` 模块，**不要**在这里
-            // 调 `desk_pet::arm()`。非 Windows 分支实际不可达（parse_args 已拒绝）。
+            // 0.4.3 rc.2：`--desk-pet` 隐含 `--web`——服务照常起（监听失败就不开窗，
+            // 见 `web_api::start_server` 里 bind 成功之后的 start_if_armed），旁边
+            // 再开一扇只画皮套的分层窗。非 Windows 的 `--desk-pet` 在 cli 层就被拒
+            // （退出码 2），走不到这里；`desk_pet` 本身平台无关，arm 与线程启动都
+            // 在模块内按 `cfg(windows)` 分叉。
             #[cfg(windows)]
             browser::arm();
+            #[cfg(windows)]
+            desk_pet::arm();
             ExitCode::from(web_api::cli_entry::run_web_mode(port, dev_mode))
         }
     }
