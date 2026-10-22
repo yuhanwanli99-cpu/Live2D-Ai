@@ -45,6 +45,7 @@
 - **2026-10-20 `0.3.11` 已落地**（不并进 `0.4.0` / `0.4.1`）：[`PLAN-0.3.11-launcher-2026-10-20.md`](PLAN-0.3.11-launcher-2026-10-20.md)。`GET /` 与 `GET /index.html` 改为启动器页（200），加载动画后进 `/app/`；点火撤掉 local TTS 的 600 秒空等、不再清理 Melo 子进程；探测当前 `[llm]` / `[tts]` 地址只报告不改档。工厂仍 0。上一句「拆仓不编 `0.3.11`」只约束那次拆仓。
 - **2026-10-20 `0.3.12` 已落地**（不并进 `0.3.11` / `0.4.0` / `0.4.1`）：[`PLAN-0.3.12-mod-folder-scan-2026-10-20.md`](PLAN-0.3.12-mod-folder-scan-2026-10-20.md)。只预检文件夹清单，不执行、不 spawn；点进入只记勾选。工厂仍 0。
 - **2026-10-21 `0.3.13` 已落地**（不并进 `0.3.12` / `0.4.0` / `0.4.1`）：[`PLAN-0.3.13-folder-spawn-2026-10-21.md`](PLAN-0.3.13-folder-spawn-2026-10-21.md)。勾选的文件夹在进入时启动清单里的程序；扫描与刷新仍不执行。工厂仍 0。
+- **2026-10-22 `0.3.14` 已落地**（不并进 `0.3.13` / `0.4.0` / `0.4.1`）：[`PLAN-0.3.14-playback-queue-2026-10-22.md`](PLAN-0.3.14-playback-queue-2026-10-22.md)。下一条弹幕等浏览器播完再单独说；动作按句留下，不整表清掉。工厂仍 0。发布说明 [`v0.3.14-rc.3.md`](../releases/v0.3.14-rc.3.md)。
 
 ## 版本序列
 
@@ -65,6 +66,7 @@
 | `0.3.11` | 点火 / 启动器 | **已落地**（2026-10-20，`v0.3.11-rc.1`…`rc.3`，未 push）。`/` 与 `/index.html` 改为启动器页，加载动画后进 `/app/`；点火不再空等本地 TTS、不清理 Melo 子进程；探测当前地址只报告不改档。工厂仍 0。不并进 `0.4.0` |
 | `0.3.12` | 清单预检 | **已落地**（2026-10-20，`v0.3.12-rc.1`…`rc.3`，未 push）。只读 `mods/<id>/mod.toml`，启动器显示已发现 / 不可用；不执行、不 spawn，点进入只记勾选。工厂仍 0。不并进 `0.4.0` |
 | `0.3.13` | 文件夹启动 | **已落地**（2026-10-21，`v0.3.13-rc.1`…`rc.3`，未 push）。勾选的 `process` / `with_app` 在进入时启动；扫描与刷新不执行。不并进 `0.3.12` / `0.4.0` |
+| `0.3.14` | 播放队列 | **已落地**（2026-10-22，`v0.3.14-rc.1`…`rc.3`，未 push）。弹幕等播完再逐条注入；cue 按句合并。不并进 `0.3.13` / `0.4.0` |
 | `0.4.0` | 4 | **deferred**（WSL2 访问 Windows 吃力、本机内存不允许时机点火测试）。Windows 上跑同一套 `--web` 二进制。真实窗口/点火未验 |
 | `0.4.1` | 3 | **deferred**（同上）。桌面透传的复杂 Mod，新的点击穿透真实窗口。真实窗口/点火未验 |
 
@@ -92,80 +94,9 @@
 改了什么、测试命令和结果、`code-stats --check` 的 docs 行数与 `>500` 文件数、浏览器看过没有。
 缺一项就不算可以验收。
 
-## 0.3.1-rc.2 基线拆分 + 工程清债（2026-10-17 新增）
+## 已落地版本的实施正文
 
-只做拆分与工程清债，**零产品行为变化**；一次本地提交。
-
-- 脏树：本文件与现有 docs 改动随本版提交，工作树恢复干净。
-- docs 余量：按 `docs/DOC-MAP.md` §2 移出历史文档，目标腾 ≥1,000 行；不调 `DOCS_BUDGET_LINES`，不删活文档，不碰「保持原样」清单。
-- `>500`：42 → ≤38；不新增 `>500`；`>1000` 保持 0。优先拆后续版本会碰的文件；不拆 `live2d-ai-mod-director/src/lib.rs`。
-- 大测试文件按 ≤800 行纪律机械拆分。
-- 工程清债：清理 tracked 备份/临时文件，修正 DOC-MAP/README 索引与移动后的引用；不做行为/协议改动。
-- 每个 rc 换全新 agent 团队；rc2 先出清单，Lead/维护者过目后再动文件。
-
-## 0.3.2-rc.1 手势到期放回（原 0.3.1-rc.3）
-
-导演仍是 Mod。`mod_count_is_six` 仍是 6。不新增预设，不改 `assets/actions/presets.json`，不改 `PRESET_IDS`，不改导演选包。
-
-手势槽时间到，原先在 `crates/l2d-wasm-demo/src/preset/mod.rs` 的 `apply_frame` 里直接 `clear_spec_overrides` 并把槽设成 `None`；`0.3.2-rc.1` 起改成与 `Revoke` 同一条 `Release`：从这一帧屏幕上的值放回 0，时长 `ttl_ms × (1 - HOLD_END)`，走满才清槽。表情槽到期仍立即清。呼吸、眨眼、`BODY_LAG`、`ATTACK_END`、`HOLD_END`、同槽接力不动。
-
-先让「手势到期立即清」的测试变红，再改绿。表情到期立即清的测试保持绿色。放回时长与现有撤销测试同一口径。逻辑若会把 `preset/mod.rs` 撑过 1000 行，同一版挪进 `release.rs`。
-
-本版的「更流畅」就是这一处硬切。更多动作不在本版。
-
-## 0.3.2-rc.2 第二路并入核心（原 0.3.1-rc.4）
-
-第二路按句清洗、按这一句原文出动作，从导演 Mod 挪进主链。调用仍是按句一次。失败回退按句规则表，规则表跟着挪进主链，然后再让 Mod 停止发 `action_cue`。
-
-- **常驻开启，不设关闭开关**。设置项仍走现有「保存并重载」，进程不重启。**退休无导演的那条链路**：删除 off 分支与「关上不出动作」路径。
-- 常驻生效：这一句原文上屏、送口型、并据它出动作。依据是这一句原文，不是用户输入。
-- `[performance].enabled` 保持缺省关，并且不再另写一套 cue。写 cue 的只留主链这一处。
-- 开 `[performance].enabled` 只接管 `segments` / `speak`；动作仍按每段原文走核心规则表（不是无动作），表演层 cues 不投递。
-- 不新建 Mod。不接 `action_tx`。不增加第四次 LLM 调用。
-- 导演 crate 留在 workspace，退出 `AVAILABLE_MOD_FACTORIES`，不再投递。同一提交把 `mod_count_is_six` 改成实际工厂数（5）。禁止用挂回已删 Mod 凑数。
-- 导演卡从「设置 → 扩展 → 导演」搬到**设置一级「导演」**：常驻开启状态、幅度滑条、`dev_mode` 下的可观测；**删除启用开关**。八个隐藏键继续隐藏。不搬回外观，也不搬到核心开发页。
-- 缺省启用仍是 `external-input` 与 `local-tts-melo`。
-- `AGENTS.md` 的历史段落一行不改。现行事实改 `docs/architecture/CURRENT.md`。
-- 已知债：`director/tests.rs` 841>800（0.3.2-rc.2 未拆，下一拆分版处理）；开表演层时规则 cue 按段一次（段可多句），CURRENT 已写；A 栏已降级静态。
-
-## 0.3.3 分仓库（原 0.3.1-rc.5，2026-10-17 落号）
-
-在 0.3.2-rc.2 的工厂集合上拆：`external-input`、`persona`、`voice-input`、`memory`、`local-tts-melo`。
-
-主仓留下：`l2d`、`l2d-wasm-demo`、`live2d-ai-core`、`live2d-ai-runtime`、`live2d-ai-desktop`、`xtask`、`shell/flutter`、白模资源、`live2d-ai-mod-system`，以及退役的 `live2d-ai-mod-director`（desktop 仍用 `motion_bias`）与 `live2d-ai-mod-template`（脚手架）。
-第二个仓库（`/home/skystar/Live2D-Ai-mods`）留下上述五个 Mod 实现，含 `local-tts` 的 `melo/` 与已封存 `engine/`。协议、WS 帧、缺省启用集合不变。Mod 拿不到密钥的值，不写 `[tts]` / `[llm]`，不接 `action_tx`。
-
-**实施落点**：主仓根 `[workspace.dependencies]` 五条 `path = "../Live2D-Ai-mods/crates/..."`，desktop 用 `workspace = true`，members 删五项；第二仓独立 workspace（`version = "0.3.1"` / edition 2024 / rust-version 1.92），Mod 反向 path 指主仓 `mod-system` / `runtime`。主仓**不再 standalone**，切换计划见 `docs/architecture/two-repo-mods.md`。
-
-第二仓本地 commit：`0ad5534`（72 files / 21,699 insertions；checkpoint LFS 指针 134 B）。
-
-**密钥偏差 S2**：`external-input` / `memory` 仍各自调用 `runtime::secrets::lookup` 读 `.env` 快照，不新增暴露、不重做 `ModServices` secret 代理；S1 计划同见该文档 §5。
-
-执行 agent 交到本地两个树能编过、测试能跑。不要自己建公开远端，不要推第二个仓库。公开远端在本版验收时由维护者点头再做。本轮只做两个本地提交，未 push、未打 tag。
-
-## 0.3.4 多 TTS / 多 LLM + spawn-only local-engine
-
-协议仍是核心里的一个当前 `[tts]` 和一个当前 `[llm]`。本版加的是厂商选择：前端和后端都能在已配置的厂商之间切换当前端点。同一时刻仍只有一个对话端点、一个合成端点在出声。主链继续无工具。
-
-本地引擎是**新** Mod，只 `spawn` 进程，不写端点、不探活、不在挂掉时换地址。挂掉留在 Mod 状态里。出厂拉起进程的仍是 `local-tts-melo`。不要挂回 `local-llm` 和 CosyVoice `local-tts`。
-分仓库已经落地的话，新 Mod 生在 Mod 仓库。工厂数断言在同一提交里改。
-第二仓本地 commit：`454dc87`（12 files / 1,708 insertions；仅消息 amend，内容不变）。
-
-不改本机 `live2d-ai.toml`。示例文件的 `channels` 保持 1。
-
-## 0.3.8 一路 LLM 暴露 A2A（原队列 5，2026-10-18 落号）
-
-> **2026-10-18 已验收。** HEAD `16bbfad`，本地 tag `v0.3.8-rc.1`…`rc.3`，未 push。隐藏 `local-engine` 是 `ac8a3e9`，无 tag。
-> 真机补验执行单：[`PLAN-0.3.8-verify-pi-browser-2026-10-18.md`](PLAN-0.3.8-verify-pi-browser-2026-10-18.md)。本机没有 Pi，从 GitHub `earendil-works/pi` 克隆。真 Ollama 本轮不做，记为 3.0 遗留，不写入 `0.4.0` 的功能范围。
-
-执行单：[`PLAN-0.3.8-a2a-and-local-engine-2026-10-18.md`](PLAN-0.3.8-a2a-and-local-engine-2026-10-18.md)。`local-engine` 的处置在同一张单里，但是另一次无 tag 提交：界面隐藏，不注销，不算 `0.3.8`。
-
-一块功能，编号 `0.3.8`。不并进 `0.4.0` / `0.4.1`。`rc.z` 由执行 agent 按代码拆，最后一个 `rc.(z+1)` 只清这一块。本地提交 + 附注 tag，不 push。`Cargo.toml` 仍不随 rc 改。
-
-- 对外：把**当前这一路** `[llm]` 暴露成 A2A agent。外部 agent 调的就是这份已配置端点（含 `mode = cloud | local`）。不新增第二套对话模型，不内置推理运行时，不挂回已删的 `local-llm`。
-- 对内：皮套回合仍是纯对话。句子装配、TTS、口型、`action_cue` 不插入工具调用。模型在这一回合里不调工具，工具结果不写进台词。
-- 密钥仍只走 `.env` / `secrets::lookup`。A2A 响应不回 key 值。
-- 真远端 agent 与真 Ollama 未装时，验收标「未验」，用 mock 守协议形状。
+`0.3.1-rc.2` 到 `0.3.8` 的实施细则已从本文件撤下，用来给文档预算腾出 0.3.14 执行单。原文在 `c251f11`：`git show c251f11:docs/plans/PROMPT-3.0-motion-first-2026-10-17.md`。现状以本文件的版本表和 `CURRENT.md` §2 为准。
 
 ## 0.4.0 Windows（原 v0.3.5）
 
