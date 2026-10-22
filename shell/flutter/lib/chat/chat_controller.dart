@@ -87,6 +87,8 @@ class ChatController extends ChangeNotifier {
   bool _streaming = false;
   String? _error;
 
+  UserLineAction? _lastUserLine; // 最近一帧 user_line 的结论（见 _onUserLine）。
+
   /// 最近一次 [send] 是否**本地失败**（网络/解析/非 2xx，或 200 但未受理）。
   ///
   /// 不能只看 [error]：服务端 `error` 帧也写 [_error]，而那时本轮**仍在飞**
@@ -120,6 +122,7 @@ class ChatController extends ChangeNotifier {
   int? _audioEpoch;
 
   bool get streaming => _streaming;
+  UserLineAction? get lastUserLineAction => _lastUserLine;
   String? get error => _error;
 
   /// 最近一次错误的机器码（见 [_errorCode]）。
@@ -273,19 +276,18 @@ class ChatController extends ChangeNotifier {
     return true;
   }
 
-  /// `user_line` 到达：把服务端广播回来的**这一轮输入正文**写进当前会话。
-  ///
-  /// 判据是纯函数 [userLineAction]（VM 可测，来历见该文件的枚举注释）：弹幕
-  /// （[kDanmakuPrefix] 前缀）→ 系统行；没轮在飞 → 复用 [acceptInjectedUserTurn]；
-  /// 就是上一条 → 跳过；另一句 → 只追加用户气泡。
+  /// `user_line` 到达：把这一轮输入正文写进当前会话（判据 [userLineAction]）。
+  /// 结论留给 [lastUserLineAction]：壳在本控制器之后监听，重算会把「已接受」算成重复。
   void _onUserLine(String? text) {
     final String body = (text ?? '').trim();
-    switch (userLineAction(
+    final UserLineAction action = userLineAction(
       turnInFlight: _turnInFlight,
       text: text,
       lastUserText: lastUserText(messages),
       lastMessageText: messages.isEmpty ? null : messages.last.text,
-    )) {
+    );
+    _lastUserLine = action;
+    switch (action) {
       case UserLineAction.acceptInjected:
         acceptInjectedUserTurn(body);
       case UserLineAction.appendOnly:

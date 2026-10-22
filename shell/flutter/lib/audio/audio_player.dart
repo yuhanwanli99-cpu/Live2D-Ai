@@ -241,6 +241,7 @@ class AudioPlayer {
     _queue.clear();
     _stopTicker();
     _emitLevel(0);
+    _syncPending();
   }
 
   /// 队列里**还有没有**没播完的句子（正在播的那一句也算）。
@@ -250,6 +251,22 @@ class AudioPlayer {
   /// 排着几句，那是**唯一**还记得这件事的地方。
   bool get hasPending => !_queue.isEmpty;
 
+  /// [hasPending] 的**变化通知**（0.3.14：`POST /api/v1/playback` 与按句 cue 清理）。
+  ///
+  /// 只镜像上面那**一个**事实（值 = 此刻的 [hasPending] 读数），由 [_syncPending]
+  /// 在入队 / 收尾 / 打断之后各对齐一次。**不参与调度**：播放、口型、WAV、
+  /// duration 一条都没变——监听者只读不写。
+  final ValueNotifier<bool> pendingState = ValueNotifier<bool>(false);
+
+  /// 把 [pendingState] 对齐到队列事实（值没变就不通知）。
+  ///
+  /// `dispose` 之后不再写：`ValueNotifier` 销毁后再赋值会触发断言。
+  void _syncPending() {
+    if (_disposed) return;
+    final bool pending = hasPending;
+    if (pendingState.value != pending) pendingState.value = pending;
+  }
+
   void dispose() {
     if (_disposed) return;
     interrupt();
@@ -258,6 +275,7 @@ class AudioPlayer {
     unawaited(_sentenceStarts.close());
     unawaited(_stageClock.close());
     unlockState.dispose();
+    pendingState.dispose();
   }
 
   // ───────────────────────────── 播放队列（串行） ─────────────────────────────
@@ -268,6 +286,7 @@ class AudioPlayer {
     // 会一股脑涌上来。
     final _Playback item = _create(sentence) ?? _Playback(sentence: sentence);
     _queue.add(item);
+    _syncPending();
     _startNextIfIdle();
   }
 
@@ -405,6 +424,7 @@ class AudioPlayer {
       _release(item);
     }
     if (_queue.isEmpty) _stopTicker();
+    _syncPending();
   }
 
   /// 释放一句占用的一切：暂停、摘 DOM、**revoke blob URL**。

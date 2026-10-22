@@ -27,7 +27,7 @@ void main() {
     () async {
       // 计划里先放一条真 cue：取消必须把它清掉。
       final DirectorCuePlan plan = DirectorCuePlan();
-      plan.replace(<ActionCue>[
+      plan.upsert(<ActionCue>[
         const ActionCue(
           sentenceSeq: 2,
           presetId: 'nod',
@@ -41,7 +41,7 @@ void main() {
       final List<String> calls = <String>[];
       final StageCancellation canceller = StageCancellation(
         clearCuePlan: (String reason) {
-          plan.replace(const <ActionCue>[]);
+          plan.clear();
           calls.add('clear-cue-plan:$reason');
         },
         revokeStage: (String reason) => calls.add('revoke-stage:$reason'),
@@ -140,9 +140,9 @@ void main() {
       reason: '四个出口必须在组合根注入（顺序由纯逻辑钉住）',
     );
     expect(
-      main.contains('_directorCues.replace(const <ActionCue>[])'),
+      main.contains('_directorCues.clear()'),
       isTrue,
-      reason: 'clearCuePlan 的实体 = 清空 action_cue 计划',
+      reason: 'clearCuePlan 的实体 = 清空 action_cue 计划（0.3.14 起是 clear）',
     );
     expect(
       main.contains("applyPreset('none', source: reason)"),

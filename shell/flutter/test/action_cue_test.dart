@@ -10,6 +10,7 @@ import 'package:live2d_ai_shell/live2d/live2d_bridge.dart';
 import 'package:live2d_ai_shell/live2d/live2d_stage.dart';
 import 'package:live2d_ai_shell/live2d/live2d_transport.dart';
 import 'support/dart_library.dart';
+import 'support/source_scan.dart';
 
 /// 只记录发出去的帧（与 `live2d_bridge_test.dart` 同形；协议级断言用）。
 class _FakeTransport implements Live2DTransport {
@@ -157,7 +158,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       final DirectorCuePlan plan = DirectorCuePlan();
-      plan.replace(ev.cues); // = main.dart 收到 ActionCueEvent 做的事
+      plan.upsert(ev.cues); // = main.dart 收到 ActionCueEvent 做的事
       int calls = 0;
       Future<void> apply(ActionCue cue) async {
         calls += 1;
@@ -189,7 +190,7 @@ void main() {
       await bridge.destroy();
     });
 
-    test('同 seq 重复帧只应用一次（整表替换 + 取用即移除，阶段3 §6.2）', () async {
+    test('同 seq 重复帧只应用一次（按句覆盖 + 取用即移除，阶段3 §6.2）', () async {
       const ActionCue none = ActionCue(
         sentenceSeq: 7,
         presetId: 'none',
@@ -198,9 +199,9 @@ void main() {
         priority: 0,
       );
       final DirectorCuePlan plan = DirectorCuePlan();
-      plan.replace(<ActionCue>[none]); // 第一帧
-      plan.replace(<ActionCue>[none]); // 同 seq 重复帧
-      plan.replace(<ActionCue>[none, none]); // 一份 plan 里同 seq 多条
+      plan.upsert(<ActionCue>[none]); // 第一帧
+      plan.upsert(<ActionCue>[none]); // 同 seq 重复帧
+      plan.upsert(<ActionCue>[none, none]); // 一帧里同 seq 多条
       expect(plan.length, 1, reason: '同 seq 的重复帧被 map 语义吃掉，不会累积');
 
       final List<String> applied = <String>[];
@@ -215,27 +216,63 @@ void main() {
       expect(plan.length, 0, reason: '取用即移除');
     });
 
-    test('preset_id 空串 = 本轮不动；cues:[] = 清空也不动；普通预设照常', () async {
+    test('preset_id 空串 = 本轮不动；普通预设照常', () async {
       final DirectorCuePlan plan = DirectorCuePlan();
       int calls = 0;
       Future<void> apply(ActionCue cue) async {
         calls += 1;
       }
 
-      plan.replace(cueFrame(2, '').cues);
+      plan.upsert(cueFrame(2, '').cues);
       await plan.applyForSeq(2, apply);
       expect(calls, 0, reason: '空串仍是「本轮不动」——既不撤销也不下发');
 
-      plan.replace(<ActionCue>[]);
-      expect(plan.length, 0, reason: '空 cues = 清空计划 = 本轮不动');
-      await plan.applyForSeq(2, apply);
-      expect(calls, 0);
-
-      plan.replace(cueFrame(3, 'nod').cues);
+      plan.upsert(cueFrame(3, 'nod').cues);
       await plan.applyForSeq(3, apply);
       expect(calls, 1, reason: '普通预设照常下发');
       await plan.applyForSeq(null, apply);
       expect(calls, 1, reason: 'seq 为 null 一律安静丢弃');
+    });
+
+    // 0.3.14（执行单 §测试）：逐句覆盖取代整表替换——后一帧不得丢掉还没开播的句。
+    test('seq 2 还在时 upsert seq 3：seq 2 仍可取用', () async {
+      final DirectorCuePlan plan = DirectorCuePlan();
+      plan.upsert(cueFrame(2, 'nod').cues);
+      plan.upsert(cueFrame(3, 'smile').cues);
+      expect(plan.length, 2, reason: '不同 seq 各留一条（整表替换时代只剩 3）');
+
+      final List<String> applied = <String>[];
+      Future<void> apply(ActionCue cue) async => applied.add(cue.presetId);
+      await plan.applyForSeq(2, apply);
+      expect(applied, <String>['nod'], reason: 'seq 2 还在：必须仍能取到并下发');
+      expect(plan.length, 1, reason: '只取走 seq 2，seq 3 留着');
+      await plan.applyForSeq(3, apply);
+      expect(applied, <String>['nod', 'smile']);
+      expect(plan.length, 0);
+    });
+
+    test('同 seq 后一条覆盖前一条（留最后一条）', () async {
+      final DirectorCuePlan plan = DirectorCuePlan();
+      plan.upsert(cueFrame(4, 'nod').cues);
+      plan.upsert(cueFrame(4, 'none').cues);
+      expect(plan.length, 1);
+      final List<String> applied = <String>[];
+      await plan.applyForSeq(4, (ActionCue cue) async => applied.add(cue.presetId));
+      expect(applied, <String>['none'], reason: '同 seq 留最后一条');
+    });
+
+    test('空列表 upsert = no-op（不清空）；clear 之后长度为 0', () async {
+      final DirectorCuePlan plan = DirectorCuePlan();
+      plan.upsert(cueFrame(2, 'nod').cues);
+      plan.upsert(const <ActionCue>[]);
+      expect(plan.length, 1, reason: '空 cues 不得清掉别的 seq（no-op，不是清空）');
+
+      plan.clear();
+      expect(plan.length, 0, reason: 'clear = 整份作废');
+
+      int calls = 0;
+      await plan.applyForSeq(2, (ActionCue cue) async => calls += 1);
+      expect(calls, 0, reason: '清掉之后再开始播放也不得应用');
     });
 
     test('源码级断言：lib/ 不存在「读 director 状态面 + applyPreset」通道 B', () {
@@ -282,9 +319,9 @@ void main() {
       final String main = readLibrarySource('lib/main.dart');
       expect(main.contains('ActionCueEvent'), isTrue);
       expect(
-        main.contains('_directorCues.replace(event.cues)'),
+        main.contains('_directorCues.upsert(event.cues)'),
         isTrue,
-        reason: 'action_cue 到达必须整表替换当前计划',
+        reason: 'action_cue 到达必须按 sentence_seq 覆盖（0.3.14；整表替换已删）',
       );
       expect(main.contains('sentenceStarts'), isTrue,
           reason: '锚点必须是「该句音频开始播放」（与声音同拍）');
@@ -304,6 +341,140 @@ void main() {
             .contains('DirectorPresetGate'),
         isFalse,
         reason: 'W4 的 gate 三件套已从 live2d_stage.dart 删除',
+      );
+    });
+
+    // 0.3.14（执行单 §行为 / §测试）：更新只有一条路（按句 upsert），清空只在
+    // 六个触发点。源码扫描面走 readLibrarySource（main.dart 的 parts 一并扫到）。
+    test('源码级断言（0.3.14）：只按句 upsert；clear 只在六个触发点', () {
+      final String lib = stripCommentsAndStrings(
+        readLibrarySource('lib/main.dart'),
+      );
+
+      // ① 整表替换彻底退役：计划类里没有 replace，接线也不许再调它。
+      expect(
+        readLibrarySource('lib/live2d/director_cue_plan.dart')
+            .contains('void replace('),
+        isFalse,
+        reason: '更新只有 upsert 一条路（整表替换会把还没开播的句子丢掉）',
+      );
+      expect(
+        lib.contains('_directorCues.replace'),
+        isFalse,
+        reason: '_directorCues 不得再用整表替换',
+      );
+
+      // ② 非 baseline 的 action_cue → upsert；baseline 立即应用 + 清计划。
+      final String cueBranch = balancedFrom(
+        lib,
+        'if (event is ActionCueEvent)',
+        '{',
+        '}',
+      );
+      expect(cueBranch.contains('_directorCues.upsert(event.cues)'), isTrue);
+      final String baseline = balancedFrom(
+        cueBranch,
+        'if (event.baseline)',
+        '{',
+        '}',
+      );
+      expect(
+        baseline.contains('_directorCues.clear()'),
+        isTrue,
+        reason: 'baseline 是取消信号：还没开播的按句计划一并作废',
+      );
+      expect(
+        baseline.contains('_applyBaselineCues('),
+        isTrue,
+        reason: 'baseline 仍立即应用到舞台（不进按句 map）',
+      );
+      expect(
+        baseline.contains('upsert'),
+        isFalse,
+        reason: 'baseline 不写入按句计划',
+      );
+
+      // ③ 停止（StageCancellation 的 clearCuePlan 实体）。
+      final String cancel = balancedFrom(lib, 'StageCancellation(', '(', ')');
+      expect(
+        cancel.contains('_directorCues.clear()'),
+        isTrue,
+        reason: '停止 / 新消息必须清计划',
+      );
+
+      // ④ new_epoch（判据复用既有纯函数 mustInterruptAudio）。
+      expect(
+        lib.contains('if (mustInterruptAudio(event)) _directorCues.clear();'),
+        isTrue,
+        reason: 'new_epoch = 上一轮作废 ⇒ 清计划',
+      );
+
+      // ⑤ 换模成功。
+      final String swap = balancedFrom(
+        lib,
+        'void _onStageModelSwapped(',
+        '{',
+        '}',
+      );
+      expect(
+        swap.contains('_directorCues.clear()'),
+        isTrue,
+        reason: '旧 cue 不得落到新模型',
+      );
+
+      // ⑥ 被接受的新 user_line：三种「接受」都清，重复帧 / 空文本不清。
+      final String userLine = balancedFrom(
+        lib,
+        'void _onUserLineCueBoundary()',
+        '{',
+        '}',
+      );
+      for (final String accepted in <String>[
+        'case UserLineAction.acceptInjected:',
+        'case UserLineAction.appendOnly:',
+        'case UserLineAction.appendSystem:',
+      ]) {
+        expect(userLine.contains(accepted), isTrue, reason: '$accepted 必须清计划');
+      }
+      final int clear = userLine.indexOf('_directorCues.clear()');
+      expect(
+        clear,
+        greaterThan(userLine.indexOf('case UserLineAction.acceptInjected:')),
+        reason: '三种「被接受」共用同一个清点',
+      );
+      expect(
+        clear,
+        lessThan(userLine.indexOf('case UserLineAction.skipDuplicate:')),
+        reason: '重复帧不得清计划（clear 不得落到重复 / 空文本分支）',
+      );
+      expect(
+        lib.contains('_chat.lastUserLineAction'),
+        isTrue,
+        reason: '判据只在控制器的决策点算一次：壳晚于它，重算会把「已接受」算成重复',
+      );
+
+      // ⑦ 播放从忙变闲、且聊天不在 streaming。
+      final String idle = balancedFrom(
+        lib,
+        'void _onPlaybackPendingChanged()',
+        '{',
+        '}',
+      );
+      expect(
+        idle.contains('_playbackReporter.report(busy)'),
+        isTrue,
+        reason: 'hasPending 翻转必须静默上报 /api/v1/playback',
+      );
+      final int guard = idle.indexOf('!_chat.streaming');
+      expect(
+        guard,
+        greaterThanOrEqualTo(0),
+        reason: '还在 streaming 时不许清（后面还有句子要来）',
+      );
+      expect(
+        idle.indexOf('_directorCues.clear()'),
+        greaterThan(guard),
+        reason: '播完清计划必须在 streaming 判据之后',
       );
     });
   });

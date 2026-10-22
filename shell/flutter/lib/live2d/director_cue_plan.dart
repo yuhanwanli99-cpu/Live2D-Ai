@@ -31,15 +31,21 @@ const double kDefaultExpressionIntensity = 1.0;
 /// # 为什么抽在这里（而不是留在 `main.dart`）
 ///
 /// 与 PresetStatus（已搬到 `preset_status.dart`）同因：`main.dart` 经 `app/browser_io.dart` 依赖
-/// `package:web`，在 `flutter test`（Dart VM）里**加载不了**；而「一份 plan
-/// 整体替换、按句**取用一次即移除**、空 id 不动、`none` = 撤销」这条顺序
-/// 恰恰是最容易写错、也最该被回归钉住的行为——阶段3 §6.2 明确：「同 seq
-/// 重复帧只应用一次」这条保护由整表替换 + 取用即移除承担。
+/// `package:web`，在 `flutter test`（Dart VM）里**加载不了**；而「按句覆盖、
+/// 按句**取用一次即移除**、空 id 不动、`none` = 撤销」这条顺序恰恰是最容易
+/// 写错、也最该被回归钉住的行为——阶段3 §6.2 明确：「同 seq 重复帧只应用
+/// 一次」这条保护由按句覆盖 + 取用即移除承担。
 ///
-/// # 契约（阶段3 D10 / D13）
+/// # 契约（阶段3 D10 / D13；0.3.14 起**按句覆盖**）
 ///
-/// - [`replace`]：新 `action_cue` 到达即**整体替换**（一份 plan 覆盖上一份；
-///   同 seq 多条只留最后一条 = map 语义）。
+/// - [`upsert`]：新 `action_cue` 到达即**按 `sentence_seq` 覆盖这一条**——
+///   同 seq 留最后一条（map 语义），**别的 seq 一条不动**。0.3.14 之前这里是
+///   「整表替换」：同一轮的动作是**逐句**产出的，后一帧一进来就把还没开播的
+///   `sentence_seq` 整片丢掉（执行单 §原因 3）。空列表是 **no-op**（不清空任何
+///   东西）——「这一帧没有 cue」与「把计划清空」语义相反，不能长得一样。
+/// - [`clear`]：整份计划作废。触发点只有六个（停止 / `new_epoch` / baseline /
+///   换模 / 被接受的新 `user_line` / 播放从忙变闲且不在 streaming），接线在
+///   `app/shell_lifecycle_wiring.dart` 与 `app/shell_playback_wiring.dart`。
 /// - [`take`]：该句音频**开始播放**时按 `sentence_seq` 取用一次，**取用即移除**
 ///   ⇒ 同一句（含同 seq 重复帧）只会被应用一次。
 /// - [`applyForSeq`]：取到 cue 才下发；`preset_id` 为空串 = 「本轮不动」（不
@@ -51,14 +57,18 @@ class DirectorCuePlan {
   /// 当前计划里还剩多少条 cue（排障 / 测试用）。
   int get length => _bySeq.length;
 
-  /// 新 plan 到达：**整体替换**。同 seq 的重复帧在这里被 map 语义吃掉。
-  void replace(List<ActionCue> cues) {
-    _bySeq
-      ..clear()
-      ..addEntries(
-        cues.map((ActionCue c) => MapEntry<int, ActionCue>(c.sentenceSeq, c)),
-      );
+  /// 按 `sentence_seq` 覆盖：同 seq 留**最后一条**，别的 seq 一条不动。
+  ///
+  /// **空列表是 no-op，不是清空**（0.3.14）：清空只走 [`clear`]，这样「这一帧
+  /// 只带一句」与「这一帧什么都没说」不会再被读成同一件事。
+  void upsert(List<ActionCue> cues) {
+    for (final ActionCue cue in cues) {
+      _bySeq[cue.sentenceSeq] = cue;
+    }
   }
+
+  /// 整份计划作废（六个触发点见类头注）。
+  void clear() => _bySeq.clear();
 
   /// 按句子序号取用一次并移除；`seq == null` / 已取过 → `null`。
   ActionCue? take(int? seq) {

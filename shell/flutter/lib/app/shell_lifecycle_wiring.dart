@@ -56,8 +56,9 @@ extension _ShellLifecycleWiring on _ShellRootState {
     // 停止 / 新消息的取消纪律（V7 §6.6 / V10 §9.3）：四个出口都在本 State 上。
     // 顺序由 [StageCancellation] 钉住（纯逻辑、VM 可测），这里只提供实体。
     _stageCancellation = StageCancellation(
-      clearCuePlan: (String reason) =>
-          _directorCues.replace(const <ActionCue>[]),
+      // 停止 / 新消息：按句计划整份作废（0.3.14 起 `clear`，不再是「整表替换
+      // 成空」——那时空列表与「这一帧没有 cue」长得一样，语义相反）。
+      clearCuePlan: (String reason) => _directorCues.clear(),
       revokeStage: (String reason) {
         final Live2DStageState? stage = _stageKey.currentState;
         if (stage != null) {
@@ -108,6 +109,10 @@ extension _ShellLifecycleWiring on _ShellRootState {
       );
     });
 
+    // 播放忙闲的静默上报 + 「播完且不在 streaming」清按句计划（0.3.14）。
+    // 放在这里而不是更早：处理函数要读 `_chat.streaming`（此时已构造好）。
+    _initPlaybackWiring();
+
     // 相位跟踪器自己订阅 WS（只读消费，与 ChatController 互不干扰）。
     _statusSubscription = _ws.statuses.listen(_ui.onWsStatus);
     _eventSubscription = _ws.events.listen((WsEvent event) {
@@ -126,9 +131,18 @@ extension _ShellLifecycleWiring on _ShellRootState {
         } else if (event.event == 'voice_ended') {
           unawaited(_voiceListen.resumeAfterPlayback());
         }
+        // **`new_epoch` = 上一轮作废**（0.3.14）：还没开播的按句 cue 一并作废。
+        // 判据用既有纯函数 [mustInterruptAudio]，不在这里重写一遍
+        // （`audio/epoch_gate.dart` 同时服务音频打断，两处必须是同一个判据）。
+        if (mustInterruptAudio(event)) _directorCues.clear();
       }
-      // 导演按句 cue（P1-3，2026-09-16）：整体替换当前计划；缺省忽略 = 兼容。
-      // 空 cues = 清空计划 = **本轮不动**（不归零；归零只走 preset_id='none'）。
+      // 0.3.14：被接受的新 `user_line` = 又一句话进来了 ⇒ 上一轮还没播的动作
+      // 作废（重复帧不清）。判据的**结论**由 ChatController 在决策点留下，
+      // 见 [_onUserLineCueBoundary] 为什么不能在这里重算。
+      if (event is UserLineEvent) _onUserLineCueBoundary();
+      // 导演按句 cue（P1-3，2026-09-16）：**按 sentence_seq 覆盖**（0.3.14）。
+      // 空 cues = 这一帧没有 cue，**不是**清空（清空只走下面那几个触发点；
+      // 归零只走 preset_id='none'）。
       // **唯一驱动通道**——阶段3 起不再有 text_delta / text_fallback 触发的
       // 「拉状态面 latest.preset_id」分支（通道 B 退役，见 D10–D13）。
       if (event is ActionCueEvent) {
@@ -136,12 +150,16 @@ extension _ShellLifecycleWiring on _ShellRootState {
         // `baseline:true`（`cues` 是该会话 baseline，不是按句计划）。
         // 第 ② 路交付必须**立即应用**到舞台——不进 [_directorCues]（那是按句
         // 计划，会等到音频开始才生效），也不缓存（不建前端镜像，V8）。
+        // 它同时是**取消信号**：还没开播的按句 cue 整份作废（0.3.14）。
         if (event.baseline) {
+          _directorCues.clear();
           _applyBaselineCues(event.cues, event.reason ?? 'baseline');
           return;
         }
         _directorEpoch = event.epoch;
-        _directorCues.replace(event.cues);
+        // 0.3.14：**逐句覆盖**。以前整表替换，后一帧会把没带上的、还没开播的
+        // 句子整片丢掉（同一轮的动作是逐句产出的）。
+        _directorCues.upsert(event.cues);
       }
     });
 
@@ -150,6 +168,31 @@ extension _ShellLifecycleWiring on _ShellRootState {
     // 启动就取一次 voice-input 的启停：主界面「听」按钮旁要能**先**给红字
     // （而不是等用户说完才由 403 回来说）。
     unawaited(_refreshVoiceModState());
+  }
+
+  /// 被接受的新 `user_line` 清掉还没播的上一轮动作（0.3.14）。
+  ///
+  /// 判据**不在这里重算**：`ChatController` 在本 State **之前**订阅
+  /// `ws.events`（同一广播流按订阅顺序派发），壳的监听跑起来时消息表已经被它
+  /// 改过——此时再调 `userLineAction`，刚上屏的那句会被算成「上一条就是这个」
+  /// （`skipDuplicate`），于是「重复帧是唯一不清的」这条契约刚好反了过来。
+  /// 所以只读控制器在**决策点**存下的结论（`ChatController.lastUserLineAction`）。
+  ///
+  /// 三种「被接受」都清：`acceptInjected`（没有轮在飞 → 这一句开新一轮）、
+  /// `appendOnly`（同一轮里的**另一句**）、`appendSystem`（弹幕）——都意味着
+  /// 又一句话进来了，上一轮剩下的 cue 不该再演。`skipDuplicate` / `ignoreEmpty`
+  /// **不清**（同一句重放不是新输入）。
+  void _onUserLineCueBoundary() {
+    switch (_chat.lastUserLineAction) {
+      case UserLineAction.acceptInjected:
+      case UserLineAction.appendOnly:
+      case UserLineAction.appendSystem:
+        _directorCues.clear();
+      case UserLineAction.skipDuplicate:
+      case UserLineAction.ignoreEmpty:
+      case null:
+        break;
+    }
   }
 
   /// 渲染面每采纳一次 loaded（含首次装载，0.3.6 T2）：模型身份进 dev 可观测面。
@@ -175,8 +218,9 @@ extension _ShellLifecycleWiring on _ShellRootState {
   /// 再判「是否成功」：失败时旧模型、旧 cue、旧 epoch 一概不动。
   void _onStageModelSwapped(ModelLoadedInfo info) {
     if (!mounted) return;
-    // ① **旧 cue 不得落到新模型**：换模前到达的按句计划整表清空。
-    _directorCues.replace(const <ActionCue>[]);
+    // ① **旧 cue 不得落到新模型**：换模前到达的按句计划整份作废（0.3.14 起
+    //    用 `clear`；这条触发点是执行单 §行为 列的六个之一）。
+    _directorCues.clear();
     // ② 按**渲染面确认的** model_id 重设 D40「每模型覆盖」上下文，并补发一次
     //    有效幅度。force 绕过同值去重（模型已换，旧快照不算数）；syncer 内部
     //    仍是临时覆盖（dev pin）优先——force 冲不掉调试面板钉住的值。
@@ -210,6 +254,8 @@ extension _ShellLifecycleWiring on _ShellRootState {
     unawaited(_eventSubscription?.cancel());
     unawaited(_sentenceCueSubscription?.cancel());
     unawaited(_stageClockSubscription?.cancel());
+    // 先摘播放忙闲的监听（`_audio.dispose` 会销毁那个 ValueNotifier）。
+    _disposePlaybackWiring();
     _actionScalesSyncer.dispose();
     _settings.removeListener(_onActionScalesModelContextChanged);
     _ui.dispose();

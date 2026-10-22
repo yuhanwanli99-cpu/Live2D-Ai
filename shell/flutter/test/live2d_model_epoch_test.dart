@@ -539,8 +539,8 @@ void _hostWiringSourceGuards() {
       );
       expect(
         body,
-        contains('_directorCues.replace(const <ActionCue>[])'),
-        reason: '旧 cue 不得落到新模型',
+        contains('_directorCues.clear()'),
+        reason: '旧 cue 不得落到新模型（0.3.14 起计划用 clear 作废）',
       );
       expect(
         body,
@@ -554,7 +554,7 @@ void _hostWiringSourceGuards() {
       );
       // 顺序：先清计划，再重设幅度（清计划不能等异步）。
       expect(
-        body.indexOf('_directorCues.replace'),
+        body.indexOf('_directorCues.clear'),
         lessThan(body.indexOf('_actionScalesSyncer.setModelContext')),
       );
     });

@@ -61,6 +61,7 @@ import 'api/diagnostics_api.dart';
 import 'api/env_api.dart';
 import 'api/models_api.dart';
 import 'api/mods_api.dart';
+import 'api/playback_api.dart';
 import 'api/settings_models.dart';
 import 'api/voice_api.dart';
 import 'api/ws_client.dart';
@@ -69,8 +70,10 @@ import 'app/app_shortcuts.dart';
 import 'app/browser_io.dart';
 import 'app/shortcut_help_dialog.dart';
 import 'audio/audio_player.dart';
+import 'audio/epoch_gate.dart';
 import 'audio/stage_clock.dart';
 import 'chat/chat_controller.dart';
+import 'chat/turn_liveness.dart';
 import 'data/background_hydration.dart';
 import 'data/background_reorder.dart';
 import 'data/background_store.dart';
@@ -118,6 +121,7 @@ part 'app/shell_background_scale_wiring.dart';
 part 'app/shell_section_wiring.dart';
 part 'app/shell_app_root.dart';
 part 'app/shell_lifecycle_wiring.dart';
+part 'app/shell_playback_wiring.dart';
 
 /// Mod 列表里某个 id 的启停；**不在册**（极简装配 / 自定义注册表）→ `true`。
 ///
@@ -163,6 +167,11 @@ class _ShellRootState extends State<ShellRoot> {
   late final AudioPlayer _audio;
   late final ChatController _chat;
 
+  /// 播放忙闲的**静默**上报（0.3.14）：`POST /api/v1/playback`，失败不影响播放。
+  /// 接线在 `app/shell_playback_wiring.dart`（main.dart 贴着 800 行硬棘轮）。
+  late final PlaybackApi _playbackApi;
+  late final PlaybackReporter _playbackReporter;
+
   /// 界面相位派生（WS 信号 + 渲染面状态 → `UiPhase`）。**纯逻辑，可单测。**
   final UiStateTracker _ui = UiStateTracker();
 
@@ -188,11 +197,11 @@ class _ShellRootState extends State<ShellRoot> {
 
   /// 导演按句 cue（P1-3，2026-09-16）：**唯一**的舞台驱动通道（阶段3 D10–D13）。
   ///
-  /// 新 plan 到达即**整体替换**（一份 plan 覆盖上一份）；音频开始播放时按
-  /// 当前句的 sentence_seq 取用一次并移除。产品设置里的幅度倍率由渲染面乘，
-  /// 这里只透传 cue 的 intensity。`state_json.latest` 在 rc4 已**没有任何前端
-  /// 读取路径**（导演并回核心，可观测 A 栏不再读状态端点），更不驱动舞台
-  /// （通道 B 已于阶段3 退役）。
+  /// 新 cue 到达即**按 sentence_seq 覆盖这一条**（0.3.14；以前是整表替换，会把
+  /// 还没开播的句子整片丢掉）；音频开始播放时按当前句的 sentence_seq 取用一次
+  /// 并移除。产品设置里的幅度倍率由渲染面乘，这里只透传 cue 的 intensity。
+  /// `state_json.latest` 在 rc4 已**没有任何前端读取路径**（导演并回核心，
+  /// 可观测 A 栏不再读状态端点），更不驱动舞台（通道 B 已于阶段3 退役）。
   final DirectorCuePlan _directorCues = DirectorCuePlan();
 
   /// 当前设置分区（受控；外壳只上报意图）。

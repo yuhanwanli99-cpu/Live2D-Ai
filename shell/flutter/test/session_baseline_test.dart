@@ -117,7 +117,7 @@ void main() {
   test('baseline_application_follows_the_cancellation_transaction_order', () async {
     // main.dart 的四个出口实体（顺序由 StageCancellation 纯逻辑钉住）。
     final DirectorCuePlan plan = DirectorCuePlan()
-      ..replace(<ActionCue>[
+      ..upsert(<ActionCue>[
         const ActionCue(
           sentenceSeq: 2,
           presetId: 'nod',
@@ -129,7 +129,7 @@ void main() {
     final List<String> log = <String>[];
     final StageCancellation cancellation = StageCancellation(
       clearCuePlan: (String reason) {
-        plan.replace(const <ActionCue>[]);
+        plan.clear();
         log.add('clear-cue-plan');
       },
       revokeStage: (String reason) => log.add('revoke-stage'),

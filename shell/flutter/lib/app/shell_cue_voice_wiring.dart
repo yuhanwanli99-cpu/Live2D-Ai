@@ -43,7 +43,7 @@ extension _ShellCueVoiceWiring on _ShellRootState {
   /// director 的只读运行态（通道 B 已退役），`state_json.latest`
   /// 仅供 director 面板只读展示。撤销语义已并入 cue 层——`preset_id == 'none'`
   /// 照常下发（渲染面把 `none` 翻成两槽 `Revoke`）；`preset_id` 为空串仍是
-  /// 「本轮不动」。整表替换 + 取用即移除由 [`DirectorCuePlan`] 负责，同 seq
+  /// 「本轮不动」。按句覆盖 + 取用即移除由 [`DirectorCuePlan`] 负责，同 seq
   /// 重复帧只会应用一次。
   void _applyDirectorCueForSeq(int? seq) {
     unawaited(
