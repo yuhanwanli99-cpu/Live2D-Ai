@@ -8,7 +8,8 @@
   3. 在临时树里按 docs/architecture/two-repo-mods.md 第 4 节五步链挂载：根/desktop
      Cargo.toml path 依赖、main.rs 工厂表+工厂数断言、宿主集成代码（从拆仓前
      提交 6a0a1ef 恢复 external/voice/a2a/coalesce + mod.rs/cli_entry.rs glue）、
-     缺省 manifest 只启用 external-input + local-tts-melo(with_app)；
+     缺省 manifest 只启用 external-input（0.4.2 起 local-tts-melo 出厂停用：
+     Windows 侧没有随包入口，启用它必然失败）；
   4. 验证：Linux cargo check、windows-msvc check（缺 MSVC 原生工具链，记录原文）、
      windows-gnu check（本机唯一可走通）、gnu release 编 exe；
   5. trunk 构建 /render wasm、flutter build web、组装 dist/windows/、可选 zip；
@@ -333,22 +334,21 @@ def patch_tree(wtree: Path, mods: list) -> int:
         mod_rs = replace_once(mod_rs, old_a2a, new_a2a, "mod.rs A2A 前置分支")
     write_text(mod_path, mod_rs)
 
-    # --- 五步链 5：缺省 manifest 只启用出厂两项
+    # --- 五步链 5：缺省 manifest 只启用 external-input
+    # 0.4.2：local-tts-melo **不进启用表**（出厂不拉起）。七个库仍链进临时树
+    # （Cargo 依赖 / 工厂表不动），只是出厂不再启用一个在 Windows 上必然失败
+    # 的 Mod——0.4.1 的包里它的缺省入口是打包机的
+    # /tmp/live2d-ai-pack.<随机>/…/melo/start.sh。用户以后把 program 配成
+    # .exe 再自己启用。
     cli_path = wtree / "crates/live2d-ai-desktop/src/web_api/cli_entry.rs"
     cli = read_text(cli_path)
     enabled = []
     if "external-input" in mods:
         enabled.append('            "external-input": { "enabled": true, "config": {} }')
-    if "local-tts" in mods:
-        enabled.append(
-            '            "local-tts-melo": {\n'
-            '                "enabled": true,\n'
-            '                "config": { "launch_mode": "with_app" }\n'
-            "            }"
-        )
     if enabled:
         manifest = (
-            "// pack-windows.sh 临时树（不提交）：出厂只启用 external-input + local-tts-melo。\n"
+            "// pack-windows.sh 临时树（不提交）：出厂只启用 external-input"
+            "（local-tts-melo 出厂停用）。\n"
             "    serde_json::json!({\n"
             '        "mods": {\n'
             + ",\n".join(enabled)
@@ -369,13 +369,11 @@ def patch_tree(wtree: Path, mods: list) -> int:
     match = test_re.search(cli)
     if match:
         ids = ", ".join(
-            '"' + i + '"' for i in (
-                (["external-input"] if "external-input" in mods else [])
-                + (["local-tts-melo"] if "local-tts" in mods else [])
-            )
+            '"' + i + '"'
+            for i in (["external-input"] if "external-input" in mods else [])
         )
         new_test = (
-            "/// pack-windows.sh 临时树（不提交）：manifest 只启用出厂两项。\n"
+            "/// pack-windows.sh 临时树（不提交）：manifest 只启用 external-input。\n"
             "    #[test]\n"
             "    fn default_mods_manifest_matches_pack() {\n"
             "        let m = default_mods_manifest();\n"
