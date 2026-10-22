@@ -49,6 +49,7 @@ mod folder_job;
 mod folder_spawn;
 /// 0.4.0 rc.1：exe 目录锚点 / 子进程环境白名单 / Windows 入口规则的纯函数。
 mod host_layout;
+mod log_paths;
 mod logging;
 mod mod_registry;
 mod platform;

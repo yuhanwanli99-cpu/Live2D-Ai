@@ -19,16 +19,18 @@
 //!   单独用 file 专用 filter（默认 `info`；`LIVE2D_AI_LOG_FILE` 可调）。
 //!
 //! # 滚动策略
-//! - 选 `tracing_appender::rolling::daily(log_dir, "live2d-ai.log")`：
-//!   - 自动 `live2d-ai.log.YYYY-MM-DD` 后缀；
-//!   - 进程内单 writer 锁，安全；
-//!   - 与 `docs/architecture/observability.md` §3 「按天滚动」语义一致（PC Python
-//!     版是 10MB 5 份，Rust v0 选 daily 简单可靠；按大小可在后续批次升级）。
+//! - 用 `RollingFileAppender::builder().rotation(Rotation::DAILY)
+//!   .filename_prefix("live2d-ai.log").build(&log_dir)`（与 `daily` 等价）：
+//!   - 文件名仍是 `live2d-ai.log.YYYY-MM-DD`（**不设** `filename_suffix`）；
+//!   - `build` 返回 `Result`：目录存在但写不了文件 → `Err`，**不再 panic**；
+//!   - 进程内单 writer 锁，安全；与 `observability.md` §3「按天滚动」语义一致。
 //!
-//! # 日志目录约定（D0 / `docs/architecture/directory.md`）
-//! - `log_dir` = `None`：走 [`default_log_dir`] — Linux `$XDG_DATA_HOME/live2d-ai/logs/`
-//!   （无 `XDG_DATA_HOME` 时回退 `$HOME/.local/share/live2d-ai/logs/`）；
-//! - 写盘失败（含目录创建失败）→ [`init_logging`] 返回 `Err`，调用方降级仅 stdout。
+//! # 日志目录约定（0.4.2 rc.3；真源 `docs/versions/0.4.md`「0.4.2」缺陷 2）
+//! - `log_dir` = `None`：走 [`default_log_dir`] → `crate::log_paths::select_log_dir`
+//!   （纯函数）：`$XDG_DATA_HOME` → `$HOME/.local/share` → `<exe 目录>`（非 WSL 网络
+//!   路径）→ `%LOCALAPPDATA%`；**永不返回相对的 `logs`**。脚本 / 沙箱若把 `HOME`
+//!   指到临时目录，日志就落在那个 HOME 下；
+//! - 写盘失败（目录 / appender `build`）→ [`init_logging`] 返回 `Err`，调用方仅 stdout。
 
 use std::fs;
 use std::io::{self, Write};
@@ -36,6 +38,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -68,8 +71,12 @@ pub fn init_logging(log_dir: Option<&Path>) -> Result<(), String> {
     };
     fs::create_dir_all(&dir).map_err(|e| format!("创建日志目录 {} 失败: {e}", dir.display()))?;
 
-    // 2. file appender：`daily` 自动按天滚动。
-    let file_appender = tracing_appender::rolling::daily(&dir, "live2d-ai.log");
+    // 2. file appender：builder 与 `daily` 等价，但构造失败返回 `Err`（不 panic）。
+    let file_appender = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .filename_prefix("live2d-ai.log")
+        .build(&dir)
+        .map_err(|e| format!("初始化滚动日志文件 {} 失败: {e}", dir.display()))?;
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
     let sanitizing = SanitizingMakeWriter::new(Arc::new(Mutex::new(file_writer)));
 
@@ -117,26 +124,12 @@ pub fn current_log_dir() -> Option<PathBuf> {
     LOG_DIR.lock().ok().and_then(|g| g.clone())
 }
 
-/// 解析默认日志目录：Linux `$XDG_DATA_HOME/live2d-ai/logs/` →
-/// 回退 `$HOME/.local/share/live2d-ai/logs/` → 最后 `logs/`（cwd 相对，
-/// 兜底，让首次启动至少能写盘）。
+/// 生产 wrapper：只在这里读进程的 exe / 环境，路径判据交给
+/// [`crate::log_paths::select_log_dir`]（纯函数，测试注入 exe 与环境）。
 fn default_log_dir() -> io::Result<PathBuf> {
-    if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
-        let mut p = PathBuf::from(xdg);
-        p.push("live2d-ai");
-        p.push("logs");
-        return Ok(p);
-    }
-    if let Some(home) = std::env::var_os("HOME") {
-        let mut p = PathBuf::from(home);
-        p.push(".local");
-        p.push("share");
-        p.push("live2d-ai");
-        p.push("logs");
-        return Ok(p);
-    }
-    // 最后兜底：cwd 相对 `logs/`，与 `directory.md` 「根级日志放 logs/」一致。
-    Ok(PathBuf::from("logs"))
+    let exe = std::env::current_exe().ok();
+    crate::log_paths::select_log_dir(exe.as_deref(), |key| std::env::var_os(key))
+        .map_err(io::Error::other)
 }
 
 /// 公开的脱敏纯函数：把字符串中任何 `key=...` / `key: ...` / `"key": "..."` 形式
@@ -446,5 +439,60 @@ mod tests {
             body.contains("hello-persist-marker"),
             "文件不含日志内容: {body}"
         );
+    }
+
+    /// 0.4.2 rc.3 Linux 回归：目录已存在但不可写 → `init_logging` 返回 `Err`，
+    /// **不 panic**。`create_dir_all` 对已存在目录会成功，所以必须打到 appender
+    /// 的 `build()`（0.2.5 的 `daily` 会 `.expect` panic，builder 返回 `Err`）。
+    #[cfg(unix)]
+    #[test]
+    fn init_logging_returns_err_for_existing_unwritable_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        // unique：pid + 纳秒，避免并行测试互踩。
+        let dir = std::env::temp_dir().join(format!(
+            "live2d-ai-logging-ro-{}-{stamp}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).unwrap();
+        let result = init_logging(Some(&dir));
+        // 先恢复权限再断言 / 清理，免得失败时留下删不掉的临时目录。
+        let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o755));
+        let err = result.expect_err("已存在但不可写的目录必须返回 Err（不是 panic）");
+        assert!(
+            err.contains("failed to create log file"),
+            "错误必须来自 build(): {err}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 0.4.2 rc.3：builder 不设 `filename_suffix` —— 文件名仍是 `live2d-ai.log.YYYY-MM-DD`。
+    #[test]
+    fn rolling_appender_keeps_the_daily_file_name() {
+        let dir = std::env::temp_dir().join(format!("live2d-ai-logname-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let appender = RollingFileAppender::builder()
+            .rotation(Rotation::DAILY)
+            .filename_prefix("live2d-ai.log")
+            .build(&dir)
+            .unwrap();
+        let name = fs::read_dir(&dir)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        drop(appender);
+        let _ = fs::remove_dir_all(&dir);
+        let date = name
+            .strip_prefix("live2d-ai.log.")
+            .unwrap_or_else(|| panic!("文件名契约被破坏: {name}"));
+        assert_eq!(date.len(), 10, "日期后缀应为 YYYY-MM-DD: {date}");
     }
 }
