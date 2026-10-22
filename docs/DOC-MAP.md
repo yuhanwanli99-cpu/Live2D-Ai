@@ -26,7 +26,7 @@
 | **Mod 怎么放（用户）** | [`mods-user.md`](mods-user.md) | 2026-10-21。固定目录 `mods/<目录名>/mod.toml`；看见并记勾选；0.3.13 起点进入会启动勾选的程序。那 7 个公开仓库不是可拖入的包 |
 | **0.3.13 进入时启动文件夹（执行单 / 发布说明）** | [`PLAN-0.3.13-folder-spawn-2026-10-21.md`](plans/PLAN-0.3.13-folder-spawn-2026-10-21.md) · [`v0.3.13-rc.3.md`](releases/v0.3.13-rc.3.md) | 2026-10-21；已落地。勾选的 `process` / `with_app` 在进入时启动；扫描与刷新不执行；工厂仍 0 |
 | **0.3.14 弹幕等播完（执行单 / 发布说明）** | [`PLAN-0.3.14-playback-queue-2026-10-22.md`](plans/PLAN-0.3.14-playback-queue-2026-10-22.md) · [`v0.3.14-rc.3.md`](releases/v0.3.14-rc.3.md) | 2026-10-22；已落地（`v0.3.14-rc.1`…`rc.3`，未 push）。下一条弹幕等播放闲且本轮生成结束再逐条注入；动作按句留下。缺省二进制外部入口仍 404。工厂仍 0 |
-| **0.4 大版本文档 / 0.4.0 Windows 包** | [`versions/0.4.md`](versions/0.4.md) | 2026-10-22；已落地（`v0.4.0-rc.1`…`rc.3`，未 push；GNU 交叉 exe，未实机）。这一篇单独计 45,000 行。WSL2 编译，Windows 跑原生 exe 并检查 `mods/`。缺省工厂仍 0 |
+| **0.4 大版本文档 / 0.4.0 Windows 包** | [`versions/0.4.md`](versions/0.4.md) | 2026-10-22；已落地（`v0.4.0-rc.1`…`rc.3`，未 push；GNU 交叉 exe，未实机）。这一篇单独计 45,000 行。WSL2 编译，Windows 跑原生 exe 并检查 `mods/`。缺省工厂仍 0。`0.4.1` 标准参数绑定已派 |
 | 0.2 时代收口 / 身份收口两单（历史） | **已移出工作树**（2026-10-17 rc2）——取回见 [REMOVED-docs-index-2026-10-06.md](REMOVED-docs-index-2026-10-06.md) §8 | 0.2.7 已发布，任务已收口；现行计划看上一行 |
 | 底座一致性索引（已有测试点名） | `docs/architecture/base-conformance.md` | 索引，非契约真源；协议仍以 `performance-protocol-v1.md` / `core-chain-baseline.md` 为准 |
 | 外部输入（弹幕 / 礼物） | `docs/external-input.md` | B 站抓取在 Win sidecar，不在主仓 |
