@@ -28,6 +28,7 @@ pub(super) fn dummy_ctx(sec: SecurityContext) -> ServerContext {
             crate::mod_registry::ModRegistry::new(&[], &serde_json::json!({})),
         )),
         folder_processes: std::sync::Arc::new(crate::folder_spawn::FolderProcesses::new()),
+        playback_gate: std::sync::Arc::new(crate::web_api::playback_gate::PlaybackGate::new()),
     }
 }
 

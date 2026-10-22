@@ -74,6 +74,9 @@ pub mod env_routes;
 /// `env_routes` 的单元测试（自 `env_routes.rs` 拆出：>500 行棘轮，2026-10-16）。
 #[cfg(test)]
 mod env_routes_tests;
+/// 外部注入 FIFO 队列（0.3.14）：挂回 `external-input` 后由宿主 `push` /
+/// `pump`；当前无调用方（见 [`external_queue`] 头注「尚未接线」）。
+pub mod external_queue;
 /// 外部文本注入端点（**未挂载存根**，2026-10-19）：`POST /api/v1/external/chat`
 /// 未挂载时 404 `mod_disabled`（实现随 `external-input` Mod 移出主仓）。
 /// 静态前置路由（见 `run_request_loop` E5-T3 判定点）。
@@ -94,6 +97,9 @@ pub mod models_routes;
 /// Mod 管理 HTTP API（节点 E5 补充，2026-08-30）：
 /// `GET /api/v1/mods` 与 `POST /api/v1/mods/{id}/{action}`。
 pub mod mods_routes;
+/// 浏览器播放忙上报（0.3.14）：`POST /api/v1/playback`。状态 = [`ServerContext`]
+/// 上的 [`playback_gate::PlaybackGate`]；缺省闲，超时视为闲（不丢队列）。
+pub mod playback_gate;
 /// 通用 JSON 错误响应 helper（D-P0B 拆分承载，2026-08-29）。
 pub(crate) mod responses;
 /// 设置保存「必须重启」时的**自重启**落点（2026-10-09）：
@@ -159,6 +165,9 @@ pub enum RouteId {
     ChatPost,
     /// `POST /api/v1/chat/stop`（W2 任务）
     ChatStop,
+    /// `POST /api/v1/playback`（0.3.14：浏览器播放忙上报；body `{"busy":bool}`）。
+    /// 只映射 POST；其它 method 不命中，按既有口径落 `NotImplemented`。
+    Playback,
     /// `GET /api/v1/logs`（dev_mode 门控；W3 任务）。
     LogsGet,
     /// `GET /api/v1/logs/levels`（dev_mode 门控；W3 任务）。
@@ -190,6 +199,7 @@ impl RouteId {
             Self::SettingsTestTts => "settings.test_tts",
             Self::ChatPost => "chat.post",
             Self::ChatStop => "chat.stop",
+            Self::Playback => "playback",
             Self::LogsGet => "logs.get",
             Self::LogsLevels => "logs.levels",
             Self::Models => "models",
@@ -250,6 +260,11 @@ pub fn match_route(method: &Method, path: &str) -> RouteId {
         RouteId::ChatPost
     } else if path == "/api/v1/chat/stop" {
         RouteId::ChatStop
+    } else if path == "/api/v1/playback" && *method == Method::Post {
+        // 0.3.14：浏览器播放忙上报。**只映射 POST**——其它 method 不命中，
+        // 按既有口径落回 `NotImplemented`（与 `settings/test/*` 等 POST-only
+        // 端点同款；不在路由表里单独写 405）。
+        RouteId::Playback
     } else if path == "/api/v1/logs" && *method == Method::Get {
         RouteId::LogsGet
     } else if path == "/api/v1/logs/levels" && *method == Method::Get {
@@ -338,6 +353,10 @@ pub struct ServerContext {
     /// 只有 `POST /api/v1/mods/discovered` 在勾选写盘成功后读写它；
     /// `GET` / 「刷新」/ 扫描函数不碰（执行单 §29）。
     pub folder_processes: std::sync::Arc<crate::folder_spawn::FolderProcesses>,
+    /// 0.3.14：浏览器播放忙闸门（`POST /api/v1/playback` 写入）。
+    /// 缺省闲；`busy=true` 后 120s 无新上报视为闲（warn 一次，**不丢队列**）。
+    /// 挂回外部注入后是 `external_queue::pump` 的 `ready` 判据来源。
+    pub playback_gate: std::sync::Arc<crate::web_api::playback_gate::PlaybackGate>,
 }
 
 impl ServerContext {
@@ -362,6 +381,7 @@ impl ServerContext {
                 crate::mod_registry::ModRegistry::new(&[], &serde_json::json!({})),
             )),
             folder_processes: Arc::new(crate::folder_spawn::FolderProcesses::new()),
+            playback_gate: Arc::new(crate::web_api::playback_gate::PlaybackGate::new()),
         }
     }
 

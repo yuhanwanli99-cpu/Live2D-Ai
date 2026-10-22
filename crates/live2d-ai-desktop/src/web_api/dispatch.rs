@@ -226,6 +226,8 @@ pub fn dispatch_with_security(
             method,
             path,
         ),
+        // 0.3.14：浏览器播放忙上报（Origin + Content-Type 已由上方 mutating 校验完成）。
+        RouteId::Playback => crate::web_api::playback_gate::handle_playback(ctx, body_str),
         // 日志相关端点：dev_mode=true 时开放（StatusContext 持有开关）。
         // 关闭时一律 403（不动 settings 内容、也不暴露日志文件存在性）。
         RouteId::LogsGet => {

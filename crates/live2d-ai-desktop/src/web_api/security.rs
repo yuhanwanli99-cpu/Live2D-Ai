@@ -297,7 +297,8 @@ pub fn extract_origin_and_ct(headers: &[tiny_http::Header]) -> (Option<String>, 
 ///
 /// 与 [`crate::web_api::RouteId`] 同步：
 /// - **恒 mutating**（只看 route）：`SettingsPatch` / `SettingsTestLlm` /
-///   `SettingsTestTts` / `ChatPost` / `ChatStop`；
+///   `SettingsTestTts` / `ChatPost` / `ChatStop` / `Playback`
+///   （`Playback` 只映射 POST，2026-10-22 0.3.14）；
 /// - **按 method 区分**：
 ///   - `Models` + GET（list/get）= 只读；
 ///     `Models` + POST（import / activate）/ PATCH（display）/
@@ -322,7 +323,8 @@ pub fn is_mutating_route(route: crate::web_api::RouteId, method: &tiny_http::Met
         | RouteId::SettingsTestLlm
         | RouteId::SettingsTestTts
         | RouteId::ChatPost
-        | RouteId::ChatStop => true,
+        | RouteId::ChatStop
+        | RouteId::Playback => true,
         // 只读端点。
         RouteId::AppCapabilities
         | RouteId::AppStatus
