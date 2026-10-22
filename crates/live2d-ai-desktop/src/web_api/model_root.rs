@@ -21,6 +21,10 @@
 //! 而不是让两边不一致（不一致才是真正难查的）。点火脚本 `scripts/ignite.sh`
 //! 已把 cwd 固定在仓库根，`LIVE2D_AI_FLUTTER_WEB_DIR` 也由它锚定成绝对路径。
 //!
+//! 2026-10-22（0.4.0 rc.1）：打包布局把 `assets/models` 放在 **exe 旁边**，
+//! 候选序列 = cwd → exe 目录 → 往上找仓库根。exe 在 WSL 网络路径上时该层被
+//! 跳过（`crate::host_layout`）。
+//!
 //! 该目录被 `.gitignore` 排除（`assets/models/*`，仅 `README.md` / `.gitkeep`
 //! 例外）：**仓库不分发模型二进制**，registry 也是可重建的运行时数据。
 
@@ -63,6 +67,13 @@ pub(crate) fn model_root() -> PathBuf {
     let direct = cwd.join("assets").join("models");
     if direct.is_dir() {
         return direct;
+    }
+    // 0.4.0 rc.1：打包布局把 assets/models 放在 exe 旁边（cwd 不对时靠这层）。
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(packaged) = crate::host_layout::packaged_models_dir(&exe)
+        && packaged.is_dir()
+    {
+        return packaged;
     }
     for d in cwd.ancestors() {
         if d.join("Cargo.toml").is_file() && d.join("assets/models").is_dir() {

@@ -10,7 +10,8 @@
 //! `docs/architecture/ARCHIVED-native-shell.md`（tag `checkpoint/pre-d1-dormant`）。
 //!
 //! 现存用法（完整说明见 `USAGE`）：
-//! - 无参：打印架构/会话线索/能力表后退出（无显示 CI 可安全运行，**不访问声卡**）。
+//! - 无参：Windows 包（0.4.0 rc.1 起）直接起 `--web` 的 18080；其它目标打印架构/
+//!   会话线索/能力表后退出（无显示 CI 可安全运行，**不访问声卡**）。
 //! - `--audio-smoke` 音频冒烟：默认 0.8 s、440 Hz 低音量正弦经实际声卡播放
 //!   （无音频设备 → 退出码 3）；`--audio-smoke-secs S` 调时长（≤30 s）；
 //!   `--audio-smoke-silence` 改播数字静音（全链路照常跑通）。
@@ -166,5 +167,24 @@ pub fn parse_args(args: &[String]) -> Result<Command, CliError> {
         });
     }
     // 纯 Info 模式：`--dev-mode` 单独出现时无 host 可覆盖 ⇒ 静默忽略（与旧语义一致）。
-    Ok(Command::Info)
+    // 0.4.0 rc.1：Windows 包**双击（无参数）**直接起 Web 18080（0.4.md「拷到
+    // Windows 磁盘后双击。进程听 127.0.0.1:18080」）；其它目标仍是 Info。
+    Ok(default_command(std::env::consts::OS, dev_mode))
+}
+
+/// 无 `--web` / `--audio-smoke` 时的缺省命令：**Windows 包双击即可用**。
+///
+/// `os` 取 `std::env::consts::OS` 的值（`"windows"` / `"linux"` / `"macos"`）。
+/// 抽成纯函数是为了在 Linux 上钉住两侧语义（Linux 上没有 Windows 实机）：
+/// Windows → `Web { port: 18080 }`（随后由 `browser` 模块自开启动器页）；
+/// 其它 → `Info`（Linux 点火仍由 `scripts/ignite.sh` 显式带 `--web`）。
+pub fn default_command(os: &str, dev_mode: bool) -> Command {
+    if os == "windows" {
+        Command::Web {
+            port: DEFAULT_HTTP_PORT,
+            dev_mode,
+        }
+    } else {
+        Command::Info
+    }
 }

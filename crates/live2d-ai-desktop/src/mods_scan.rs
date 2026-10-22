@@ -4,7 +4,8 @@
 //!
 //! # 本版做什么 / 不做什么
 //!
-//! 只做**清单预检**：扫描根是**进程当前目录**下的 `mods/`，只认下一层的
+//! 只做**清单预检**：扫描根是**进程当前目录**下的 `mods/`（0.4.0 rc.1 起
+//! 追加 exe 目录下的 `mods/`，见 [`crate::mods_scan_multi`]），只认下一层的
 //! `mods/<目录名>/mod.toml`，把「已发现 / 不可用 + 原因」交给启动器页
 //! （`GET /api/v1/mods/discovered`）。**不执行** `entry` / `launch.program`，
 //! **不 spawn** 任何进程，**不把文件夹写进** `AVAILABLE_MOD_FACTORIES`
@@ -34,9 +35,6 @@ use crate::mods_scan_toml::Document;
 
 /// 清单文件名（只看这一层）。
 const MANIFEST_FILE: &str = "mod.toml";
-
-/// 扫描根目录名（进程当前目录下）。
-const ROOT_DIR: &str = "mods";
 
 /// 保留 id：清单写得再对也不可选（执行单 §3）。
 ///
@@ -93,7 +91,10 @@ pub struct DiscoveredMod {
 
 impl DiscoveredMod {
     /// 不可用行：目录名 + 目录 + 原因（程序路径与 launch_mode 留空）。
-    fn invalid(id: &str, dir: &Path, reason: impl Into<String>) -> Self {
+    ///
+    /// `pub(crate)`：跨锚点合并（[`crate::mods_scan_multi`]）要把后出现的重复
+    /// 行降级成「不可用」而不是静默丢掉。
+    pub(crate) fn invalid(id: &str, dir: &Path, reason: impl Into<String>) -> Self {
         Self {
             id: id.to_string(),
             name: String::new(),
@@ -106,14 +107,6 @@ impl DiscoveredMod {
             dir: dir.to_path_buf(),
             launch_mode: None,
         }
-    }
-}
-
-/// 扫描根 = 当前目录下的 `mods/`（执行单 §3：**进程当前目录**，不猜仓库根）。
-pub fn scan_root() -> PathBuf {
-    match std::env::current_dir() {
-        Ok(dir) => dir.join(ROOT_DIR),
-        Err(_) => PathBuf::from(ROOT_DIR),
     }
 }
 
@@ -376,6 +369,11 @@ fn validate(
     }
 
     let program = program.ok_or_else(|| "内部错误：缺程序路径".to_string())?;
+    // 0.4.0 rc.1：Windows 上入口必须就是 .exe 文件本身（.sh/.bat 要 shell，
+    // CreateProcess 不会执行它们）。失败原因在预检阶段就写清楚，页面直接可读。
+    if let Some(problem) = crate::host_layout::entry_problem(&program, cfg!(windows)) {
+        return Err(problem);
+    }
     let launch_mode = launch_mode.ok_or_else(|| "内部错误：缺 launch_mode".to_string())?;
     Ok(ModInfo {
         id: id.to_string(),

@@ -34,6 +34,7 @@
 //!   未知 id → 404 `{"error":{"code":"not_found","message":...}}`。
 
 use std::io::Cursor;
+use std::path::PathBuf;
 
 use tiny_http::{Header, Method, Response, StatusCode};
 
@@ -512,19 +513,20 @@ fn handle_mod_state_get(ctx: &ServerContext, id: &str) -> Response<Cursor<Vec<u8
 /// 启动只在 POST 路径、且要等勾选写盘成功之后）。文件夹行**不**塞进
 /// `GET /api/v1/mods`（那个列表仍只代表工厂）。
 ///
-/// 每行带 `enabled`（该 id 在 `mods.json` 里是否 `enabled = true`）与
-/// `launch_mode`：process 归一为 `with_app`、launcher 取清单 mode、不可用为 null。
+/// 每行带 `enabled`（`mods.json` 里是否启用）与 `launch_mode`（process → `with_app`、
+/// launcher 取清单 mode、不可用为 null）。
 fn handle_discovered(ctx: &ServerContext) -> Response<Cursor<Vec<u8>>> {
-    handle_discovered_at(ctx, &crate::mods_scan::scan_root())
+    handle_discovered_at(ctx, &crate::host_layout::current_mods_scan_roots())
 }
 
-/// 与 handle_discovered 同一段逻辑；`root` 可注入（测试用临时目录）。
-fn handle_discovered_at(ctx: &ServerContext, root: &std::path::Path) -> Response<Cursor<Vec<u8>>> {
+/// 与 handle_discovered 同一段逻辑；`roots` 可注入（测试用临时目录）。
+/// 0.4.0 rc.1：cwd 的 `mods/` 在前、exe 目录的在后，同一 id 以 cwd 为准。
+fn handle_discovered_at(ctx: &ServerContext, roots: &[PathBuf]) -> Response<Cursor<Vec<u8>>> {
     let (registered, manifest) = {
         let registry = lock_registry(ctx);
         (registry.ids(), registry.manifest_value())
     };
-    let rows = crate::mods_scan::scan(root, &registered);
+    let rows = crate::mods_scan_multi::scan_across(roots, &registered);
     let body = crate::mods_scan::discovered_json(&rows, &manifest).to_string();
     ok_response(StatusCode(200), &body)
 }
@@ -532,13 +534,10 @@ fn handle_discovered_at(ctx: &ServerContext, root: &std::path::Path) -> Response
 /// `POST /api/v1/mods/discovered`：先写勾选，再启动 / 结束文件夹进程（0.3.13）。
 ///
 /// body：`{"enabled":["id",…]}`（可选文件夹 id 的子集；空数组 = 全不勾）。
-/// 服务端**重新扫描**决定哪些文件夹 id 可写，只覆写这些 id 的 `enabled`；
-/// 写盘成功后才按同一份扫描结果启动 `process` / `with_app`，并结束不再勾选
-/// 的、**本进程**起过的那些进程（`on_demand` 只记勾选）。
-///
-/// 状态码：200（在 0.3.12 的 ok / changed / selectable 上追加 started /
-/// stopped / failed）/ 400 坏 body / 409 `persist_failed`（磁盘写不进去——
-/// **不谎报**成功，也不启动）/ 415 / 403（Origin）。
+/// 服务端**重新扫描**决定哪些文件夹 id 可写，只覆写这些 id 的 `enabled`；写盘
+/// 成功后才按同一份扫描结果启动 `process` / `with_app`，并结束不再勾选的本进程
+/// 起过的那些进程（`on_demand` 只记勾选）。状态码：200（ok / changed /
+/// selectable / started / stopped / failed）/ 400 / 409 `persist_failed` / 415 / 403。
 fn handle_discovered_select(
     ctx: &ServerContext,
     body: &str,
@@ -547,17 +546,17 @@ fn handle_discovered_select(
 ) -> Response<Cursor<Vec<u8>>> {
     discovered_select_with_root(
         ctx,
-        &crate::mods_scan::scan_root(),
+        &crate::host_layout::current_mods_scan_roots(),
         body,
         origin,
         content_type,
     )
 }
 
-/// 与 handle_discovered_select 同一段逻辑；`root` 可注入（测试用临时目录）。
+/// 与 handle_discovered_select 同一段逻辑；`roots` 可注入（测试用临时目录）。
 fn discovered_select_with_root(
     ctx: &ServerContext,
-    root: &std::path::Path,
+    roots: &[PathBuf],
     body: &str,
     origin: Option<&str>,
     content_type: Option<&str>,
@@ -611,7 +610,7 @@ fn discovered_select_with_root(
     let (rows, selectable, changed) = {
         let registry = lock_registry(ctx);
         let registered = registry.ids();
-        let rows = crate::mods_scan::scan(root, &registered);
+        let rows = crate::mods_scan_multi::scan_across(roots, &registered);
         let selectable: Vec<String> = rows
             .iter()
             .filter(|row| row.selectable)

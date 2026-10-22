@@ -51,14 +51,21 @@ const BUILD_REL: &str = "shell/flutter/build/web";
 /// 「界面打不开」，而不是「路径没对上」。这里把三种锚点都写下来：
 ///
 /// 1. `LIVE2D_AI_FLUTTER_WEB_DIR`（显式覆盖；`scripts/ignite.sh` 会设置它）
-/// 2. **cwd 相对**：`shell/flutter/build/web`、`../shell/flutter/build/web`
-/// 3. **可执行文件相对**：`target/debug/` 这类目录往上找仓库根
-/// 4. **cwd 往上找仓库根**：从子目录（如 `crates/live2d-ai-desktop`）启动也能命中
+/// 2. **打包布局**：exe 旁边的 `web/`（0.4.0 rc.1；Windows 包里 Flutter 产物
+///    就在这一层，`index.html` 与 exe 同级）
+/// 3. **cwd 相对**：`shell/flutter/build/web`、`../shell/flutter/build/web`
+/// 4. **可执行文件相对**：`target/debug/` 这类目录往上找仓库根
+/// 5. **cwd 往上找仓库根**：从子目录（如 `crates/live2d-ai-desktop`）启动也能命中
 fn build_dir_candidates() -> Vec<PathBuf> {
     let rel = Path::new(BUILD_REL);
     let mut out = Vec::new();
     if let Ok(dir) = std::env::var("LIVE2D_AI_FLUTTER_WEB_DIR") {
         out.push(PathBuf::from(dir));
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(packaged) = crate::host_layout::packaged_web_dir(&exe)
+    {
+        out.push(packaged);
     }
     out.push(rel.to_path_buf());
     out.push(Path::new("..").join(rel));

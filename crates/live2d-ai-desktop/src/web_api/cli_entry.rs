@@ -628,10 +628,9 @@ pub(crate) fn build_web_supervisor(
     Ok(handle)
 }
 
-/// 解析 web 模式下的配置文件路径（cwd 优先；找不到回退到 XDG 默认）。
-///
-/// 与 `--chat` 装配的逻辑同源——但 web 模式下**不**要求文件存在（缺则
-/// `AppSettings::default()`），仅打印提示。
+/// 解析 web 模式下的配置文件路径：**cwd 优先，exe 目录兜底**（0.4.0 rc.1），
+/// 都没有才回退 XDG 默认。与 `--chat` 同源，但 web 模式下**不**要求文件存在
+/// （缺则 `AppSettings::default()`），仅打印提示。
 ///
 /// # 为什么返回值必须是**绝对路径**（2026-09-14 点火实测抓到）
 ///
@@ -642,9 +641,10 @@ pub(crate) fn build_web_supervisor(
 /// 空目录过滤掉 → 存储路径 `None` → **Mod 显示「运行中」却一条也记不住**
 ///（`state.records=null`、`errors` 增长）。点火实测复现后统一绝对化。
 pub fn config_path_for_web() -> String {
-    let cwd_candidate = std::path::Path::new("live2d-ai.toml");
-    if cwd_candidate.is_file() {
-        return anchor_config_path(cwd_candidate);
+    let cwd = std::env::current_dir().ok();
+    let exe = std::env::current_exe().ok();
+    if let Some(found) = crate::host_layout::existing_config_path(cwd.as_deref(), exe.as_deref()) {
+        return anchor_config_path(&found);
     }
     if let Some(home) = std::env::var_os("HOME") {
         let mut p = std::path::PathBuf::from(home);
@@ -653,7 +653,7 @@ pub fn config_path_for_web() -> String {
         p.push("live2d-ai.toml");
         return p.display().to_string();
     }
-    anchor_config_path(cwd_candidate)
+    anchor_config_path(std::path::Path::new("live2d-ai.toml"))
 }
 
 /// 把配置路径**绝对化**（canonicalize 失败就退回 `cwd + path`）。
@@ -671,15 +671,12 @@ fn anchor_config_path(path: &std::path::Path) -> String {
     }
 }
 
-/// Mod manifest：`<config_dir>/mods.json`；**不存在时回落到内建缺省**。
+/// Mod manifest：`<config_dir>/mods.json`（0.4.0 rc.1 起配置目录没有时用 exe
+/// 目录那份兜底）；**不存在时回落到内建缺省**。
 ///
-/// 格式：`{"mods":{"<id>":{"enabled":bool,"config":{...}}}}`
-///
-/// - 路径 = `config_path_for_web()` 所在目录的 `mods.json`
-///   （即 `live2d-ai.toml` 同目录；web 模式下 config_path 可能来自 cwd
-///   或 `~/.config/live2d-ai/`）。
-/// - 文件存在且可解析 → **完全覆盖**内建缺省。
-/// - 文件不存在 → 用 [`default_mods_manifest`]（2026-09-10 M1 修复）。
+/// 格式：`{"mods":{"<id>":{"enabled":bool,"config":{...}}}}`。路径 = `live2d-ai.toml`
+/// 同目录（web 模式下可能来自 cwd / exe 目录 / `~/.config/live2d-ai/`）。
+/// 文件存在且可解析 → **完全覆盖**内建缺省；文件不存在 → [`default_mods_manifest`]。
 fn mods_manifest_for_web() -> serde_json::Value {
     let path = mods_path_for_web();
     if let Some(v) = std::fs::read_to_string(&path)
@@ -691,13 +688,16 @@ fn mods_manifest_for_web() -> serde_json::Value {
     default_mods_manifest()
 }
 
-/// `mods.json` 路径 = `live2d-ai.toml` 同目录（rc.4 M1 起也是**写回目标**）。
+/// `mods.json` 路径 = `live2d-ai.toml` 同目录（rc.4 M1 起也是**写回目标**；0.4.0 rc.1 起 exe 目录兜底）。
 pub fn mods_path_for_web() -> std::path::PathBuf {
-    std::path::Path::new(&config_path_for_web())
+    let dir = std::path::Path::new(&config_path_for_web())
         .parent()
         .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("mods.json")
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    // 0.4.0 rc.1：配置目录没有 mods.json 时用 exe 目录那份兜底（读 / 写同一路径）。
+    let exe = std::env::current_exe().ok();
+    crate::host_layout::existing_mods_manifest(&dir, exe.as_deref())
+        .unwrap_or_else(|| dir.join("mods.json"))
 }
 
 /// 内建缺省 Mod manifest（`mods.json` 缺失时使用；M1 修复）。

@@ -140,6 +140,13 @@ fn font_candidates() -> Vec<PathBuf> {
         // Flutter 产物把 `assets/fonts/` 复制到 `build/web/assets/assets/fonts/`。
         out.push(Path::new(&dir).join("assets/assets/fonts").join(FONT_NAME));
     }
+    // 0.4.0 rc.1：打包布局 = exe 旁边的 `web/`（字体在 web/assets/assets/fonts/）。
+    // 包里没有 shell/flutter/ 源码树，源码相对候选会全部落空。
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(web) = crate::host_layout::packaged_web_dir(&exe)
+    {
+        out.push(web.join("assets/assets/fonts").join(FONT_NAME));
+    }
     out.push(rel.to_path_buf());
     out.push(Path::new("..").join(rel));
     if let Ok(exe) = std::env::current_exe()

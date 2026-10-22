@@ -761,7 +761,7 @@ fn post_select(
 ) -> (u16, serde_json::Value) {
     let resp = super::discovered_select_with_root(
         ctx,
-        root,
+        &[root.to_path_buf()],
         body,
         Some("http://127.0.0.1:18099"),
         Some("application/json"),
@@ -806,7 +806,7 @@ fn discovered_select_spawns_checked_process_and_stops_when_unchecked() {
 
     // GET 是只读的：连刷两次也不会起第二个。
     for _ in 0..2 {
-        let resp = super::handle_discovered_at(&ctx, &mods_root);
+        let resp = super::handle_discovered_at(&ctx, std::slice::from_ref(&mods_root));
         assert_eq!(resp.status_code().0, 200);
     }
     std::thread::sleep(std::time::Duration::from_millis(100));

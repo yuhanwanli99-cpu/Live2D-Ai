@@ -274,3 +274,34 @@ fn flags_are_order_independent_and_combinable() {
         parse_args(&args(&["--dev-mode", "--http-port", "18081", "--web"])),
     );
 }
+
+// ===== 0.4.0 rc.1：Windows 包「双击即用」的缺省命令 =====
+
+/// 纯函数（按 `std::env::consts::OS` 的字符串）钉住两侧语义：
+/// Windows → Web 18080（随后自开浏览器）；其它目标 → Info。
+#[test]
+fn default_command_is_web_only_for_windows() {
+    assert_eq!(
+        super::default_command("windows", false),
+        Command::Web {
+            port: super::DEFAULT_HTTP_PORT,
+            dev_mode: false,
+        }
+    );
+    assert_eq!(
+        super::default_command("windows", true),
+        Command::Web {
+            port: super::DEFAULT_HTTP_PORT,
+            dev_mode: true,
+        }
+    );
+    assert_eq!(super::default_command("linux", false), Command::Info);
+    assert_eq!(super::default_command("macos", true), Command::Info);
+    assert_eq!(
+        super::DEFAULT_HTTP_PORT,
+        18080,
+        "包里写死的是 127.0.0.1:18080"
+    );
+    // 本机（Linux）无参数仍是 Info：`parse_args` 的缺省分支读同一常量。
+    assert_eq!(parse_args(&args(&[])), Ok(Command::Info));
+}

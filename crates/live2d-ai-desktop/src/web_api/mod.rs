@@ -487,14 +487,11 @@ pub use crate::web_api::dto::ApplyStatus;
 
 /// 启动 HTTP server（阻塞循环；线程在 caller）。返回 `ListenAddr` 便于测试。
 ///
-/// WS 端点（`/ws/runtime`、`/ws/state`）由 `is_ws_path` 命中后**直接**走升级
-/// 路径：`req.upgrade()` 把控制权交给 `tungstenite::accept` 与 `handle_ws_request`，
-/// 不再回到标准 dispatch 循环（避免 dispatch 误派发到 `NotImplemented`）。
+/// WS 端点（`/ws/runtime`、`/ws/state`）命中 `is_ws_path` 后直接 `req.upgrade()`
+/// 交给 `tungstenite::accept` + `handle_ws_request`，不回标准 dispatch 循环。
 ///
-/// 2026-08-29 拆分：实际循环抽到 [`run_request_loop`]；本函数仅做"绑定 +
-/// 启动 + 打印日志"三件事。这样 e2e 测试可以直接传一个预绑定的 server
-/// （port 0 → 拿到 OS 分配端口）跑循环，避免"必须等 server 退出才知
-/// 端口"的麻烦。
+/// 2026-08-29 拆分：实际循环抽到 [`run_request_loop`]；本函数只做绑定 + 启动 +
+/// 打印日志，e2e 测试才能传预绑定 server（port 0）跑循环。
 pub fn start_server(ctx: ServerContext, port: u16) -> std::io::Result<tiny_http::ListenAddr> {
     let addr = format!("127.0.0.1:{port}");
     // 2026-10-09：自重启的替身由父进程起，父进程要 `exit` 之后端口才空出来，
@@ -523,6 +520,9 @@ pub fn start_server(ctx: ServerContext, port: u16) -> std::io::Result<tiny_http:
     };
     let bound = server.server_addr();
     eprintln!("web-api: 已监听 127.0.0.1:{port}");
+    // 0.4.0 rc.1：Windows 包在监听成功后自开启动器页（只有生产 --web 会 arm）。
+    #[cfg(windows)]
+    crate::browser::open_launcher_after_listen(port);
 
     // **D-P0B**：把监听端口注入 ctx.security；`allow_no_origin` 走环境变量
     // `LIVE2D_AI_ALLOW_NO_ORIGIN`（caller 已在 ctx 里设的 flag 保留）。

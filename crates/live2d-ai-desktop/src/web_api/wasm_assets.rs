@@ -217,28 +217,51 @@ fn assets_models_dir() -> PathBuf {
     crate::web_api::model_root::model_root()
 }
 
-/// `<cwd>/assets/actions`（动作预设等**用户可改**的表；与 `/models` 同属 assets 树）。
+/// `<assets>/actions`（动作预设等**用户可改**的表；与 `/models` 同属 assets 树）。
+///
+/// 0.4.0 rc.1：与模型根同源的 `assets/actions` 不存在时，再看 exe 旁边的
+/// `assets/actions`（打包布局；`web/` 与 `assets/` 同在 exe 同级）。
 fn assets_actions_dir() -> PathBuf {
-    crate::web_api::model_root::model_root()
+    let derived = crate::web_api::model_root::model_root()
         .parent()
         .map(|assets| assets.join("actions"))
-        .unwrap_or_else(|| PathBuf::from("assets/actions"))
+        .unwrap_or_else(|| PathBuf::from("assets/actions"));
+    if derived.is_dir() {
+        return derived;
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(packaged) = crate::host_layout::packaged_actions_dir(&exe)
+        && packaged.is_dir()
+    {
+        return packaged;
+    }
+    derived
 }
 
-/// `crates/l2d-wasm-demo/dist`（workspace 相对路径）。
+/// 渲染面 wasm 产物目录（第一个存在的候选胜出）。
+///
+/// 候选：cwd 相对 → exe 旁边的 `web/render/`（0.4.0 rc.1 打包布局，pack 把
+/// `dist/` 放这里）→ 从 cwd 往上找仓库根的 `crates/l2d-wasm-demo/dist`。
 fn wasm_dist_dir() -> PathBuf {
-    // 相对 cwd；若从 workspace 根启动则定位到 crates/l2d-wasm-demo/dist。
-    let candidates = [
-        PathBuf::from("crates/l2d-wasm-demo/dist"),
+    let default = PathBuf::from("crates/l2d-wasm-demo/dist");
+    let mut candidates = vec![
+        default.clone(),
         PathBuf::from("../crates/l2d-wasm-demo/dist"),
-        PathBuf::from("/home/skystar/deepseekharness/Live2D-Ai/crates/l2d-wasm-demo/dist"),
     ];
-    for c in candidates {
-        if c.is_dir() {
-            return c;
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(packaged) = crate::host_layout::packaged_wasm_dist_dir(&exe)
+    {
+        candidates.push(packaged);
     }
-    PathBuf::from("crates/l2d-wasm-demo/dist")
+    if let Ok(cwd) = std::env::current_dir()
+        && let Some(root) = crate::web_api::flutter_app::repo_root(&cwd)
+    {
+        candidates.push(root.join("crates/l2d-wasm-demo/dist"));
+    }
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.is_dir())
+        .unwrap_or(default)
 }
 
 /// 安全读盘：先 normalize_rel，再 `root.join(rel)`，且拒绝越出 root。

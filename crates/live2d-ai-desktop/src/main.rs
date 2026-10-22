@@ -37,10 +37,18 @@
 
 mod app_event;
 mod audio;
+/// 0.4.0 rc.1：Windows 包在监听成功后自开默认浏览器（非 Windows 不编译本模块）。
+#[cfg(windows)]
+mod browser;
 mod cli;
+/// 0.4.0 rc.1：Windows 文件夹子进程的 Job Object（KILL_ON_JOB_CLOSE）。
+#[cfg(windows)]
+mod folder_job;
 /// 0.3.13：文件夹 Mod 的子进程生命周期（PDEATHSIG / 独立进程组 / env 清洗）。
 /// 只有 POST /api/v1/mods/discovered 在勾选写盘成功后调用；扫描与刷新不碰它。
 mod folder_spawn;
+/// 0.4.0 rc.1：exe 目录锚点 / 子进程环境白名单 / Windows 入口规则的纯函数。
+mod host_layout;
 mod logging;
 mod mod_registry;
 mod platform;
@@ -101,8 +109,11 @@ pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &
 /// 0.3.12：工作目录 `mods/<目录名>/mod.toml` 的**只读清单预检**。
 ///
 /// 只读校验、不执行 entry / program、不把文件夹写进 `AVAILABLE_MOD_FACTORIES`。
-/// 扫描根 = 进程当前目录下的 `mods/`（执行单 §3）。
+/// 扫描根 = 进程当前目录下的 `mods/`（执行单 §3）；0.4.0 rc.1 起再追加
+/// exe 目录下的 `mods/`（cwd 优先，见 `host_layout::mods_scan_roots`）。
 mod mods_scan;
+/// 0.4.0 rc.1：多锚点扫描（cwd 的 `mods/` 在前，exe 目录的在后；同 id 以 cwd 为准）。
+mod mods_scan_multi;
 /// `mod.toml` 的严格 TOML 子集解析（不新增依赖；子集外一律判不可用）。
 mod mods_scan_toml;
 mod session_scope;
@@ -159,6 +170,10 @@ fn main() -> ExitCode {
         }
         cli::Command::AudioSmoke { duration, silence } => run_audio_smoke(duration, silence),
         cli::Command::Web { port, dev_mode } => {
+            // 0.4.0 rc.1：只有 Windows 包的生产 `--web` 进程在监听成功后自开
+            // 浏览器（测试 / 库调用不 arm；Linux 仍由 `scripts/ignite.sh` 打开）。
+            #[cfg(windows)]
+            browser::arm();
             ExitCode::from(web_api::cli_entry::run_web_mode(port, dev_mode))
         }
     }
