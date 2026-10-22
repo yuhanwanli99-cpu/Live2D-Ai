@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use super::{Command, parse_args};
+use super::{Command, parse_args, parse_args_for};
 
 fn args(list: &[&str]) -> Vec<String> {
     list.iter().map(ToString::to_string).collect()
@@ -304,4 +304,139 @@ fn default_command_is_web_only_for_windows() {
     );
     // 本机（Linux）无参数仍是 Info：`parse_args` 的缺省分支读同一常量。
     assert_eq!(parse_args(&args(&[])), Ok(Command::Info));
+}
+
+// ===== 0.4.3 rc.1：--desk-pet（隐含 --web；仅 Windows） =====
+
+/// 纯函数两侧语义：Windows 上 `--desk-pet` = DeskPet，且**隐含** web（缺省端口）。
+#[test]
+fn desk_pet_implies_web_on_windows_with_default_port() {
+    assert_eq!(
+        parse_args_for("windows", &args(&["--desk-pet"])),
+        Ok(Command::DeskPet {
+            port: 18080,
+            dev_mode: false,
+        })
+    );
+}
+
+/// 与 `--http-port` / `--dev-mode` 可组合；显式 `--web` 不改变结果（顺序无关）。
+#[test]
+fn desk_pet_composes_with_http_port_dev_mode_and_web() {
+    assert_eq!(
+        parse_args_for(
+            "windows",
+            &args(&["--desk-pet", "--http-port", "19000", "--dev-mode"])
+        ),
+        Ok(Command::DeskPet {
+            port: 19000,
+            dev_mode: true,
+        })
+    );
+    assert_eq!(
+        parse_args_for("windows", &args(&["--desk-pet", "--web"])),
+        Ok(Command::DeskPet {
+            port: 18080,
+            dev_mode: false,
+        })
+    );
+    assert_eq!(
+        parse_args_for("windows", &args(&["--web", "--desk-pet", "--dev-mode"])),
+        Ok(Command::DeskPet {
+            port: 18080,
+            dev_mode: true,
+        })
+    );
+}
+
+/// 非 Windows：**用法错误**（退出码 2 那条路），中文含「仅 Windows」并说明当前
+/// 目标；消息**不是** "__help__"（否则 main.rs 会按 help 返回 0）。
+#[test]
+fn desk_pet_is_rejected_on_non_windows() {
+    for os in ["linux", "macos"] {
+        let err = parse_args_for(os, &args(&["--desk-pet"]))
+            .expect_err("非 Windows 的 --desk-pet 必须是用法错误");
+        assert!(
+            err.message.contains("仅 Windows"),
+            "{os} 的错误消息必须含「仅 Windows」，实际: {}",
+            err.message
+        );
+        assert!(
+            err.message.contains(os),
+            "{os} 的错误应说明当前目标，实际: {}",
+            err.message
+        );
+        assert_ne!(
+            err.message, "__help__",
+            "必须是用法错误（退出码 2），不是 help（退出码 0）"
+        );
+    }
+}
+
+/// 真机锁（Linux / macOS）：不注入 OS，直接走 `parse_args`（读
+/// `std::env::consts::OS`）也必须被拒绝——证明 wrapper 真把目标 OS 传下去了。
+#[cfg(not(windows))]
+#[test]
+fn desk_pet_is_rejected_by_parse_args_on_this_host() {
+    let err =
+        parse_args(&args(&["--desk-pet"])).expect_err("本机（非 Windows）必须拒绝 --desk-pet");
+    assert!(err.message.contains("仅 Windows"), "{}", err.message);
+    assert_ne!(err.message, "__help__");
+}
+
+/// `desk_pet_supported` 只认 Windows（macOS / Linux 都 false）。
+#[test]
+fn desk_pet_supported_is_windows_only() {
+    assert!(super::desk_pet_supported("windows"));
+    assert!(!super::desk_pet_supported("linux"));
+    assert!(!super::desk_pet_supported("macos"));
+}
+
+/// `--desk-pet` 隐含 `--web` ⇒ 与 `--audio-smoke` 仍走现有互斥错误
+/// （互斥检查在「非 Windows 拒绝」之前；两种顺序都拒绝）。
+#[test]
+fn desk_pet_is_mutually_exclusive_with_audio_smoke() {
+    let err = parse_args_for("windows", &args(&["--desk-pet", "--audio-smoke"]))
+        .expect_err("--desk-pet 与 --audio-smoke 必须互斥");
+    assert!(err.message.contains("互斥"), "{}", err.message);
+    assert!(
+        parse_args_for("linux", &args(&["--audio-smoke", "--desk-pet"])).is_err(),
+        "顺序无关：非 Windows 上同样先命中互斥"
+    );
+}
+
+/// Windows 双击（无参数）仍是 Web 18080，**不开**宠物窗（0.4.3 不改缺省命令）。
+#[test]
+fn default_command_on_windows_stays_web_not_desk_pet() {
+    assert_eq!(
+        super::default_command("windows", false),
+        Command::Web {
+            port: 18080,
+            dev_mode: false,
+        }
+    );
+    assert_eq!(
+        parse_args_for("windows", &args(&[])),
+        Ok(Command::Web {
+            port: 18080,
+            dev_mode: false,
+        })
+    );
+}
+
+/// 用法文本必须出现 `--desk-pet`，并写明仅 Windows / 非 Windows 退出码 2。
+#[test]
+fn usage_mentions_desk_pet() {
+    assert!(
+        super::USAGE.contains("--desk-pet"),
+        "USAGE 必须说明 --desk-pet"
+    );
+    assert!(
+        super::USAGE.contains("仅 Windows"),
+        "USAGE 必须写明仅 Windows"
+    );
+    assert!(
+        super::USAGE.contains("退出码 2"),
+        "USAGE 必须写明非 Windows 退出码 2"
+    );
 }

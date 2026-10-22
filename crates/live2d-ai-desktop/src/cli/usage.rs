@@ -6,6 +6,9 @@
 //! 2026-10-01（W2-B / D1 第二段）：原生壳（窗口/模型冒烟、桌宠模式、终端 chat、
 //! benchmark）移出构建，相应用法行随之删除；恢复条件见
 //! `docs/architecture/ARCHIVED-native-shell.md`。
+//!
+//! 2026-10-22（0.4.3 rc.1）：新增 `--desk-pet`（隐含 `--web`，仅 Windows；
+//! 非 Windows 是用法错误、退出码 2）。这不是恢复被删的 `--pet-mode` / `pet-desktop`。
 
 /// 用法文本（`--help` 与错误提示共用）。
 pub const USAGE: &str = "\
@@ -25,6 +28,10 @@ live2d-ai-desktop — Live2D-Ai PC 桌面应用（Web 主路径 + 声卡冒烟�
                                         Flutter Web /app/；**不**需要 LLM/TTS 配置
                                         即可启动（无配置时端点返回 has_api_key=false、
                                         configured=false）
+  live2d-ai-desktop --desk-pet [--http-port P] [--dev-mode]
+                                        桌宠 demo（仅 Windows；隐含 --web）：Web 服务照常，
+                                        再开无边框、置顶、点击穿透的皮套窗（0.4.3 rc.2）。
+                                        非 Windows 是用法错误（退出码 2），不启动服务
 
 选项:
   -h, --help                 打印本帮助
@@ -33,6 +40,7 @@ live2d-ai-desktop — Live2D-Ai PC 桌面应用（Web 主路径 + 声卡冒烟�
   --audio-smoke-silence      音频冒烟改播数字静音（链路照常，无声可听；隐含 --audio-smoke）
   --web                      启动 Web API 后台模式（产品主路径；与音频冒烟互斥）
   --http-port <P>            监听端口（>= 1024；隐含 --web；缺省 18080）
+  --desk-pet                 桌宠 demo（仅 Windows；隐含 --web；非 Windows 为用法错误，退出码 2）
   --dev-mode                 本次启动覆盖 dev_mode（优先级最高；开放 /api/v1/logs* 端点）
 
 说明:

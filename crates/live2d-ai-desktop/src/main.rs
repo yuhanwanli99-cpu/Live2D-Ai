@@ -177,6 +177,15 @@ fn main() -> ExitCode {
             browser::arm();
             ExitCode::from(web_api::cli_entry::run_web_mode(port, dev_mode))
         }
+        cli::Command::DeskPet { port, dev_mode } => {
+            // 0.4.3 rc.1：`--desk-pet` 隐含 `--web`。本笔**只做参数解析与非
+            // Windows 拒绝**（拒绝发生在 cli 层，走不到这里），执行与 Web 相同；
+            // 宠物窗在 0.4.3 rc.2 加——本笔还没有 `desk_pet` 模块，**不要**在这里
+            // 调 `desk_pet::arm()`。非 Windows 分支实际不可达（parse_args 已拒绝）。
+            #[cfg(windows)]
+            browser::arm();
+            ExitCode::from(web_api::cli_entry::run_web_mode(port, dev_mode))
+        }
     }
 }
 

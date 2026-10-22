@@ -16,6 +16,9 @@
 //!   （无音频设备 → 退出码 3）；`--audio-smoke-secs S` 调时长（≤30 s）；
 //!   `--audio-smoke-silence` 改播数字静音（全链路照常跑通）。
 //! - `--web [--http-port P] [--dev-mode]`：Web API 后台模式（产品主路径）。
+//! - `--desk-pet [--http-port P] [--dev-mode]`（0.4.3 rc.1）：桌宠 demo，**隐含
+//!   `--web`**；**仅 Windows**——非 Windows 是用法错误（退出码 2），不启动服务。
+//!   rc.1 只做参数解析与拒绝；宠物窗在 rc.2（本笔还没有 `desk_pet` 模块）。
 //! - `--help` / `-h` 打印用法（`USAGE`）。
 //! - `--dev-mode`（W7 任务）：覆盖 `live2d-ai.toml` 的 dev_mode 开关；
 //!   优先级最高，与 `--web` 一同使用立即开放 `/api/v1/logs*` 端点。
@@ -61,6 +64,17 @@ pub enum Command {
         /// 覆盖 settings 文件的 `dev_mode` 字段；日志端点依赖此开关。
         dev_mode: bool,
     },
+    /// **桌宠 demo**（0.4.3 rc.1；`--desk-pet`，隐含 `--web`，仅 Windows）。
+    ///
+    /// 与 [`Command::Web`] 用**独立变体**而不是给 Web 加字段：现有 10 处 Web
+    /// 断言因此一字不动。rc.1 只做参数解析与「非 Windows 拒绝」；窗口在 rc.2
+    /// 加，所以本笔的执行与 Web 相同（见 `main.rs` 对应分支）。
+    DeskPet {
+        /// 监听端口（默认 [`DEFAULT_HTTP_PORT`]；`--http-port` 可覆盖）。
+        port: u16,
+        /// dev-mode 启动覆盖（同 [`Command::Web::dev_mode`]）。
+        dev_mode: bool,
+    },
 }
 
 /// CLI 解析错误。
@@ -76,14 +90,31 @@ impl CliError {
     }
 }
 
+/// 桌宠窗是否受**当前目标**支持：只认 Windows（macOS / Linux 都 `false`）。
+///
+/// 抽成纯函数是为了在 Linux 上钉住两侧语义（0.4.3 rc.1：非 Windows 的
+/// `--desk-pet` 是**用法错误**——不启动服务、不编译窗口模块）。
+pub fn desk_pet_supported(os: &str) -> bool {
+    os == "windows"
+}
+
 /// 解析参数列表（不含 argv[0]）。顺序无关、可组合。
 pub fn parse_args(args: &[String]) -> Result<Command, CliError> {
+    parse_args_for(std::env::consts::OS, args)
+}
+
+/// 与 [`parse_args`] 相同，但**目标 OS 可注入**（`std::env::consts::OS` 的字符串）。
+///
+/// 纯函数：Linux 单测可同时钉住 `"windows"` 与 `"linux"` / `"macos"` 两侧语义。
+pub fn parse_args_for(os: &str, args: &[String]) -> Result<Command, CliError> {
     let mut audio_smoke = false;
     let mut audio_secs: Option<f64> = None;
     let mut audio_silence = false;
     // D2 HTTP/WS 控制平面：--web/--http-port 显式选择；与音频冒烟互斥。
     let mut web = false;
     let mut http_port: Option<u16> = None;
+    // 0.4.3 rc.1：--desk-pet（隐含 --web；仅 Windows）。
+    let mut desk_pet = false;
     // W7 任务：--dev-mode CLI 覆盖。
     let mut dev_mode = false;
 
@@ -117,6 +148,11 @@ pub fn parse_args(args: &[String]) -> Result<Command, CliError> {
                 audio_smoke = true; // 静音开关隐含音频冒烟
             }
             "--web" => {
+                web = true;
+            }
+            "--desk-pet" => {
+                // 与 --http-port 同款：隐含 web 模式（服务照常起，另开宠物窗）。
+                desk_pet = true;
                 web = true;
             }
             "--http-port" => {
@@ -153,11 +189,26 @@ pub fn parse_args(args: &[String]) -> Result<Command, CliError> {
         return Err(CliError::new("--audio-smoke 与 --web 不能同时使用（互斥）"));
     }
 
+    // 0.4.3 rc.1：非 Windows 的 --desk-pet 是**用法错误**（main.rs 在
+    // `run_web_mode` 之前打印「参数错误 + USAGE」并返回退出码 2）——因此不会
+    // bind 端口、不会启动服务，也不会编译窗口模块。错误消息**不得**是
+    // `"__help__"`（那会变成退出码 0 的帮助路径）。
+    if desk_pet && !desk_pet_supported(os) {
+        return Err(CliError::new(format!(
+            "--desk-pet 仅 Windows 可用（当前目标：{os}）；非 Windows 不开桌宠窗，请改用 --web"
+        )));
+    }
     if audio_smoke {
         let secs = audio_secs.unwrap_or(DEFAULT_AUDIO_SMOKE_SECS);
         return Ok(Command::AudioSmoke {
             duration: Duration::from_secs_f64(secs),
             silence: audio_silence,
+        });
+    }
+    if desk_pet {
+        return Ok(Command::DeskPet {
+            port: http_port.unwrap_or(DEFAULT_HTTP_PORT),
+            dev_mode,
         });
     }
     if web {
@@ -169,7 +220,7 @@ pub fn parse_args(args: &[String]) -> Result<Command, CliError> {
     // 纯 Info 模式：`--dev-mode` 单独出现时无 host 可覆盖 ⇒ 静默忽略（与旧语义一致）。
     // 0.4.0 rc.1：Windows 包**双击（无参数）**直接起 Web 18080（0.4.md「拷到
     // Windows 磁盘后双击。进程听 127.0.0.1:18080」）；其它目标仍是 Info。
-    Ok(default_command(std::env::consts::OS, dev_mode))
+    Ok(default_command(os, dev_mode))
 }
 
 /// 无 `--web` / `--audio-smoke` 时的缺省命令：**Windows 包双击即可用**。
