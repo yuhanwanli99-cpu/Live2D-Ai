@@ -221,6 +221,7 @@ fn collect_dart_and_docs_and_missing_artifacts_per_fixture() {
     assert_eq!(stats.docs_audit_lines, 4);
     assert_eq!(stats.docs_worktree_files, 2);
     assert_eq!(stats.docs_worktree_lines, 3);
+    assert_eq!(stats.docs_version_files, 0);
 
     // 产物目录不存在 → 记「缺」，不猜体积。
     assert_eq!(stats.artifacts.len(), 2);
@@ -266,6 +267,52 @@ fn dependencies_count_ignores_target_and_dev_sections() {
     assert_eq!(
         count_dependencies_in("[dependencies]\n# a = \"1\"\na = \"1\" # 行尾注释\n"),
         1
+    );
+}
+
+/// 大版本文档 `docs/versions/0.4.md` 不进总预算；同目录里名字不对的文件仍要计入。
+#[test]
+fn major_version_doc_has_its_own_budget() {
+    let tree = TempTree::new("version-doc");
+    tree.write("docs/a.md", "# a\n# b\n");
+    tree.write("docs/versions/0.4.md", "# v\n# w\n# x\n# y\n# z\n");
+    tree.write("docs/versions/notes.md", "# n\n");
+    let stats = collect(&tree.root).expect("scan fixture");
+    assert_eq!(stats.docs_version_files, 1);
+    assert_eq!(stats.docs_version_lines, 5);
+    assert_eq!(stats.docs_version_max_lines, 5);
+    assert_eq!(
+        stats.docs_worktree_lines, 3,
+        "0.4.md 不进合计，notes.md 要进"
+    );
+
+    let over = Options {
+        check: true,
+        gates: vec![Gate::Docs],
+        limits: Limits {
+            docs_lines: 4,
+            ..Limits::ratchet()
+        },
+        ..Options::default()
+    };
+    let results = evaluate(&stats, &over);
+    let docs = results
+        .iter()
+        .find(|result| result.group == Gate::Docs)
+        .expect("docs gate present");
+    assert_eq!(docs.actual, 5, "单篇大版本文档超过自己的上限就要红");
+    assert!(!docs.pass);
+
+    let ok = Options {
+        limits: Limits {
+            docs_lines: 5,
+            ..Limits::ratchet()
+        },
+        ..over
+    };
+    assert_eq!(
+        exit_code(&evaluate(&stats, &ok), true),
+        ExitCode::from(EXIT_PASS)
     );
 }
 

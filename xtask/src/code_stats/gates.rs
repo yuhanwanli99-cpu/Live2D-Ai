@@ -181,10 +181,10 @@ pub fn evaluate(stats: &CodeStats, opts: &Options) -> Vec<GateResult> {
             "docs-lines",
             Gate::Docs,
             format!(
-                "`docs/**/*.md` 不含 `docs/audit/**` 的行数（预算 {}）",
+                "`docs/**/*.md` 不含 `docs/audit/**` 与大版本文档的行数（预算 {}；大版本文档单独同一上限）",
                 opts.limits.docs_lines
             ),
-            stats.docs_worktree_lines,
+            stats.docs_worktree_lines.max(stats.docs_version_max_lines),
             opts.limits.docs_lines,
             PLAN_DOCS_LINES,
         ),

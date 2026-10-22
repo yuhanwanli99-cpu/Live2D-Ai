@@ -136,13 +136,17 @@ pub fn collect(root: &Path) -> io::Result<CodeStats> {
         if rel.starts_with("docs/audit/") {
             audit_files += 1;
             audit_total += lines;
+        } else if is_major_version_doc(rel) {
+            stats.docs_version_files += 1;
+            stats.docs_version_lines += lines;
+            stats.docs_version_max_lines = stats.docs_version_max_lines.max(lines);
         }
     }
     stats.docs_lines = docs_total;
     stats.docs_audit_files = audit_files;
     stats.docs_audit_lines = audit_total;
-    stats.docs_worktree_files = stats.docs_files - audit_files;
-    stats.docs_worktree_lines = docs_total - audit_total;
+    stats.docs_worktree_files = stats.docs_files - audit_files - stats.docs_version_files;
+    stats.docs_worktree_lines = docs_total - audit_total - stats.docs_version_lines;
 
     for (rel, budget) in [
         (FLUTTER_WEB_DIST, FLUTTER_WEB_BUDGET_MIB),
@@ -286,6 +290,30 @@ pub fn dir_size(dir: &Path) -> io::Result<Option<u64>> {
         }
     }
     Ok(Some(total))
+}
+
+/// `docs/versions/0.4.md` 这种「一个大版本一篇」。其它名字仍进总预算。
+fn is_major_version_doc(rel: &Path) -> bool {
+    let text = rel.to_string_lossy().replace('\\', "/");
+    let Some(name) = text.strip_prefix("docs/versions/") else {
+        return false;
+    };
+    if name.contains('/') {
+        return false;
+    }
+    let Some(stem) = name.strip_suffix(".md") else {
+        return false;
+    };
+    let mut parts = stem.split('.');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(major), Some(minor), None) => {
+            !major.is_empty()
+                && !minor.is_empty()
+                && major.bytes().all(|byte| byte.is_ascii_digit())
+                && minor.bytes().all(|byte| byte.is_ascii_digit())
+        }
+        _ => false,
+    }
 }
 
 /// 展示路径：仓库内相对路径统一用 `/`；不在仓库内则用原路径。

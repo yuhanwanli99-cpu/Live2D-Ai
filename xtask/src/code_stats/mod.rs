@@ -237,6 +237,8 @@ const PLAN_DOCS_LINES: u64 = 45_000;
 /// `docs/DOC-MAP.md` §4「移出四步」把只具历史留证价值的文档移出工作树
 /// （git 历史逐字保留 + 登记 `REMOVED-docs-index` + 活文档改链），
 /// **不是**把 45,000 调大。真源：`docs/REMOVED-docs-index-2026-10-06.md`。
+/// 从 0.4 起，一个大版本可以另开 `docs/versions/<大版本>.md`（如 `0.4.md`）。
+/// 这一篇不进上面的合计，自己也不得超过 45,000。其它文件名仍进合计。
 const DOCS_BUDGET_LINES: u64 = PLAN_DOCS_LINES;
 
 /// 依赖预算点名的 crate（PLAN §2.5 / §D4）。
@@ -378,9 +380,13 @@ pub struct CodeStats {
     /// `docs/audit/**/*.md`（过程产物，不计入预算，仅披露）。
     pub docs_audit_files: u64,
     pub docs_audit_lines: u64,
-    /// `docs/**/*.md` **不含** `docs/audit/**`（= docs 预算的判定对象）。
+    /// `docs/**/*.md` **不含** `docs/audit/**`，也不含 `docs/versions/<大版本>.md`。
     pub docs_worktree_files: u64,
     pub docs_worktree_lines: u64,
+    /// `docs/versions/<数字>.<数字>.md`。每个大版本一篇，单独不超过同一条 45,000。
+    pub docs_version_files: u64,
+    pub docs_version_lines: u64,
+    pub docs_version_max_lines: u64,
     /// 产物体积（缺失即 `None`）。
     pub artifacts: Vec<Artifact>,
     /// Rust 三桶合计（冗余保存，便于报告与断言）。

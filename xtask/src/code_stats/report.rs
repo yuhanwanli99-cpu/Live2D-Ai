@@ -105,6 +105,12 @@ fn write_totals(out: &mut String, stats: &CodeStats) {
         stats.docs_audit_files,
         thousands(stats.docs_audit_lines)
     );
+    let _ = writeln!(
+        out,
+        "| └ 其中 `docs/versions/<大版本>.md`（每篇单独 ≤ 预算，不进上一项） | {} | {} |",
+        stats.docs_version_files,
+        thousands(stats.docs_version_lines)
+    );
     let _ = writeln!(out);
 }
 
@@ -351,7 +357,7 @@ fn write_methodology(out: &mut String, stats: &CodeStats, opts: &Options) {
     let _ = writeln!(out, "- 「缺」= 产物目录不存在（未构建）；不伪造体积。");
     let _ = writeln!(
         out,
-        "- **docs 预算口径**：`DOCS_BUDGET_LINES` = {}（PLAN §5 目标）判的是**不含 `docs/audit/**`** 的行数；`docs/audit/` 是审计过程产物、只增不减，计入会掩盖真实减量（真源 `docs/DOC-MAP.md` §3）；逼近预算时的正解是**移出工作树**（`docs/REMOVED-docs-index-2026-10-06.md`），不是调大预算。",
+        "- **docs 预算口径**：`DOCS_BUDGET_LINES` = {}（PLAN §5 目标）判的是**不含 `docs/audit/**`、也不含 `docs/versions/<大版本>.md`** 的行数；`docs/audit/` 是审计过程产物、只增不减，计入会掩盖真实减量（真源 `docs/DOC-MAP.md` §3）；逼近预算时的正解是**移出工作树**（`docs/REMOVED-docs-index-2026-10-06.md`），或从 0.4 起为一个大版本另开 `docs/versions/<大版本>.md`（该篇单独不得超过同一个数）。不是调大预算。",
         thousands(DOCS_BUDGET_LINES)
     );
     let _ = writeln!(out);
