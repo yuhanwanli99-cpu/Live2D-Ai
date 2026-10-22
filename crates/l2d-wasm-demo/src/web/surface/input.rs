@@ -193,7 +193,7 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
     let mouth = apply_mouth.map_or(0.0, |raw| {
         mouth_open_from_level(raw, apply_mouth_sensitivity)
     });
-    let _ = st.core.set_parameter("ParamMouthOpenY", mouth);
+    st.core.set_mouth_open(mouth);
 
     // **动作预设**（P0-1 / P0-2）：Director Mod / 开发工具 → Flutter → 这里。
     //
