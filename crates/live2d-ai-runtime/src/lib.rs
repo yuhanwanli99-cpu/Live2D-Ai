@@ -83,6 +83,9 @@ pub mod llm;
 /// A2A 上游的正文收集（0.3.8 rc.1）：一路 `chat_stream` → 一段正文，
 /// 思考（`ReasoningDelta`）丢弃。与句子装配/TTS/口型无关。
 pub mod llm_collect;
+/// 导演动作频率（0.4.4 rc.1）：按句 cue 的 sparse / normal / dense 过滤
+/// （倾向选完之后再过滤，见 `conversation::engine::sentence_texts`）。
+pub mod motion_rate;
 /// 表演层（导演 / 大脑）：每轮一份合法化 JSON → speak（TTS/上屏真源）+ cues。
 pub mod performance;
 pub mod secret;

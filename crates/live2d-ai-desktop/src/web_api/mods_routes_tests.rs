@@ -865,3 +865,133 @@ fn discovered_select_skips_on_demand_and_reports_start_failure() {
     assert!(ctx.folder_processes.running_ids().is_empty());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// ------------------------------------------ 0.4.4 rc.1：导演两键（GET/POST config）
+
+/// 打一次 `/api/v1/mods/director/config`（空 body 不带 Content-Type）。
+fn director_route(ctx: &ServerContext, method: &Method, body: &str) -> Response<Cursor<Vec<u8>>> {
+    handle_mods_route(
+        ctx,
+        method,
+        "/api/v1/mods/director/config",
+        body,
+        Some("http://127.0.0.1:18099"),
+        (!body.is_empty()).then_some("application/json"),
+    )
+    .expect("director config 路由应命中")
+}
+
+/// POST 只合并两键（其它键 / enabled 原样保留、其余提交键不写）；GET 回两键。
+#[test]
+fn director_config_post_merges_two_keys_and_get_returns_them() {
+    let manifest = serde_json::json!({"schema":7,"mods":{
+        "director":{"enabled":true,"config":{"motion_bias":"restrained","keep_me":{"nested":1}}},
+        "external-input":{"enabled":true,"config":{"token":"t"}}}});
+    let (ctx, supervisor, dir, mods) = director_ctx("ok", manifest);
+    let resp = director_route(
+        &ctx,
+        &Method::Post,
+        r#"{"config":{"motion_bias":"eager","motion_rate":"sparse","ignored":123}}"#,
+    );
+    assert_eq!(resp.status_code(), StatusCode(200));
+    let body = body_string(resp);
+    assert!(
+        body.contains("\"ok\":true") && body.contains("\"enabled\":false"),
+        "成功回执形状：{body}"
+    );
+    let after: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&mods).expect("read mods.json"))
+            .expect("mods.json 必须是合法 JSON");
+    assert_eq!(after["schema"], 7, "其它顶层键原样保留");
+    assert_eq!(
+        after["mods"]["director"]["enabled"], true,
+        "enabled 原样保留"
+    );
+    assert_eq!(
+        after["mods"]["director"]["config"]["keep_me"],
+        serde_json::json!({"nested":1}),
+        "其它 config 键原样保留"
+    );
+    assert_eq!(after["mods"]["director"]["config"]["motion_bias"], "eager");
+    assert_eq!(after["mods"]["director"]["config"]["motion_rate"], "sparse");
+    assert!(
+        after["mods"]["director"]["config"].get("ignored").is_none(),
+        "其余提交键忽略且不写"
+    );
+    assert_eq!(after["mods"]["external-input"]["config"]["token"], "t");
+    assert!(
+        !ctx.mod_registry.lock().unwrap().contains("director"),
+        "绝不注册 director"
+    );
+    assert!(
+        crate::web_api::tests_reload::wait_until_reload_consumed(
+            &supervisor,
+            std::time::Duration::from_secs(5)
+        ),
+        "POST 成功后必须 request_reload 并被 supervisor 消费"
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_str(&body_string(director_route(&ctx, &Method::Get, "")))
+            .expect("GET body 必须是合法 JSON");
+    assert_eq!(parsed["id"], "director");
+    assert_eq!(parsed["config"]["motion_bias"], "eager");
+    assert_eq!(parsed["config"]["motion_rate"], "sparse");
+    let _ = std::fs::remove_dir_all(&dir);
+    drop(supervisor);
+}
+
+/// 未知值 → 400 且不写盘、不重载（白名单在 merge 里先全量校验）。
+#[test]
+fn director_config_post_rejects_unknown_value_without_writing_or_reloading() {
+    let (ctx, supervisor, dir, mods) = director_ctx(
+        "bad",
+        serde_json::json!({
+            "mods":{"director":{"enabled":true,"config":{"motion_bias":"restrained"}}}
+        }),
+    );
+    let before = std::fs::read_to_string(&mods).expect("read before");
+    let resp = director_route(
+        &ctx,
+        &Method::Post,
+        r#"{"config":{"motion_bias":"eager","motion_rate":"turbo"}}"#,
+    );
+    assert_eq!(resp.status_code(), StatusCode(400), "未知值必须 400");
+    assert!(body_string(resp).contains("bad_request"));
+    assert_eq!(
+        std::fs::read_to_string(&mods).expect("read after"),
+        before,
+        "未知值不得写盘"
+    );
+    assert!(
+        !supervisor
+            .reload_pending_for_test()
+            .load(std::sync::atomic::Ordering::SeqCst),
+        "400 不得触发 reload"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    drop(supervisor);
+}
+
+/// GET 只读：缺失 / 未知一律 normal，且不触发重载。
+#[test]
+fn director_config_get_normalizes_missing_and_unknown_values() {
+    let (ctx, supervisor, dir, _mods) = director_ctx(
+        "get",
+        serde_json::json!({
+            "mods":{"director":{"enabled":true,"config":{"motion_bias":"垃圾"}}}
+        }),
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_str(&body_string(director_route(&ctx, &Method::Get, ""))).expect("json");
+    assert_eq!(parsed["id"], "director");
+    assert_eq!(parsed["config"]["motion_bias"], "normal", "未知值 = normal");
+    assert_eq!(parsed["config"]["motion_rate"], "normal", "缺键 = normal");
+    assert!(
+        !supervisor
+            .reload_pending_for_test()
+            .load(std::sync::atomic::Ordering::SeqCst),
+        "GET 只读不得触发 reload"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    drop(supervisor);
+}

@@ -11,8 +11,9 @@
 //! # 依赖方向
 //!
 //! runtime（`live2d_ai_runtime::cleaning`）不能反向依赖本 crate，所以
-//! [`SentenceCleaner`](../..) 侧只收两条派生值（经 [`MotionBias::to_runtime_bias`]
-//! 投影）；三档文案的**单一真源在本文件**，不要在 runtime 里再抄一份。
+//! [`SentenceCleaner`](../..) 侧只收派生值（经 [`MotionBias::to_runtime_bias`]
+//! 投影：cue 子句 + 空数组回退 + 是否克制）；三档文案的**单一真源在本文件**，
+//! 不要在 runtime 里再抄一份。
 
 use live2d_ai_mod_system::{ModSettingField, SelectOption};
 
@@ -72,13 +73,21 @@ impl MotionBias {
         matches!(self, Self::Eager)
     }
 
-    /// runtime 侧投影：`SentenceCleaner` 只收两条派生值（依赖方向 director → runtime，
+    /// runtime 侧投影：`SentenceCleaner` 只收派生值（依赖方向 director → runtime，
     /// 三档文案的单一真源仍在 [`cue_clause`](Self::cue_clause)）。
+    ///
+    /// 0.4.4 rc.1：克制档额外投影「是否克制」标志（runtime 的 Dense 动作频率
+    /// 据此**不补** cue）；平常 / 主动投影为非克制。
     pub fn to_runtime_bias(&self, allowed: &str) -> live2d_ai_runtime::cleaning::MotionBias {
-        live2d_ai_runtime::cleaning::MotionBias::new(
-            self.cue_clause(allowed),
-            self.fallback_on_empty(),
-        )
+        match self {
+            Self::Restrained => {
+                live2d_ai_runtime::cleaning::MotionBias::restrained(self.cue_clause(allowed))
+            }
+            Self::Normal | Self::Eager => live2d_ai_runtime::cleaning::MotionBias::new(
+                self.cue_clause(allowed),
+                self.fallback_on_empty(),
+            ),
+        }
     }
 
     /// 设置面字段（Select）：键 `motion_bias`，label 提明「保存并重载后生效」
@@ -156,6 +165,37 @@ mod motion_bias_tests {
             MotionBias::Eager.cue_clause(allowed),
             "只根据这一句原文，从下面这组 id 里选 1~2 个。\
              只有整句是平铺直叙、没有情绪也没有问号时才允许空数组 []：nod, smile"
+        );
+    }
+
+    /// 0.4.4 rc.1：克制档投影给 runtime 的「克制」标志（Dense 频率据此不补 cue）；
+    /// 平常 / 主动投影为非克制。三句 cue_clause 的逐字锁死在上面那条测试里。
+    #[test]
+    fn motion_bias_projects_restrained_flag_to_runtime() {
+        let allowed = "nod, smile";
+        assert!(
+            MotionBias::Restrained
+                .to_runtime_bias(allowed)
+                .is_restrained(),
+            "克制档必须投影为克制"
+        );
+        for bias in [MotionBias::Normal, MotionBias::Eager] {
+            assert!(
+                !bias.to_runtime_bias(allowed).is_restrained(),
+                "{} 不是克制档",
+                bias.as_str()
+            );
+        }
+        // 空数组回退仍只看主动档（投影不改变这条既有派生值）。
+        assert!(
+            !MotionBias::Restrained
+                .to_runtime_bias(allowed)
+                .fallback_on_empty()
+        );
+        assert!(
+            MotionBias::Eager
+                .to_runtime_bias(allowed)
+                .fallback_on_empty()
         );
     }
 

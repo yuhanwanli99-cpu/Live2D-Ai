@@ -41,6 +41,9 @@ use tiny_http::{Header, Method, Response, StatusCode};
 use live2d_ai_mod_system::{ModSettingField, ModSettingsSpec};
 
 use crate::mod_registry::ModCommandError;
+use crate::supervisor::performance_wiring::{
+    MergeError, load_motion_bias, load_motion_rate, merge_director_motion_config,
+};
 use crate::web_api::ServerContext;
 
 /// 路由前缀。
@@ -137,6 +140,13 @@ pub fn handle_mods_route(
         ));
     }
 
+    // GET /api/v1/mods/director/config → 导演两键**只读旁路**（0.4.4 rc.1）。
+    // director 已退出工厂 / 注册表（rc4），不能走 registry.config；直接从同目录
+    // mods.json 读 motion_bias / motion_rate（缺失 / 未知一律显示 normal）。
+    if action == "config" && *method == Method::Get && id == "director" {
+        return Some(handle_director_config_get(ctx));
+    }
+
     // GET /api/v1/mods/{id}/config → 读取单个 Mod 配置（只读；secret 字段脱敏）。
     if action == "config" && *method == Method::Get {
         return Some(handle_mod_config_get(ctx, id));
@@ -181,6 +191,15 @@ pub fn handle_mods_route(
         return Some(crate::web_api::security::mutating_check_error_response(
             &err,
         ));
+    }
+
+    // POST /api/v1/mods/director/config → 导演两键**旁路**（0.4.4 rc.1）。
+    // 放在 registry 查找 / enable / restart **之前**：director 不在工厂表，这里
+    // 只合并 motion_bias / motion_rate；未知值 400 且**不写盘、不重载**；
+    // 写盘失败 409 mod_error；成功 200 + request_reload（按句清洗器只在 reload
+    // 时重读 mods.json）。**绝不写 enabled、绝不 restart、绝不注册 director。**
+    if action == "config" && id == "director" {
+        return Some(handle_director_config_post(ctx, body));
     }
 
     // 执行操作：借出 id。
@@ -458,6 +477,68 @@ fn handle_mods_list(ctx: &ServerContext) -> Response<Cursor<Vec<u8>>> {
         .collect();
     let body = serde_json::json!({"mods": mods}).to_string();
     ok_response(StatusCode(200), &body)
+}
+
+/// `GET /api/v1/mods/director/config`：导演两键的**只读快照**（0.4.4 rc.1）。
+///
+/// director 不在注册表里，所以不经 registry；直接读同目录 `mods.json` 的
+/// `mods.director.config.motion_bias` / `motion_rate`（缺失 / 未知 = normal）。
+/// 只读、**不重载**：前端刷新设置面板时显示当前生效值用。
+fn handle_director_config_get(ctx: &ServerContext) -> Response<Cursor<Vec<u8>>> {
+    let config_path = ctx.status_ctx.config_path.as_str();
+    let body = serde_json::json!({
+        "id": "director",
+        "config": {
+            "motion_bias": load_motion_bias(config_path).as_str(),
+            "motion_rate": load_motion_rate(config_path).as_str(),
+        },
+    })
+    .to_string();
+    ok_response(StatusCode(200), &body)
+}
+
+/// `POST /api/v1/mods/director/config`：只合并导演两键（0.4.4 rc.1）。
+///
+/// body 必须是 `{"config":{...}}`（坏 body / 非对象 config → 400）。合并与
+/// 白名单校验在 [`merge_director_motion_config`]：未知值 → 400（**不写盘、
+/// 不重载**）；坏 JSON / 写盘失败 → 409 `mod_error`。成功 200
+/// `{"ok":true,"enabled":false}` 并触发 supervisor 热重载（清洗器重读两键）。
+/// **不写 enabled、不 restart、不碰工厂 / 注册表**。
+fn handle_director_config_post(ctx: &ServerContext, body: &str) -> Response<Cursor<Vec<u8>>> {
+    let parsed = match serde_json::from_str::<serde_json::Value>(body) {
+        Ok(value) => value,
+        Err(err) => {
+            return json_error(
+                StatusCode(400),
+                "bad_request",
+                format!("无效 JSON body：{err}"),
+            );
+        }
+    };
+    let Some(config) = parsed.get("config").filter(|value| value.is_object()) else {
+        return json_error(
+            StatusCode(400),
+            "bad_request",
+            "body 必须包含对象 \"config\" 字段".to_string(),
+        );
+    };
+    match merge_director_motion_config(&ctx.status_ctx.config_path, config) {
+        Ok(()) => {
+            // 两键只在 supervisor 重载时生效（按句清洗器重建）：与既有 Mod config
+            // POST 同一条控制面（只热重载，不 restart 进程 / Mod）。
+            ctx.request_reload();
+            tracing::info!(
+                target: "mod",
+                mod_id = "director",
+                "导演两键已落盘，已触发 supervisor 热重载（按句清洗器重建）"
+            );
+            ok_response(StatusCode(200), r#"{"ok":true,"enabled":false}"#)
+        }
+        Err(MergeError::InvalidValue(message)) => {
+            json_error(StatusCode(400), "bad_request", message)
+        }
+        Err(MergeError::Storage(message)) => json_error(StatusCode(409), "mod_error", message),
+    }
 }
 
 /// `GET /api/v1/mods/{id}/config`：只读返回单个 Mod 配置（secret 字段脱敏）。

@@ -20,6 +20,7 @@ use std::time::Duration;
 
 use live2d_ai_core::ModelCapabilities;
 use live2d_ai_mod_director::motion_bias::MotionBias;
+use live2d_ai_runtime::motion_rate::MotionRate;
 use live2d_ai_runtime::{AppSettings, ConversationConfig, LlmConfig, OpenAiClient, TtsConfig};
 
 use crate::app_event::{AppEvent, ConversationUiEvent, RootFact};
@@ -45,16 +46,21 @@ fn sentence_cleaner_is_wired_only_when_clean_tts_is_on() {
     // 这里测的就是 clean_tts 这一个开关；motion_bias 只影响提示词子句。
     let bias = MotionBias::default();
     assert!(
-        super::reload::build_sentence_cleaner(&off, &bias).is_none(),
+        super::reload::build_sentence_cleaner(&off, &bias, MotionRate::Normal).is_none(),
         "clean_tts=false（便捷构造）必须不跑二路，引擎走规则表"
     );
 
     let mut llm = LlmConfig::new("http://127.0.0.1:9/v1", "deepseek-flash");
     llm.clean_tts = true;
     let on = OpenAiClient::new(llm, tts()).expect("client");
-    let cleaner =
-        super::reload::build_sentence_cleaner(&on, &bias).expect("clean_tts=true 必须装配二路清洗");
+    let cleaner = super::reload::build_sentence_cleaner(&on, &bias, MotionRate::Dense)
+        .expect("clean_tts=true 必须装配二路清洗");
     assert!(cleaner.enabled());
+    assert_eq!(
+        cleaner.rate(),
+        MotionRate::Dense,
+        "动作频率必须原样装配进清洗器（0.4.4 rc.1）"
+    );
     assert_eq!(
         cleaner.model(),
         "deepseek-flash",

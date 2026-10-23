@@ -159,6 +159,68 @@ pub(super) fn ctx_with_state_mod(enabled: bool) -> ServerContext {
     ctx
 }
 
+// ---------------------------------- 0.4.4 rc.1：导演两键旁路夹具
+
+/// 导演两键旁路的上下文：**空工厂** registry + 临时 `live2d-ai.toml` 路径
+/// （`status_ctx.config_path` 指向临时目录）+ 手写 `mods.json` + 真 supervisor。
+///
+/// 返回 `(ctx, supervisor, 临时目录, mods.json 路径)`：测试结束自行
+/// `remove_dir_all` / `drop(supervisor)`，**绝不碰仓库根** `mods.json` /
+/// `live2d-ai.toml`。
+#[allow(clippy::type_complexity)]
+pub(super) fn director_ctx(
+    tag: &str,
+    manifest: serde_json::Value,
+) -> (
+    ServerContext,
+    std::sync::Arc<crate::supervisor::SupervisorHandle>,
+    std::path::PathBuf,
+    std::path::PathBuf,
+) {
+    let dir = std::env::temp_dir().join(format!(
+        "l2d-director-config-{tag}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let toml = dir.join("live2d-ai.toml");
+    std::fs::write(
+        &toml,
+        live2d_ai_runtime::AppSettings::default().to_toml_string(),
+    )
+    .expect("write toml");
+    let mods = dir.join("mods.json");
+    std::fs::write(&mods, manifest.to_string()).expect("write manifest");
+    let config_path = toml.display().to_string();
+    // 真 supervisor：reload_pending 的「是否触发 / 是否消费」只有真句柄能验。
+    let supervisor = std::sync::Arc::new(crate::supervisor::spawn_supervisor(
+        crate::supervisor::SupervisorConfig {
+            client: live2d_ai_runtime::OpenAiClient::new(
+                live2d_ai_runtime::LlmConfig::new("http://127.0.0.1:1/v1", "m"),
+                live2d_ai_runtime::TtsConfig::new("http://127.0.0.1:2/v1", "alloy"),
+            )
+            .expect("client"),
+            conversation: live2d_ai_runtime::ConversationConfig::new("人设"),
+            capabilities: live2d_ai_core::ModelCapabilities::all(),
+            audio: None,
+            config_path: Some(config_path.clone()),
+            mod_events: None,
+        },
+        |_ev| {},
+    ));
+    let mut ctx = dummy_ctx(SecurityContext::new(18099, true));
+    ctx.status_ctx = std::sync::Arc::new(crate::web_api::app_routes::StatusContext::new(
+        live2d_ai_runtime::AppSettings::default(),
+        config_path,
+        None,
+    ));
+    let ctx = ctx.with_supervisor(std::sync::Arc::clone(&supervisor));
+    (ctx, supervisor, dir, mods)
+}
+
 // ------------------------------------ 0.3.11：启动器「进入」夹具
 
 /// 替身：id 就是 local-tts-melo（启动器「拉起类」id 之一）。

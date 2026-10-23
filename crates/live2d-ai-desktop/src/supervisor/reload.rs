@@ -7,13 +7,14 @@
 use std::sync::Arc;
 
 use live2d_ai_runtime::cleaning::SentenceCleaner;
+use live2d_ai_runtime::motion_rate::MotionRate;
 use live2d_ai_runtime::performance::PerformanceRuntime;
 use live2d_ai_runtime::{AppSettings, ConversationConfig, ConversationEngine, OpenAiClient};
 
 use crate::app_event::AppEvent;
 
 use super::dialogue_history;
-use super::performance_wiring::{build_performance_runtime, load_motion_bias};
+use super::performance_wiring::{build_performance_runtime, load_motion_bias, load_motion_rate};
 use super::{Emit, PerformanceStatsSlot};
 
 /// 从磁盘最新配置构造新的 [`OpenAiClient`] + [`ConversationConfig`]（热重载核心）。
@@ -51,10 +52,12 @@ fn rebuild_engine_from_config(
     // 端点只读 `[performance]` 自己（导演 Mod 的二路端点已于 rc4 删除）。
     let performance = build_performance_runtime(&resolved.performance);
     // 核心第二路按句清洗（**常驻**；单一 cue 写者）：端点/模型/密钥恒来自一路，
-    // 表演倾向只读 mods.json 的 `mods.director.config.motion_bias`（缺省平常）。
+    // 表演倾向 / 动作频率只读 mods.json 的 `mods.director.config.{motion_bias,motion_rate}`
+    // 两个既有键（缺省平常 / 不增不减）。
     // `resolved.llm.clean_tts` 由 `AppSettings::resolve` 置 true（产品默认）。
     let motion_bias = load_motion_bias(config_path);
-    let cleaner = build_sentence_cleaner(&client, &motion_bias);
+    let motion_rate = load_motion_rate(config_path);
+    let cleaner = build_sentence_cleaner(&client, &motion_bias, motion_rate);
     Ok((client, resolved.conversation, performance, cleaner))
 }
 
@@ -63,18 +66,22 @@ fn rebuild_engine_from_config(
 /// 端点 / 模型 / 密钥**全部来自一路**（`client.llm()`）——模型定死同一份，
 /// 不再给用户第二个下拉框。`clean_tts == false`（`LlmConfig::new` 的便捷构造）
 /// → `None`：引擎走确定性清洗 + 规则表（上屏 == 送 TTS == `clean_for_tts(句)`）。
-/// 打开时 `.with_motion(allowed, bias)`：同一请求体多要一份可选 `cues`。
+/// 打开时 `.with_motion(allowed, bias)`：同一请求体多要一份可选 `cues`；
+/// `.with_rate(motion_rate)`：选完 cue 之后按动作频率过滤（0.4.4 rc.1）。
 pub(crate) fn build_sentence_cleaner(
     client: &OpenAiClient,
     motion_bias: &live2d_ai_mod_director::motion_bias::MotionBias,
+    motion_rate: MotionRate,
 ) -> Option<Arc<SentenceCleaner>> {
     let llm = client.llm();
     // 能力集与规则表的单一真源 = runtime 规则表（导演 Mod 已退役，不再读它）。
     let allowed = live2d_ai_runtime::performance::rules::accepted_preset_ids();
     // 表演倾向（2026-10-13 T3）：三档文案真源仍在 director 的 motion_bias，
-    // host 只把它投影成 runtime 侧的两条派生值。
+    // host 只把它投影成 runtime 侧的派生值（含 0.4.4 rc.1 的「是否克制」）。
     let bias = motion_bias.to_runtime_bias(&allowed.join(", "));
-    let cleaner = SentenceCleaner::from_llm(llm).with_motion(allowed, bias);
+    let cleaner = SentenceCleaner::from_llm(llm)
+        .with_motion(allowed, bias)
+        .with_rate(motion_rate);
     if !cleaner.enabled() {
         return None;
     }
@@ -82,6 +89,7 @@ pub(crate) fn build_sentence_cleaner(
         model = cleaner.model(),
         motion = cleaner.motion(),
         bias = motion_bias.as_str(),
+        rate = motion_rate.as_str(),
         "核心第二路按句清洗已装配（常驻；单一 cue 写者，请求体显式关思考）"
     );
     Some(Arc::new(cleaner))

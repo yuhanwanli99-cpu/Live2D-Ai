@@ -29,6 +29,7 @@ use serde_json::Value;
 use std::fmt;
 
 use crate::config::LlmConfig;
+use crate::motion_rate::MotionRate;
 use crate::performance::PerformanceCue;
 use crate::performance::client::{
     DisabledPerformance, OpenAiPerformanceClient, PerformanceClient, StructuredMode,
@@ -146,14 +147,27 @@ pub struct MotionBias {
     clause: String,
     /// 模型交回空数组时是否回退按句规则表（只有「主动」档 true）。
     fallback_on_empty: bool,
+    /// 是否「克制」档（0.4.4 rc.1：[crate::motion_rate] Dense 档**不补** cue 的判据）。
+    restrained: bool,
 }
 
 impl MotionBias {
-    /// 由 host 从导演档位投影构造。
+    /// 由 host 从导演档位投影构造（旧调用只有「空数组回退」一条派生值，
+    /// 按**平常**档处理——克制投影走 [`Self::restrained`]）。
     pub fn new(clause: String, fallback_on_empty: bool) -> Self {
         Self {
             clause,
             fallback_on_empty,
+            restrained: false,
+        }
+    }
+
+    /// 克制档投影（0.4.4 rc.1：Dense 频率下不补 cue）。
+    pub fn restrained(clause: String) -> Self {
+        Self {
+            clause,
+            fallback_on_empty: false,
+            restrained: true,
         }
     }
 
@@ -165,6 +179,11 @@ impl MotionBias {
     /// 空数组是否回退规则表（只有主动档 true）。
     pub fn fallback_on_empty(&self) -> bool {
         self.fallback_on_empty
+    }
+
+    /// 是否克制档（Dense 频率下**不补** cue）。
+    pub fn is_restrained(&self) -> bool {
+        self.restrained
     }
 }
 
@@ -219,6 +238,8 @@ pub struct SentenceCleaner {
     /// 表演倾向（2026-10-13 执行单 T3；请求 cues 时生效）：`None` = 既有克制
     /// 文案，`Some` = 只换 `cues：` 那一句 + 决定空数组是否回退规则表。
     bias: Option<MotionBias>,
+    /// 导演动作频率（0.4.4 rc.1）：倾向选完之后按档过滤（[crate::motion_rate]）。
+    rate: MotionRate,
 }
 
 impl fmt::Debug for SentenceCleaner {
@@ -229,6 +250,7 @@ impl fmt::Debug for SentenceCleaner {
             .field("enabled", &self.client.enabled())
             .field("timeout_ms", &self.timeout_ms)
             .field("motion", &self.motion)
+            .field("rate", &self.rate.as_str())
             .finish()
     }
 }
@@ -242,6 +264,7 @@ impl SentenceCleaner {
             motion: false,
             allowed: Vec::new(),
             bias: None,
+            rate: MotionRate::Normal,
         }
     }
 
@@ -295,6 +318,7 @@ impl SentenceCleaner {
                 motion,
                 allowed,
                 bias: None,
+                rate: MotionRate::Normal,
             },
             Err(reason) => {
                 tracing::warn!(
@@ -308,6 +332,7 @@ impl SentenceCleaner {
                     motion,
                     allowed,
                     bias: None,
+                    rate: MotionRate::Normal,
                 }
             }
         }
@@ -330,6 +355,26 @@ impl SentenceCleaner {
     pub fn with_bias(mut self, bias: MotionBias) -> Self {
         self.bias = Some(bias);
         self
+    }
+
+    /// 设置导演**动作频率**（0.4.4 rc.1；缺省 [MotionRate::Normal] = 不增不减）。
+    pub fn with_rate(mut self, rate: MotionRate) -> Self {
+        self.rate = rate;
+        self
+    }
+
+    /// 当前动作频率（句子出口据此过滤：`conversation::engine::sentence_texts`）。
+    pub fn rate(&self) -> MotionRate {
+        self.rate
+    }
+
+    /// 当前倾向是否**克制**档（`MotionRate::Dense` 不补 cue 的判据；**无 bias = true**：
+    /// 没有倾向选择就按「不可补」处理，密集档也不硬造动作）。
+    pub fn bias_is_restrained(&self) -> bool {
+        self.bias
+            .as_ref()
+            .map(MotionBias::is_restrained)
+            .unwrap_or(true)
     }
 
     /// 二路是否可用（不可用时引擎走既有的确定性清洗）。

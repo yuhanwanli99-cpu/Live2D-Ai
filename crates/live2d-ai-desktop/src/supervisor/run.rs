@@ -18,7 +18,7 @@ use crate::session_scope::SessionScopeStore;
 
 use super::dialogue_history;
 use super::handlers;
-use super::performance_wiring::{build_performance_runtime, load_motion_bias};
+use super::performance_wiring::{build_performance_runtime, load_motion_bias, load_motion_rate};
 use super::reload::{apply_reload, build_sentence_cleaner};
 use super::turn;
 use super::{
@@ -64,10 +64,16 @@ pub(super) async fn run_forever(
         .as_deref()
         .map(load_motion_bias)
         .unwrap_or_default();
+    // 导演动作频率（0.4.4 rc.1）：同一份 mods.json 的
+    // `mods.director.config.motion_rate`（缺省 normal = 不增不减）。
+    let motion_rate = config_path
+        .as_deref()
+        .map(load_motion_rate)
+        .unwrap_or_default();
     // 核心第二路按句清洗（**常驻**；单一 cue 写者）：要在把 client 移进引擎**之前**
     // 装配。测试 / 手工装配用 `LlmConfig::new` → clean_tts=false → 这里 `None`，
     // 引擎走确定性清洗 + 规则表。
-    let cleaner = build_sentence_cleaner(&client, &motion_bias);
+    let cleaner = build_sentence_cleaner(&client, &motion_bias, motion_rate);
     let mut engine = ConversationEngine::new(client, conversation);
     engine.set_cleaner(cleaner);
     // ---- 整段表演层装配（T8，2026-10-07；2026-10-08 起显式 opt-in）----

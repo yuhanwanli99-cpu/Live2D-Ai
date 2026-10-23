@@ -346,8 +346,21 @@ impl ConversationEngine {
                     sentence_seq += 1;
                     // 导演常驻：每段原文都过核心规则表产 cue（非空才发），
                     // 在该段 SentenceReady / 音频之前。表演层自己的 cues 不投递。
-                    let cues =
-                        crate::performance::rules::rule_cues_for_sentence(&sentence, sentence_seq);
+                    // 0.4.4 rc.1：这是**第二处**按句出 cue 的出口（表演层 segments
+                    // 路径），与流式路径调同一个频率过滤器（同一条顺序：先倾向、
+                    // 再频率；这里起点是规则表，所以密集档实际只会裁剪 / 清空）。
+                    let rate = cleaner.as_ref().map(|c| c.rate()).unwrap_or_default();
+                    let restrained = cleaner
+                        .as_ref()
+                        .map(|c| c.bias_is_restrained())
+                        .unwrap_or(true);
+                    let cues = crate::motion_rate::filter_cues(
+                        rate,
+                        restrained,
+                        &sentence,
+                        sentence_seq,
+                        crate::performance::rules::rule_cues_for_sentence(&sentence, sentence_seq),
+                    );
                     if !cues.is_empty() {
                         let delivered = send_event(
                             &event_tx,

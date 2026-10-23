@@ -103,7 +103,9 @@ mod dialogue_history;
 mod handlers;
 // 2026-10-17：从本文件拆出（`turn_in_flight` 让本文件越过 500 行棘轮）。
 mod mod_projection;
-mod performance_wiring;
+// 0.4.4 rc.1：web_api 的 director config 旁路要复用两个 load / merge 函数，
+// 故对 crate 内开放（仅可见性，行为不变）。
+pub(crate) mod performance_wiring;
 mod reload;
 mod run;
 mod spawn;

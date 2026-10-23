@@ -1,5 +1,8 @@
 //! 一句原文 → 上屏文本 + 送 TTS 文本 + 这一句的 cue（按句第二路的**唯一**消费点）。
 //!
+//! 0.4.4 rc.1：选完 cue 之后按**动作频率**（`crate::motion_rate`）过滤——
+//! **顺序锁死：先倾向、再频率**（主动档空数组回退规则表仍在上面的 match 里）。
+//!
 //! rc4（2026-10-17）：动作恒开，每句都产 cue——
 //! - cleaner 可用 → 模型 cues（空数组只有主动档回退规则表）；
 //! - 失败 / 超时 / 坏 JSON / 未解析 → **这一句原文**的规则表；
@@ -20,6 +23,7 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use crate::cleaning::SentenceCleaner;
+use crate::motion_rate::filter_cues;
 use crate::performance::PerformanceCue;
 use crate::performance::rules::rule_cues_for_sentence;
 
@@ -38,6 +42,8 @@ pub(super) async fn sentence_texts(
     let rule = || rule_cues_for_sentence(raw, sentence_seq);
     let Some(cleaner) = cleaner.filter(|c| c.enabled()) else {
         // 句首/句尾空白由分句器保证已 trim；`clean_for_tts` 仍做幂等兜底。
+        // **早退路径保持原样**（0.4.4 rc.1 明示）：没有二路 = 没有倾向选择，
+        // 因此**也不做动作频率过滤**——这一句的规则表 cue 原样返回。
         let cleaned = crate::dialogue::clean_for_tts(raw);
         return Some((cleaned.clone(), cleaned, rule()));
     };
@@ -62,5 +68,15 @@ pub(super) async fn sentence_texts(
         // 未请求 cues / 失败 / 超时 / 坏 JSON：回退这一句原文的规则表。
         None => rule(),
     };
+    // **顺序锁死：先倾向、再频率**。上面的 match 已完成倾向选择（主动档空数组
+    // 回退整张规则表也发生在那里）；这里才按动作频率过滤：稀疏无问号清空 /
+    // 有问号只留第一条，密集在本句空表且非克制档时补规则表第一条。
+    let cues = filter_cues(
+        cleaner.rate(),
+        cleaner.bias_is_restrained(),
+        raw,
+        sentence_seq,
+        cues,
+    );
     Some((cleaned.display, cleaned.speech, cues))
 }
