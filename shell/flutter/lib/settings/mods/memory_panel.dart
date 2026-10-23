@@ -50,12 +50,13 @@ String memorySummaryLine(Map<String, Object?>? state) {
 
 /// 记忆放在哪的说明（2026-10-08：说人话，不出现「桶」）。纯函数，可单测。
 ///
-/// `activeSessionId == null` 时必须**说清降级**，不能假装绑好了：这时记的东西
-/// 先汇总在一起，等有会话了再按会话分开。
+/// `activeSessionId == null` 时必须**说清现状**，不能假装绑好了：这时还没有
+/// 这次对话可归属，内容先记在总文件里——它不会写进提示词，也不会自动拆进以后
+/// 的某次对话（别让用户以为「等会儿聊天它就会记得」）。
 String memoryBucketNotice(String? activeSessionId) {
   final String id = activeSessionId?.trim() ?? '';
   if (id.isEmpty) {
-    return '还没有对话。记住的内容先放到一起，开始聊天后再按这次对话分开。';
+    return '还没有对话。这些内容记在总文件里，不会写进提示词，也不会自动拆进以后的某次对话。';
   }
   return '只看这次对话记住的内容。';
 }

@@ -13,8 +13,6 @@
 /// 不是角色说的话。本文件同时钉住「看得见」和「不像回复」这两件事。
 library;
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -22,6 +20,8 @@ import 'package:live2d_ai_shell/chat/chat_message.dart';
 import 'package:live2d_ai_shell/chat/turn_liveness.dart';
 import 'package:live2d_ai_shell/ui/message_bubble.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
+
+import 'support/dart_library.dart';
 
 Widget wrap(Widget child) => MaterialApp(
   theme: buildAppTheme(),
@@ -144,8 +144,7 @@ void main() {
   });
 
   group('③ 接线守卫：判据与文案必须真的被控制器用上', () {
-    final String controller = File('lib/chat/chat_controller.dart')
-        .readAsStringSync();
+    final String controller = readLibrarySource('lib/chat/chat_controller.dart');
 
     test('`_finishTurn` 走 `settleTurn`（而不是自己写 if 分支）', () {
       expect(

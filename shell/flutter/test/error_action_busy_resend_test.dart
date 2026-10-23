@@ -305,7 +305,7 @@ void main() {
 
     test('chat_controller.dart：重发走 send(..., echoUser: false)，不补第二条用户气泡', () {
       final String src = stripCommentsAndStrings(
-        File('lib/chat/chat_controller.dart').readAsStringSync(),
+        readLibrarySource('lib/chat/chat_controller.dart'),
       );
       final String body = bodyOf(
         src,

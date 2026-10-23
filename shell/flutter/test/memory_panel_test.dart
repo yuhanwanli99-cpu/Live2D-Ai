@@ -177,11 +177,11 @@ void main() {
       }
     });
 
-    test('memoryBucketNotice：没有对话说清「先放一起」，有对话说「只看这次」；不出现「桶」', () {
+    test('memoryBucketNotice：没有对话说清「记在总文件、不写提示词、不拆进以后」，有对话说「只看这次」；不出现「桶」', () {
       final String fallback = memoryBucketNotice(null);
       expect(
         fallback,
-        '还没有对话。记住的内容先放到一起，开始聊天后再按这次对话分开。',
+        '还没有对话。这些内容记在总文件里，不会写进提示词，也不会自动拆进以后的某次对话。',
       );
       final String scoped = memoryBucketNotice('  s-1  ');
       expect(scoped, '只看这次对话记住的内容。');
@@ -389,8 +389,9 @@ void main() {
         reason: '没有会话就不该带 session_id（落到全局桶）',
       );
       expect(find.textContaining('还没有对话'), findsOneWidget);
-      expect(find.textContaining('先放到一起'), findsOneWidget);
-      expect(find.textContaining('按这次对话分开'), findsOneWidget);
+      expect(find.textContaining('记在总文件里'), findsOneWidget);
+      expect(find.textContaining('不会写进提示词'), findsOneWidget);
+      expect(find.textContaining('不会自动拆进以后的某次对话'), findsOneWidget);
       expect(find.textContaining('还没有记住任何内容'), findsOneWidget);
       expect(find.textContaining('桶'), findsNothing, reason: '产品面上不出现「桶」');
     });

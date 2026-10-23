@@ -5,6 +5,7 @@
 //! `super::registry`。私有项按 `pub(super)` 开放给兄弟模块，不改对外 API。
 
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use super::*;
 
@@ -111,26 +112,79 @@ pub fn mod_event_sink(registry: Arc<Mutex<ModRegistry>>) -> crate::supervisor::M
     })
 }
 
+/// `TurnPrompt` 抢 runtime 槽位锁的短重试次数（rc.3，2026-10-23）。
+///
+/// 只对这个话题重试：它是 `dispatch_event_and_flush` 的话题，worker 的
+/// `try_lock` 失败（host restart 正持锁）在旧实现里是**静默跳过**——宿主已经
+/// 回执「这条事件处理完了」，而模型这一轮其实没收到注入（memory / persona 的
+/// 会话写入丢了，界面上看不出来）。3 次、每次约 10ms 只覆盖「host 刚要放锁」的
+/// 瞬态竞争，不是新的长等待。
+const TURN_PROMPT_LOCK_RETRIES: usize = 3;
+
+/// 每次抢锁重试前的等待：约 10ms（3 次 ≈ 30ms 上限，见
+/// [`TURN_PROMPT_LOCK_RETRIES`]）。
+const TURN_PROMPT_LOCK_RETRY_DELAY: Duration = Duration::from_millis(10);
+
+/// 取 per-Mod runtime 槽位锁：先 `try_lock`，失败时最多再试 `retries` 次、
+/// 每次等 [`TURN_PROMPT_LOCK_RETRY_DELAY`]。
+///
+/// `retries == 0` = 只试一次、不等待（其它话题的既有行为）。只有
+/// `TurnPrompt` 传非零值；理由见 [`TURN_PROMPT_LOCK_RETRIES`]。
+fn try_lock_with_retries(
+    slot: &SharedRuntime,
+    retries: usize,
+) -> Option<std::sync::MutexGuard<'_, Option<Box<dyn ModRuntime>>>> {
+    let mut attempt = 0usize;
+    loop {
+        if let Ok(guard) = slot.try_lock() {
+            return Some(guard);
+        }
+        if attempt >= retries {
+            return None;
+        }
+        attempt += 1;
+        std::thread::sleep(TURN_PROMPT_LOCK_RETRY_DELAY);
+    }
+}
+
 /// 事件 worker 循环：从有界 channel 收事件，对每个 Running Mod 调
 /// `runtime.on_event`（独立线程，不阻塞 supervisor；worker 持 per-Mod
 /// runtime 的 `Arc<Mutex<...>>` clone，**不持 registry 锁**）。
 ///
-/// - `try_lock` 失败（host 正在 restart 持有锁）→ 跳过本条事件。
+/// - `try_lock` 失败（host 正在 restart 持有锁）：`TurnPrompt` 先做 3 次、
+///   每次约 10ms 的短重试，仍失败 → 计入 `dropped_events` 并跳过该 Mod
+///   （不碰槽位、不调 `on_event`，继续处理其它 Mod；回执照常发——宿主继续
+///   这一轮，这一轮就是没注入）；其它话题维持旧行为：直接跳过、不计数。
 /// - 槽位为 `None`（Mod 未启用/已停用）→ 跳过。
 /// - `on_event` 返回 `Err` → 清空槽位（失败隔离），host restart 恢复。
 #[rustfmt::skip]
 pub(super) fn event_worker_loop(
     event_rx: std::sync::mpsc::Receiver<EventMsg>,
     runtimes: BTreeMap<&'static str, SharedRuntime>,
-    // S-006（2026-10-16）：形参**刻意**保持不使用。worker 里的两种 skip
-    //（host 持锁 / 该 Mod 未启用）是**正常过滤**，不是「事件被丢」——按 per-Mod
-    // 累加会让计数随在册 Mod 数膨胀（rc4 起 5 个在册、2 个启用 ⇒ 每条事件 +3），
-    // 那是个骗人的数。真正的丢弃只有一处：`send_event` 的 `try_send` 失败。
-    _dropped: Arc<AtomicU64>,
+    // S-006（2026-10-16）：worker 里的两种 skip（host 持锁 / 该 Mod 未启用）是
+    // **正常过滤**，不是「事件被丢」——按 per-Mod 累加会让计数随在册 Mod 数膨胀
+    //（rc4 起 5 个在册、2 个启用 ⇒ 每条事件 +3），那是个骗人的数。
+    // rc.3（2026-10-23）**唯一例外**：`TurnPrompt` 重试后仍抢不到锁 = 这一轮注入
+    // 没送达（宿主已经回执说「处理完」），必须计数；其它话题仍不计数。
+    dropped: Arc<AtomicU64>,
 ) {
     while let Ok((topic, payload, session, ack)) = event_rx.recv() {
+        // 只有 `TurnPrompt` 允许抢锁重试（见 TURN_PROMPT_LOCK_RETRIES）。
+        // 其它话题传 0 = 只试一次：保持「host 持锁 → 直接跳过、不计数」的旧行为。
+        let lock_retries = if topic == ModEventTopic::TurnPrompt { TURN_PROMPT_LOCK_RETRIES } else { 0 };
         for (id, slot) in &runtimes {
-            let mut guard = match slot.try_lock() { Ok(g) => g, Err(_) => continue }; // host 持锁（restart）→ 跳过。
+            let Some(mut guard) = try_lock_with_retries(slot, lock_retries) else {
+                // 只有 TurnPrompt 会走到「计丢」分支；其它话题的失败就是既有的静默跳过。
+                if lock_retries > 0 {
+                    dropped.fetch_add(1, Ordering::Relaxed);
+                    tracing::warn!(
+                        target: "mod",
+                        "Mod {id} 的 runtime 槽位锁被占用：TurnPrompt 重试 {} 次后仍失败，这一轮注入未送达（dropped_events +1）",
+                        TURN_PROMPT_LOCK_RETRIES
+                    );
+                }
+                continue // 不碰该 Mod 槽位（也绝不调 on_event）。
+            };
             if guard.is_none() { continue } // 未启用 → 跳过。
             // L1：走**带会话**入口；缺省实现原样转发给 on_event，
             // 所以不关心会话的 Mod（如 voice-input）行为一字不变。

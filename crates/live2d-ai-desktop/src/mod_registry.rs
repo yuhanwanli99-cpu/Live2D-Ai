@@ -213,3 +213,8 @@ mod tests_secret;
 mod tests_start_cause;
 #[cfg(test)]
 mod tests_support;
+/// rc.3（2026-10-23）：`TurnPrompt` 抢 runtime 锁的短重试 / 记丢回归。
+/// 单列文件：`tests_lifecycle` 已逼近 500 行棘轮；挂法照上面 `tests_start_cause` 先例。
+#[cfg(test)]
+#[path = "mod_registry/tests_turn_prompt_lock.rs"]
+mod tests_turn_prompt_lock;

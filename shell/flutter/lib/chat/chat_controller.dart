@@ -14,6 +14,8 @@ import '../audio/stage_clock.dart';
 import 'spoken_highlight.dart';
 import 'turn_liveness.dart';
 
+part 'session_sync.dart';
+
 /// 聊天状态：消息列表 + 流式拼接 + turn 状态 + 错误提示。
 ///
 /// 数据源：`POST /api/v1/chat`（发送）、`/ws/state`（流式与音频）。
@@ -50,6 +52,16 @@ class ChatController extends ChangeNotifier {
     // 高亮状态自己住在 `spoken_highlight.dart`；这里把它并进本控制器的通知面，
     // 壳里那条 `ListenableBuilder(listenable: _chat)` 就能把高亮重建出来。
     _highlight.addListener(notifyListeners);
+    // **启动恢复的一次同步**（rc.3）：组合根在 `_initShell` 里用
+    // `loadChatSessions()` 构造本控制器——上次的活动会话已经还原进 `sessions`，
+    // 但恢复**不经过** `newSession` / `selectSession`（那两个方法之后每次切换都会
+    // 各同步一次）。不补这一次的话，服务端对「不带会话 id 的注入路径」
+    //（external-input / voice-input）就不知道用户正在看哪个会话，离开页面再回来
+    // 的那段记忆会落到全局桶。**只在构造时补一次**：之后仍由那两个方法负责。
+    final String? restored = this.sessions.activeId;
+    if (restored != null && restored.isNotEmpty) {
+      _syncActiveSession();
+    }
   }
 
   final ApiClient api;
@@ -685,17 +697,6 @@ class ChatController extends ChangeNotifier {
     _persist();
     _syncActiveSession();
     notifyListeners();
-  }
-
-  /// 把当前活动会话告诉服务端（L1 会话绑定）。
-  ///
-  /// 只影响**不带会话 id 的注入路径**（external-input 弹幕 / voice-input 转写）：
-  /// 它们接在当前这段对话上，所以必须知道用户正在看哪个会话。聊天消息本身
-  /// 每次都显式带 `session_id`（见 [send]），不依赖这里。
-  ///
-  /// 失败不抛（见 `ApiClient.setActiveSession` 的说明）。
-  void _syncActiveSession() {
-    unawaited(api.setActiveSession(sessions.activeId));
   }
 
   /// 重命名；传空串 = 恢复自动标题。

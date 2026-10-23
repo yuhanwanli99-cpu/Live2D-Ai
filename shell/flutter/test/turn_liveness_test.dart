@@ -1,9 +1,9 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/chat/turn_liveness.dart';
+
+import 'support/dart_library.dart';
 
 /// **一轮的生命周期判据**回归（纯逻辑，VM 直接跑）。
 ///
@@ -304,7 +304,7 @@ void _llmFaultVisibilityTests() {
     /// 接线（源码扫描）：判据必须真的被 chat_controller 用上——那个文件经
     /// ws_client.dart 依赖 package:web，VM 测试里加载不了（本文件的存在理由）。
     test('chat_controller 用 fallbackTarget 决定落点，并记住收口后的气泡', () {
-      final String src = File('lib/chat/chat_controller.dart').readAsStringSync();
+      final String src = readLibrarySource('lib/chat/chat_controller.dart');
       expect(src.contains('fallbackTarget('), isTrue, reason: '落点判据必须来自纯函数');
       expect(
         src.contains('_settledAssistant'),
@@ -563,7 +563,7 @@ void _userLineTests() {
     /// 接线（源码扫描）：跳过必须发生在 `_abandonTurn` **之前**——顺序反了就是
     /// 先把在飞的那一轮作废、再补一条，正是这次要修的现场。
     test('acceptInjectedUserTurn：重复判据排在 _abandonTurn 之前', () {
-      final String src = File('lib/chat/chat_controller.dart').readAsStringSync();
+      final String src = readLibrarySource('lib/chat/chat_controller.dart');
       final int start = src.indexOf('bool acceptInjectedUserTurn(');
       expect(start, greaterThan(0), reason: '注入入口必须还在控制器里');
       final int end = src.indexOf('\n  }\n', start);
@@ -585,7 +585,7 @@ void _userLineTests() {
     /// `acceptInjectedUserTurn`，且不碰在飞的那一轮（不 _abandonTurn /
     /// 不清助手气泡 / 不关流式态）。
     test('chat_controller：appendSystem = 系统行 + 落盘，不动在飞那一轮', () {
-      final String src = File('lib/chat/chat_controller.dart').readAsStringSync();
+      final String src = readLibrarySource('lib/chat/chat_controller.dart');
       expect(
         src.contains('UserLineAction.appendSystem'),
         isTrue,
@@ -615,7 +615,7 @@ void _userLineTests() {
     /// 接线（源码扫描）：判据必须真的被 `chat_controller` 用上——那个文件经
     /// `ws_client.dart` 依赖 `package:web`，VM 测试里加载不了（本文件的存在理由）。
     test('chat_controller 用 userLineAction，且分支③不动在飞的那一轮', () {
-      final String src = File('lib/chat/chat_controller.dart').readAsStringSync();
+      final String src = readLibrarySource('lib/chat/chat_controller.dart');
       expect(src.contains('userLineAction('), isTrue, reason: '判据必须来自纯函数');
       expect(
         src.contains('UserLineAction.acceptInjected'),

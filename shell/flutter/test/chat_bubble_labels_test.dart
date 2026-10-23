@@ -8,8 +8,6 @@
 ///    现在：没有文字就**不留气泡**（「没有回复」本身就是准确信息）。
 library;
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -17,6 +15,8 @@ import 'package:live2d_ai_shell/chat/chat_message.dart';
 import 'package:live2d_ai_shell/chat/chat_markdown.dart';
 import 'package:live2d_ai_shell/ui/message_bubble.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
+
+import 'support/dart_library.dart';
 
 import 'support/source_scan.dart';
 
@@ -85,7 +85,7 @@ void main() {
       // `support/source_scan.dart`）。字符串**保留**：下面两处 `contains`
       // 比的正是字面量原文。
       final String src = stripCommentsKeepStrings(
-        File('lib/chat/chat_controller.dart').readAsStringSync(),
+        readLibrarySource('lib/chat/chat_controller.dart'),
       );
       expect(
         src.contains('本轮没有文字输出'),
@@ -96,7 +96,7 @@ void main() {
 
     test('失败仍然给一句话（「什么都没发生」才是最糟的反馈）', () {
       final String src = stripCommentsKeepStrings(
-        File('lib/chat/chat_controller.dart').readAsStringSync(),
+        readLibrarySource('lib/chat/chat_controller.dart'),
       );
       expect(src.contains('（生成失败）'), isTrue);
     });
