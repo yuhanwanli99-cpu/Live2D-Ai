@@ -29,6 +29,7 @@ pub(super) fn dummy_ctx(sec: SecurityContext) -> ServerContext {
         )),
         folder_processes: std::sync::Arc::new(crate::folder_spawn::FolderProcesses::new()),
         playback_gate: std::sync::Arc::new(crate::web_api::playback_gate::PlaybackGate::new()),
+        peer_pi: std::sync::Arc::new(crate::web_api::peer_pi::PeerState::new()),
     }
 }
 

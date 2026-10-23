@@ -97,6 +97,14 @@ pub mod models_routes;
 /// Mod 管理 HTTP API（节点 E5 补充，2026-08-30）：
 /// `GET /api/v1/mods` 与 `POST /api/v1/mods/{id}/{action}`。
 pub mod mods_routes;
+/// 本机 Pi 出站（0.4.5 rc.1）：单飞闸门 / 0700 会话目录 / argv / env / 整组超时。
+pub mod peer_pi;
+/// `pi --print --mode json` stdout 解析——**唯一**知道 Pi 线格式的地方。
+pub mod peer_pi_parse;
+/// 本机 Pi 出站的操作系统管线（目录 / PATH 查找 / env 白名单 / 管道 / 整组信号）。
+pub mod peer_pi_spawn;
+/// `POST /api/v1/peers/{id}/message`（本机 Pi 出站；claude = 404 peer_unavailable）。
+pub mod peer_routes;
 /// 浏览器播放忙上报（0.3.14）：`POST /api/v1/playback`。状态 = [`ServerContext`]
 /// 上的 [`playback_gate::PlaybackGate`]；缺省闲，超时视为闲（不丢队列）。
 pub mod playback_gate;
@@ -357,6 +365,9 @@ pub struct ServerContext {
     /// 缺省闲；`busy=true` 后 120s 无新上报视为闲（warn 一次，**不丢队列**）。
     /// 挂回外部注入后是 `external_queue::pump` 的 `ready` 判据来源。
     pub playback_gate: std::sync::Arc<crate::web_api::playback_gate::PlaybackGate>,
+    /// 0.4.5 rc.1：本机 Pi 出站状态（单飞闸门 + 运行时目录根）。
+    /// 请求在 worker 线程里等子进程，busy 状态必须跨请求可见，所以住这里。
+    pub peer_pi: std::sync::Arc<crate::web_api::peer_pi::PeerState>,
 }
 
 impl ServerContext {
@@ -382,6 +393,7 @@ impl ServerContext {
             )),
             folder_processes: Arc::new(crate::folder_spawn::FolderProcesses::new()),
             playback_gate: Arc::new(crate::web_api::playback_gate::PlaybackGate::new()),
+            peer_pi: Arc::new(crate::web_api::peer_pi::PeerState::new()),
         }
     }
 
@@ -694,6 +706,22 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             content_type.as_deref(),
         ) {
             respond_and_log(request, &method, &path, "mods", resp);
+            continue;
+        }
+
+        // 0.4.5 rc.1：本机 Pi 出站（`POST /api/v1/peers/{id}/message`）。
+        // 子进程最多等 120s，**不能**在这条串行循环里同步等：抢到单飞名额后由
+        // worker 线程持着 move 进来的 Request 自行 respond；已有 Pi 在飞时这里
+        // 立即 409（不排队、不打断皮套）。claude 在找二进制之前就 404。
+        if let Some(outcome) = crate::web_api::peer_routes::handle_peer_route(
+            &ctx,
+            &method,
+            &path,
+            &body_str,
+            origin.as_deref(),
+            content_type.as_deref(),
+        ) {
+            outcome.complete(request, &method, &path);
             continue;
         }
 

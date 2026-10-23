@@ -259,12 +259,12 @@ fn stop_child(process: &mut TrackedProcess) {
 
 #[cfg(unix)]
 #[allow(unsafe_code)] // 唯一 FFI 缝：prctl / kill（std 无封装，且不能再加依赖）。
-mod sys {
+pub(crate) mod sys {
     use std::os::raw::{c_int, c_ulong};
 
     const PR_SET_PDEATHSIG: c_int = 1;
-    pub(super) const SIGTERM: c_int = 15;
-    pub(super) const SIGKILL: c_int = 9;
+    pub(crate) const SIGTERM: c_int = 15;
+    pub(crate) const SIGKILL: c_int = 9;
 
     unsafe extern "C" {
         fn prctl(option: c_int, ...) -> c_int;
@@ -272,14 +272,14 @@ mod sys {
     }
 
     /// 只能在 pre_exec（fork 之后、exec 之前）里调用；失败不改行为。
-    pub(super) fn set_parent_death_signal() {
+    pub(crate) fn set_parent_death_signal() {
         unsafe {
             let _ = prctl(PR_SET_PDEATHSIG, SIGTERM as c_ulong);
         }
     }
 
     /// 杀整个进程组（负 pid）。只用于本进程记录过的 pid。
-    pub(super) fn kill_group(pid: u32, sig: c_int) {
+    pub(crate) fn kill_group(pid: u32, sig: c_int) {
         let Ok(pid) = c_int::try_from(pid) else {
             return;
         };
