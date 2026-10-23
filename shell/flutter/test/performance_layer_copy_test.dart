@@ -3,6 +3,8 @@
 /// 这一组守的是**用户看到的那两处**：
 /// 1. 一级「导演」卡上**常驻状态**——「导演常驻开启（无开关）」+ 一句说明；
 ///    旧说法（「打开后」/ 按情绪触发 / 分段送 TTS / 接管 / 留空 / 两项都填）**不得回潮**；
+///    2026-10-23（0.4.4-rc.2）卡上多了两条**用户看得懂**的动作偏好下拉
+///    （表演倾向 / 动作频率），八个隐藏键（词表映射 + staging_*）仍然一个都不画；
 /// 2. LLM 分区**不再有**「表演层（默认关）」那一行，也不再出现只说 / 只动 / noop /
 ///    `[performance]` 这些用户看不懂的词；2026-10-08 起「谁负责动作」那一行
 ///    也**整体撤掉**——导演按句出 cue 是产品行为，不需要在这里解释。
@@ -89,7 +91,7 @@ void main() {
       }
     });
 
-    test('一级卡源码里不再有旧调试词，也不再有导演配置表单（真泵源码）', () {
+    test('一级卡源码里不再有旧调试词，也没有八个隐藏键（真泵源码）', () {
       final String src = _code('lib/settings/sections/director_section.dart');
       for (final String banned in <String>[
         'kDirectorTakeoverNotice',
@@ -100,20 +102,43 @@ void main() {
         '清空决策账本',
         'command_unavailable',
         '依据：',
-        // rc4：导演不再是 Mod，产品面没有它的配置表单。
+        // rc4：导演不再是 Mod，产品面没有它的完整配置表单；
+        // 0.4.4-rc.2 只放回 motion_bias / motion_rate 两个下拉，
+        // 八个隐藏键与 staging_* 仍然一个都不画。
         'hiddenKeys',
         'staging_base_url',
         'staging_timeout_ms',
-        'motion_bias',
+        'preset_happy',
       ]) {
-        expect(
-          src.contains(banned),
-          isFalse,
-          reason: '一级导演卡不得再出现「$banned」',
-        );
+        expect(src.contains(banned), isFalse, reason: '一级导演卡不得再出现「$banned」');
       }
       // 扩展区也不再注册导演面板。
-      expect(_code('lib/settings/mods/mod_panels.dart').contains('DirectorPanel'), isFalse);
+      expect(
+        _code('lib/settings/mods/mod_panels.dart').contains('DirectorPanel'),
+        isFalse,
+      );
+    });
+
+    test('两个动作偏好键只在草稿文件里；八个隐藏键仍零出现（真泵源码）', () {
+      final String draft = _code('lib/settings/director_motion_draft.dart');
+      expect(draft.contains("'motion_bias'"), isTrue);
+      expect(draft.contains("'motion_rate'"), isTrue);
+      for (final String banned in <String>[
+        'preset_happy',
+        'preset_sad',
+        'preset_greeting',
+        'staging_enabled',
+        'staging_base_url',
+        'staging_model',
+        'staging_api_key_env',
+        'staging_timeout_ms',
+      ]) {
+        expect(
+          draft.contains(banned),
+          isFalse,
+          reason: '导演草稿文件不得出现隐藏键「$banned」',
+        );
+      }
     });
   });
 

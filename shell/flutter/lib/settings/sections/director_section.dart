@@ -8,7 +8,12 @@
 ///
 /// # 卡上有什么（按从上到下）
 ///
-/// 1. **常驻状态卡**：标题 = [kDirectorAlwaysOnTitle]，一句说明；
+/// 1. **常驻状态卡**：标题 = [kDirectorAlwaysOnTitle]，一句说明；说明下面还有
+///    两条动作偏好下拉（0.4.4-rc.2，2026-10-23）——**表演倾向**
+///    （`motion_bias`：克制 / 平常 / 主动）与**动作频率**
+///    （`motion_rate`：少 / 平常 / 多）。两条都**只进草稿**，由底部
+///    「保存并重载」一次 POST 写 `mods.director.config`（见
+///    [DirectorMotionWiring] 与 `settings/director_motion_draft.dart`）；
 /// 2. **动作幅度**（[DirectorActionScalesBlock]，2026-10-09 从「外观与互动」搬来，
 ///    本轮只是换了一级卡这个宿主）：头 / 身体 / 表情三键 + 「本模型覆盖」+
 ///    「恢复跟随全局」。数据仍是 [action] / [action.models.<id>]，**全部走设置
@@ -21,9 +26,11 @@
 ///
 /// # 删掉了什么（rc4）
 ///
-/// 导演 Mod 的配置表单整体退休：8 个隐藏键（词表映射 + `staging_*`）与
-/// `motion_bias` 都**不再有任何界面**——mods.json 里的既有值由宿主忽略（本机配置
-/// 不改）。本文件也不复制第二套设置面：滑条 / 覆盖 / 观测 / 调试全部复用原有组件。
+/// 导演 Mod 的配置表单整体退休：8 个隐藏键（词表映射 + `staging_*`）**仍然
+/// 一个都不画、字符串也不出现**——mods.json 里的既有值由宿主忽略（本机配置
+/// 不改）。2026-10-23 只把两个**用户看得懂**的旋钮（`motion_bias` /
+/// `motion_rate`）放回卡上，其余八个不复活。
+/// 本文件也不复制第二套设置面：滑条 / 覆盖 / 观测 / 调试全部复用原有组件。
 library;
 
 import 'package:flutter/material.dart';
@@ -35,6 +42,7 @@ import '../../ui/field_row.dart';
 import '../../ui/group_card.dart';
 import '../../ui/inline_notice.dart';
 import '../../ui/section_header.dart';
+import '../director_motion_draft.dart';
 import '../mods/director_debug_panels.dart';
 import '../mods/mod_panel.dart';
 import '../preset_labels.dart';
@@ -45,6 +53,60 @@ const String kDirectorAlwaysOnTitle = '导演常驻开启（无开关）';
 
 /// 常驻状态卡的**一句**说明（不解释词表 / 接管 / 分段送 TTS）。
 const String kDirectorAlwaysOnNotice = '每一句都按原文给表情与轻微的头、颈动作，不需要启用。';
+
+/// 两条动作偏好下拉的**精确标签**（测试逐字钉住；括号里的那半句是承诺：
+/// 只进草稿，按底部「保存并重载」才写盘）。
+const String kDirectorMotionBiasLabel = '表演倾向（保存并重载后生效）';
+const String kDirectorMotionRateLabel = '动作频率（保存并重载后生效）';
+
+/// 倾向稳定码 → 中文（稳定码的真源在 Rust 的 `MotionBias::parse` 三档）。
+const Map<String, String> _biasLabels = <String, String>{
+  'restrained': '克制',
+  'normal': '平常',
+  'eager': '主动',
+};
+
+/// 频率稳定码 → 中文（稳定码的真源在 Rust 的 `MotionRate::parse` 三档）。
+const Map<String, String> _rateLabels = <String, String>{
+  'sparse': '少',
+  'normal': '平常',
+  'dense': '多',
+};
+
+/// 按 [values]（协议顺序）生成下拉项；未知稳定码原样显示（**不隐藏**）。
+List<FieldOption<String>> _optionsFor(
+  List<String> values,
+  Map<String, String> labels,
+) => <FieldOption<String>>[
+  for (final String value in values)
+    FieldOption<String>(value: value, label: labels[value] ?? value),
+];
+
+/// 「表演倾向 / 动作频率」两条下拉的接线（0.4.4-rc.2，2026-10-23）。
+///
+/// 值与回调都由宿主给（宿主持 `DirectorMotionDraft`）：这里**不持有状态**，
+/// 所以「界面显示哪一档」与草稿 / 已保存值不会分叉。null = 宿主没接线时整块
+/// 不画（纯 widget 测试不受影响）。
+class DirectorMotionWiring {
+  const DirectorMotionWiring({
+    required this.bias,
+    required this.rate,
+    this.onBiasChanged,
+    this.onRateChanged,
+  });
+
+  /// 当前显示的倾向稳定码（`restrained` / `normal` / `eager`）。
+  final String bias;
+
+  /// 当前显示的频率稳定码（`sparse` / `normal` / `dense`）。
+  final String rate;
+
+  /// 改倾向（宿主写进草稿；不碰网络 / 不写盘）。
+  final ValueChanged<String>? onBiasChanged;
+
+  /// 改频率（宿主写进草稿；不碰网络 / 不写盘）。
+  final ValueChanged<String>? onRateChanged;
+}
 
 /// 情绪稳定码 → 中文标签（未知码回落原始码，**不隐藏**）。
 ///
@@ -114,14 +176,18 @@ String directorNumberText(Object? value) {
 class DirectorSection extends StatelessWidget {
   const DirectorSection({
     this.devMode = false,
+    this.motion,
     this.actionScales,
     this.directorDebug,
     this.observer,
     super.key,
   });
 
-  /// 开发者模式：只决定**可观测 / 调试**两块画不画（常驻状态与滑条照画）。
+  /// 开发者模式：只决定**可观测 / 调试**两块画不画（常驻状态 / 下拉 / 滑条照画）。
   final bool devMode;
+
+  /// 表演倾向 / 动作频率的接线；null = 宿主没接线时**两条下拉都不画**。
+  final DirectorMotionWiring? motion;
 
   /// 动作幅度接线；null = 宿主还没接线（纯 widget 测试）时整块不画。
   final ActionScalesWiring? actionScales;
@@ -141,13 +207,43 @@ class DirectorSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         // ① 常驻状态卡：没有开关——导演已在核心里常驻。
+        //
+        // 0.4.4-rc.2（2026-10-23）：说明下面补两条动作偏好下拉。它们与状态句
+        // 同住一张卡：都是「导演常驻、这两档决定它怎么动」这件事的一部分；
+        // 值只进宿主的草稿，保存由底部「保存并重载」统一做。
         GroupCard(
           title: '导演',
           description: kDirectorAlwaysOnNotice,
-          child: const InlineNotice(
-            message: kDirectorAlwaysOnTitle,
-            severity: NoticeSeverity.info,
-            dense: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              const InlineNotice(
+                message: kDirectorAlwaysOnTitle,
+                severity: NoticeSeverity.info,
+                dense: true,
+              ),
+              if (motion != null) ...<Widget>[
+                const SizedBox(height: Space.s2),
+                DropdownField<String>(
+                  label: kDirectorMotionBiasLabel,
+                  icon: Icons.theater_comedy,
+                  // 归一化只是防御：草稿只会给出三档之一。
+                  value: DirectorMotionDraft.normalizeBias(motion!.bias),
+                  options: _optionsFor(kDirectorMotionBiasValues, _biasLabels),
+                  enabled: motion!.onBiasChanged != null,
+                  onChanged: motion!.onBiasChanged ?? (String _) {},
+                ),
+                DropdownField<String>(
+                  label: kDirectorMotionRateLabel,
+                  icon: Icons.speed,
+                  value: DirectorMotionDraft.normalizeRate(motion!.rate),
+                  options: _optionsFor(kDirectorMotionRateValues, _rateLabels),
+                  enabled: motion!.onRateChanged != null,
+                  onChanged: motion!.onRateChanged ?? (String _) {},
+                ),
+                const SizedBox(height: Space.s1),
+              ],
+            ],
           ),
         ),
         // ② 动作幅度：宿主没接线时不画（不假装有滑条）。

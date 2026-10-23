@@ -365,6 +365,21 @@ class ModsApi {
     return null;
   }
 
+  /// `GET /api/v1/mods/{id}/config`：读取单个 Mod **已保存**的配置。
+  ///
+  /// 响应 `200 {"id":"…","config":{…}}`；`secret=true` 的字段由服务端脱敏
+  /// （永不出现在响应里）。404（这个 id 不在注册表）/ 其它非 200 抛
+  /// [ApiException]——调用方（导演卡读 `motion_bias` / `motion_rate`）吞掉它
+  /// 并回缺省值，**不替服务端猜配置**。只读 GET：不校验 Origin、不需要
+  /// `Content-Type`（与 [state] 同口径）。
+  Future<Map<String, Object?>> config(String id) async {
+    final http.Response response = await _guard(
+      () => _client.get(_uri('/api/v1/mods/${Uri.encodeComponent(id)}/config')),
+    );
+    if (response.statusCode != 200) throw _error(response);
+    return _obj(_decode(response.body)['config']) ?? const <String, Object?>{};
+  }
+
   /// `POST /api/v1/mods/{id}/config`，body `{"config": {…}}`。
   ///
   /// **必须显式带 `Content-Type: application/json`**：服务端对 mutating 请求

@@ -18,7 +18,7 @@ extension _ShellSettingsPanes on _ShellRootState {
   /// | service（模型服务） | ServiceSection（语言模型 / 语音合成两张卡） |
   /// | theme（主题） | ThemeSection（配色 + 背景） |
   /// | motion（Live2D 设置） | MotionSection（舞台与口型 + 渲染档位 + 互动） |
-  /// | director（导演） | DirectorSection（常驻状态 + 动作幅度；devMode 才画观测/调试） |
+  /// | director（导演） | DirectorSection（常驻状态 + 两条动作偏好下拉 + 动作幅度；devMode 才画观测/调试） |
   /// | mods（扩展） | ModsSection（各 Mod 的产品卡片；**不再有导演卡**） |
   /// | developer（开发模式） | DeveloperSection（+ 诊断，仅 devMode 渲染） |
   Widget _buildSection(BuildContext context, SettingsSection section) {
@@ -129,6 +129,10 @@ extension _ShellSettingsPanes on _ShellRootState {
         // 不再有直接 PATCH、回读与结果位（那些是 T3 之前的行为）。
         // 数据仍是 [action] / [action.models.<id>]；**不写进 mods.json、
         // 不新增键、不接 action_tx**。
+        //
+        // 0.4.4-rc.2（2026-10-23）：常驻状态卡里另外有两条动作偏好下拉
+        // （表演倾向 / 动作频率）——它们的值住在 `_directorMotion` 草稿里，
+        // 不经过 `_settings`，由底部「保存并重载」一次写 `mods.director.config`。
         final ActionSettingsView actionView = view.action;
         final String activeModelId = actionView.activeModelId;
         final SettingsDraft draft = _settings.draft;
@@ -154,6 +158,13 @@ extension _ShellSettingsPanes on _ShellRootState {
         );
         return DirectorSection(
           devMode: _devMode,
+          // 两条动作偏好下拉：值 / 回调都来自宿主草稿，改选零网络。
+          motion: DirectorMotionWiring(
+            bias: _directorMotion.bias,
+            rate: _directorMotion.rate,
+            onBiasChanged: _directorMotion.selectBias,
+            onRateChanged: _directorMotion.selectRate,
+          ),
           actionScales: ActionScalesWiring(
             action: shownAction,
             modelOverrideEnabled: overrideOn,

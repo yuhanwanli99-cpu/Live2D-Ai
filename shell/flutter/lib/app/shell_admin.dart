@@ -91,6 +91,9 @@ extension _ShellAdminWiring on _ShellRootState {
       } on ApiException {
         env = _envStatus;
       }
+      // 0.4.4-rc.2：导演的两条动作偏好（`mods.director.config`）。读不到不连坐，
+      // 也**不覆盖**脏草稿（判据在 DirectorMotionDraft.adoptSaved）。
+      await _loadDirectorMotionFromServer();
       if (!mounted) return;
       final Object? activeModel = status['active_model_id'];
       _models = models;
@@ -114,6 +117,22 @@ extension _ShellAdminWiring on _ShellRootState {
       _adminError = e.toString();
       _adminLoading = false;
       _refresh();
+    }
+  }
+
+  /// 读一次导演的**动作偏好**（`GET /api/v1/mods/director/config`）。
+  ///
+  /// 0.4.4-rc.2：导演两条下拉（`motion_bias` / `motion_rate`）的值真源是
+  /// `mods.json` 的 `mods.director.config`。404（导演不在注册表）/ 网络失败都
+  /// **不报错、不连坐**：保持当前已知值（首次加载 = 缺省 normal）。脏草稿不会被
+  /// 覆盖（`DirectorMotionDraft.adoptSaved` 的判据），所以「重新载入」可放心调。
+  Future<void> _loadDirectorMotionFromServer() async {
+    try {
+      final Map<String, Object?> config = await _modsApi.config('director');
+      if (!mounted) return;
+      _directorMotion.adoptSaved(config);
+    } on ApiException {
+      // 读不到（404 / 网络）：保持现状，不回退成一个「猜的」配置。
     }
   }
 

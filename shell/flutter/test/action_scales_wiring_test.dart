@@ -387,14 +387,17 @@ void main() {
         }
       }
       // rc4：导演不再是 Mod——staging_* / 八隐藏键在**任何界面**都零出现。
-      // 只扫代码（头注里说明「这些键不再有界面」不算把它们画上屏）。
+      // 0.4.4-rc.2（2026-10-23）：motion_bias / motion_rate 是**产品下拉**，
+      // 允许出现（值住在 settings/director_motion_draft.dart），所以从这条
+      // 禁止表里移除；staging_* 与词表映射仍然禁止。
       final String src = stripCommentsKeepStrings(
         readLib('lib/settings/sections/director_section.dart'),
       );
       for (final String gone in <String>[
         'staging_base_url',
+        'staging_timeout_ms',
         'hiddenKeys',
-        'motion_bias',
+        'preset_happy',
         '遗留回退旁路',
         '【遗留】',
       ]) {

@@ -41,8 +41,10 @@ extension _ShellSettingsWiring on _ShellRootState {
         // Mod 表单里尚未提交的配置（T2，2026-10-13）：先写 mods.json，
         // 紧接着第 1 步的写盘会触发一次热重载——两样一起生效。卡片自己的
         // 失败文案会留在那张卡上（进路由桶，活过这次刷新）。
-        modDirty: _modDrafts.hasPending,
-        submitModDrafts: _modDrafts.submitPending,
+        // 0.4.4-rc.2：导演两条动作偏好也在这里提交（导演不是 Mod 卡片，
+        // 没有登记进 [_modDrafts]）。
+        modDirty: _modDrafts.hasPending || _directorMotion.dirty,
+        submitModDrafts: _submitModDrafts,
         serverDirty: () => _settings.dirty,
         saveServer: _settings.save,
         // 运行期再判一次（PATCH 可能耗时几秒）：只写「按下保存时确实脏」的那份。
@@ -60,7 +62,18 @@ extension _ShellSettingsWiring on _ShellRootState {
             unawaited(_reloadPageAfterSave(outcome)),
       ).run();
       if (result.failedMods.isNotEmpty) {
-        _modDraftSaveError = '这些 Mod 的配置没保存成功：${result.failedMods.join('、')}';
+        // 「导演」的失败文案由 [_submitModDrafts] 直接写进 [_modDraftSaveError]
+        // （带错误码）；其余 Mod 仍按 id 列名。两条都失败时并用，一条都不吞。
+        final List<String> otherMods = result.failedMods
+            .where((String id) => id != '导演')
+            .toList();
+        if (otherMods.isNotEmpty) {
+          final String modsMessage = '这些 Mod 的配置没保存成功：${otherMods.join('、')}';
+          final String? directorMessage = _modDraftSaveError;
+          _modDraftSaveError = directorMessage == null
+              ? modsMessage
+              : '$directorMessage；$modsMessage';
+        }
       }
       if (result.prefsWriteFailed) {
         _prefsSaveError =
@@ -74,6 +87,9 @@ extension _ShellSettingsWiring on _ShellRootState {
         // 保存成功才刷新生效态（dev_mode / 日志读服务端状态）。
         unawaited(_loadAppStatus());
         unawaited(_loadLogs());
+        // 0.4.4-rc.2：保存成功后回读一次导演动作偏好（与服务端归一化后的值
+        // 对齐；markSaved 已经让界面先用刚提交的那份，不闪回旧档）。
+        unawaited(_loadDirectorMotionFromServer());
       }
       return result.outcome;
     } finally {
@@ -83,6 +99,34 @@ extension _ShellSettingsWiring on _ShellRootState {
         _savingAll = false;
       }
     }
+  }
+
+  /// 「保存并重载」第 0 步：Mod 卡片草稿 + 导演两条动作偏好（0.4.4-rc.2）。
+  ///
+  /// 导演的 `motion_bias` / `motion_rate` **一次 POST 写两键**——导演已常驻
+  /// 核心、不是 Mod 卡片，所以没有登记进 [ModConfigDrafts]，由这里单独提交。
+  ///
+  /// 失败**不抛**：把「导演」放进失败列表、同时把带错误码的文案落进
+  /// [`_modDraftSaveError`]，其它 Mod / toml / 偏好的保存照常继续。
+  Future<List<String>> _submitModDrafts() async {
+    final List<String> failed = await _modDrafts.submitPending();
+    if (!_directorMotion.dirty) return failed;
+    try {
+      final ModConfigResult result = await _modsApi.setConfig(
+        'director',
+        _directorMotion.payload(),
+      );
+      if (result.ok) {
+        _directorMotion.markSaved();
+      } else {
+        failed.add('导演');
+        _modDraftSaveError = '导演的表演偏好没保存成功：服务端回了 ok=false';
+      }
+    } on ApiException catch (e) {
+      failed.add('导演');
+      _modDraftSaveError = '导演的表演偏好没保存成功：${e.code}：${e.message}';
+    }
+    return failed;
   }
 
   /// 本机偏好**写成功**后的提交（由 [SaveFlow] 在写盘之后调用）。
@@ -100,27 +144,45 @@ extension _ShellSettingsWiring on _ShellRootState {
   }
 
   /// 保存结果 SnackBar（失败时把 `code：message` 一起上屏）。
+  ///
+  /// 0.4.4-rc.2（2026-10-23）：**成功结局也要带草稿错误**。messageWith 只在
+  /// [SaveOutcome.failed] 时用 error，而「toml 保存成功、导演两条动作偏好没写
+  /// 进去」是一个成功结局 + 一条必须可见的错误——导演没有卡片可留文案，吞掉
+  /// 它等于让用户以为写进去了。所以成功时把 [_modDraftSaveError] 拼进文案并
+  /// 换 warning 底色；失败结局保持原逻辑（messageWith 已带 error）。
   void _showSaveSnack(SaveOutcome outcome) {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
+    final String? draftError = _modDraftSaveError;
+    // 导演那条失败 ⇒ 草稿还在（_submitModDrafts 不 markSaved）⇒ 不刷新
+    // （见 _reloadPageAfterSave）。文案也必须**不说**「页面将重新加载」。
+    final bool directorFailed = outcome.isSuccess && _directorMotion.dirty;
+    final bool showDraftError = outcome.isSuccess && draftError != null;
     messenger.showSnackBar(
       SnackBar(
         content: Text(
-          outcome.messageWith(
-            error: _prefsSaveError ?? _modDraftSaveError ?? _settings.error,
-          ),
+          directorFailed
+              ? '保存完成，但导演的动作偏好没写进去（草稿保留，可直接重试）：$draftError'
+              : showDraftError
+              ? '${outcome.message}；$draftError'
+              : outcome.messageWith(
+                  error:
+                      _prefsSaveError ?? _modDraftSaveError ?? _settings.error,
+                ),
         ),
-        backgroundColor: outcome.needsAttention
+        backgroundColor: outcome.needsAttention || showDraftError
             ? appPaletteOf(context).warning
             : null,
       ),
     );
   }
 
-  /// 放弃**两份**草稿：服务端草稿 + 本机偏好草稿（含删掉本次新加的背景图字节）。
+  /// 放弃**三份**草稿：服务端草稿 + 本机偏好草稿（含删掉本次新加的背景图
+  /// 字节）+ 导演动作偏好草稿（0.4.4-rc.2）。
   void _discardAllDrafts() {
     _settings.discard();
     _discardPrefsDraft();
+    _directorMotion.discard();
   }
 
   /// 丢掉本机偏好草稿，回到已保存那份。
@@ -158,9 +220,15 @@ extension _ShellSettingsWiring on _ShellRootState {
   ///   （最多约 15 秒；超时也刷新——刷出来的会是「连不上」的如实状态，
   ///   而不是一个停在旧值的界面）；
   /// - 「热重载失败」类（S-001，2026-10-16）：**不刷新**——写盘成功但引擎没
-  ///   装上，刷新会把这条提示和草稿现场一起抹掉；用户要能看见它并就地重试。
+  ///   装上，刷新会把这条提示和草稿现场一起抹掉；用户要能看见它并就地重试；
+  /// - 导演两条动作偏好没写进去（0.4.4-rc.2）：**不刷新**——理由同上，而且
+  ///   这份草稿只活在内存里（Mod 卡片草稿有路由桶兜底，导演这份没有），
+  ///   刷新会静默丢掉用户刚选的档位。改好重试即可。
   Future<void> _reloadPageAfterSave(SaveOutcome outcome) async {
     if (outcome == SaveOutcome.savedReloadFailed) {
+      return;
+    }
+    if (_directorMotion.dirty) {
       return;
     }
     if (outcome == SaveOutcome.savedRestartRequired) {
@@ -197,8 +265,7 @@ extension _ShellSettingsWiring on _ShellRootState {
         errorOf: () => _prefsSaveError ?? _settings.error,
       );
       if (leave) {
-        _settings.discard();
-        _discardPrefsDraft();
+        _discardAllDrafts();
       }
       return leave;
     } finally {

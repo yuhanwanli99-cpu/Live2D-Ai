@@ -85,6 +85,7 @@ import 'live2d/live2d_stage.dart';
 import 'live2d/render_events.dart';
 import 'live2d/session_baseline.dart';
 import 'live2d/stage_cancel.dart';
+import 'settings/director_motion_draft.dart';
 import 'settings/display_prefs.dart';
 import 'settings/mods/mod_panel.dart';
 import 'settings/mods/persona_card_picker.dart';
@@ -246,7 +247,10 @@ class _ShellRootState extends State<ShellRoot> {
   /// T2（2026-10-13）：Mod 表单草稿（导演的「表演倾向」等）也算——用户改了档位、
   /// 底部那颗按钮本来就该出现，按下去才谈得上「一起提交」。
   bool get _anyDraftDirty =>
-      _settings.dirty || _prefsDirty || _modDrafts.hasPending;
+      _settings.dirty ||
+      _prefsDirty ||
+      _modDrafts.hasPending ||
+      _directorMotion.dirty;
 
   /// 「保存并重载」进行中（服务端草稿 + 本机偏好草稿一起保存）。
   bool _savingAll = false;
@@ -267,6 +271,10 @@ class _ShellRootState extends State<ShellRoot> {
   /// 它是 [ChangeNotifier]，所以「草稿出现 / 消失」会让外壳重画，底部
   /// 「保存并重载」的可见性（[_anyDraftDirty]）跟着更新。
   final ModConfigDrafts _modDrafts = ModConfigDrafts();
+
+  /// 导演的「表演倾向 / 动作频率」草稿（0.4.4-rc.2）：只进草稿，
+  /// 由「保存并重载」第 0 步一次 POST 写 `mods.director.config`。
+  final DirectorMotionDraft _directorMotion = DirectorMotionDraft();
 
   /// 本次草稿**新加进背景库、尚未写进已保存偏好**的图 id（放弃 / 失败时删字节）。
   final Set<String> _draftAddedBgIds = <String>{};
@@ -488,6 +496,7 @@ class _ShellRootState extends State<ShellRoot> {
 
   @override
   void dispose() {
+    _directorMotion.dispose();
     _disposeShell();
     super.dispose();
   }
@@ -527,6 +536,8 @@ class _ShellRootState extends State<ShellRoot> {
         // T2（2026-10-13）：Mod 表单草稿的脏 / 净决定底部操作条的可见性，
         // 而它只在这一层算（AppShell.settingsDirty）。
         _modDrafts,
+        // 0.4.4-rc.2：导演两条动作偏好的草稿（底部按钮可见性 + 下拉回流）。
+        _directorMotion,
       ]),
       builder: (BuildContext context, Widget? _) {
         // 统一「停止」的判据只算一次：圆键停止态与 Esc 共用它。
