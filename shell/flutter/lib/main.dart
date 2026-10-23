@@ -73,6 +73,7 @@ import 'audio/audio_player.dart';
 import 'audio/epoch_gate.dart';
 import 'audio/stage_clock.dart';
 import 'chat/chat_controller.dart';
+import 'chat/peer_route.dart';
 import 'chat/turn_liveness.dart';
 import 'data/background_hydration.dart';
 import 'data/background_reorder.dart';
@@ -167,6 +168,7 @@ class _ShellRootState extends State<ShellRoot> {
   late final WsClient _ws;
   late final AudioPlayer _audio;
   late final ChatController _chat;
+  late final PeerChatController _peer;
 
   /// 播放忙闲的**静默**上报（0.3.14）：`POST /api/v1/playback`，失败不影响播放。
   /// 接线在 `app/shell_playback_wiring.dart`（main.dart 贴着 800 行硬棘轮）。
@@ -622,6 +624,7 @@ class _ShellRootState extends State<ShellRoot> {
           playingSentenceSeq: _chat.playingSentenceSeq,
           input: _input,
           onSend: () => unawaited(_sendWithCancellation()),
+          peer: _peer,
           // 统一「停止」（2026-10-15 执行单 §2）：**不看相位**，只看三条队列
           // 有没有东西——判据是纯函数（`live2d/stage_cancel.dart`，VM 可测），
           // 与 Esc 共用上面算好的那个局部。

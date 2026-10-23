@@ -112,7 +112,13 @@ extension _ShellCueVoiceWiring on _ShellRootState {
   );
 
   /// 发送（含重试 / 语音注入）：新消息同样先取消上一轮编排。
+  ///
+  /// 0.4.5 rc.2 加了一道**路由分发**：`pi` 路由下这条只发本机 Pi——
+  /// **不**取消皮套这一轮、不进 TTS / 口型 / 导演 cue，Pi 的正文也不写进
+  /// ChatMessage 历史（侧列表在 `chat/peer_route.dart` 里）。
+  /// 皮套路由返回 `false`，下面两行与改动前逐字一致。
   Future<void> _sendWithCancellation() async {
+    if (_peer.submitFromInput(_input)) return;
     _cancelStageForTurnBoundary('new-message');
     await _send();
   }

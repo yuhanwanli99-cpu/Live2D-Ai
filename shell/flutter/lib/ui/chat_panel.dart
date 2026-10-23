@@ -7,11 +7,13 @@ library;
 import 'package:flutter/material.dart';
 
 import '../chat/chat_message.dart';
+import '../chat/peer_route.dart';
 import '../design/tokens.dart';
 import '../state/ui_phase.dart';
 import 'audio_bar.dart';
 import 'error_banner.dart';
 import 'message_bubble.dart';
+import 'peer_route_bar.dart';
 import 'streaming_indicator.dart';
 import 'theme.dart';
 
@@ -58,6 +60,7 @@ class ChatPanel extends StatelessWidget {
     this.listenError,
     this.onToggleListen,
     this.listenNote,
+    this.peer,
     super.key,
   });
 
@@ -141,13 +144,38 @@ class ChatPanel extends StatelessWidget {
   /// 一行**诚实说明**（Web Speech 需联网、音频出本机）。为空不渲染。
   final String? listenNote;
 
+  /// 「这条发给」路由 + Pi 侧列表（0.4.5 rc.2）。
+  ///
+  /// `null` = 未接线（测试桩）：不画路由条、列表里只有 ChatMessage——
+  /// **行为与改动前逐字一致**。生产路径（`main.dart`）永远传一个。
+  ///
+  /// Pi 条目住在控制器自己的侧列表里，**从不**进入
+  /// `ChatController.messages`（那是会送给皮套模型的历史）。
+  final PeerChatController? peer;
+
   @override
   Widget build(BuildContext context) {
+    final PeerChatController? peer = this.peer;
+    if (peer == null) return _buildPanel(context, null);
+    // 路由选择与侧列表都在控制器里：一次订阅同时驱动两处。
+    return ListenableBuilder(
+      listenable: peer,
+      builder: (BuildContext context, Widget? _) => _buildPanel(context, peer),
+    );
+  }
+
+  Widget _buildPanel(BuildContext context, PeerChatController? peer) {
     // 只渲染最后 [kChatHistoryLimit] 条（**不**在数据层裁剪：
     // 数据层裁剪会让「完整对话」无法导出/排查，而视图层裁剪只影响渲染）。
     final List<ChatMessage> visible = messages.length > kChatHistoryLimit
         ? messages.sublist(messages.length - kChatHistoryLimit)
         : messages;
+
+    // Pi 侧列表与聊天消息按创建顺序合并成一条时间线（**只在视图层**：
+    // PeerEntry 从不进入 `ChatController.messages`，皮套模型看不到它）。
+    final List<Object> timeline = peer == null
+        ? visible
+        : mergePeerTimeline(messages, peer.entries, limit: kChatHistoryLimit);
 
     // 聊天面用**独立底色**与舞台分隔：舞台是纯黑（`stageBackdrop`），
     // 聊天面板盖在它上面时必须自己撑出一个面，否则气泡看起来是浮在黑底上。
@@ -232,16 +260,20 @@ class ChatPanel extends StatelessWidget {
               ),
             // ── 消息列表 ──
             Expanded(
-              child: visible.isEmpty
+              child: timeline.isEmpty
                   ? const _ChatEmptyState()
                   : ListView.builder(
                       // 从底部开始：IM 的常规。**不**给 itemExtent（气泡高度可变）。
                       reverse: true,
                       padding: const EdgeInsets.symmetric(vertical: Space.s2),
-                      itemCount: visible.length,
+                      itemCount: timeline.length,
                       itemBuilder: (BuildContext context, int index) {
-                        final ChatMessage m =
-                            visible[visible.length - 1 - index];
+                        final Object item = timeline[timeline.length - 1 - index];
+                        // 侧列表条目（用户发给 Pi 的原文 / Pi 的回复 / 错误）。
+                        if (item is PeerEntry) {
+                          return PeerEntryBubble(entry: item);
+                        }
+                        final ChatMessage m = item as ChatMessage;
                         return MessageBubble(
                           message: m,
                           // 朗读高亮：只有与本句号对得上的**助手**气泡会亮
@@ -252,7 +284,9 @@ class ChatPanel extends StatelessWidget {
                           onRetry: m.isPlaceholder ? onRetryLast : null,
                           // 只给**最后一条**（正在流式的那个）挂播报；
                           // 历史消息传 null，否则读屏会把整段历史重念一遍。
-                          announcement: index == 0 && m.streaming
+                          announcement: m.streaming &&
+                                  messages.isNotEmpty &&
+                                  identical(m, messages.last)
                               ? announcement
                               : null,
                         );
@@ -295,6 +329,9 @@ class ChatPanel extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
+                  // 「这条发给」路由条：**输入框上方**（0.4.5 rc.2）。
+                  // pi 路由下发送只发本机 Pi——PI 回复不进 ChatMessage 历史。
+                  if (peer != null) PeerRouteBar(peer: peer),
                   // 常态语音检测：一行状态 + 一行可读错误（贴在「听」按钮上方，
                   // 不弹 toast——一闪而过的提示读不完）。
                   if (listenStatus != null ||
@@ -341,7 +378,7 @@ class ChatPanel extends StatelessWidget {
                       minLines: 1,
                       maxLines: 4,
                       textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => onSend(),
+                      onSubmitted: (_) => _handleSend(),
                       decoration: const InputDecoration(hintText: '说点什么…'),
                     ),
                   ),
@@ -354,7 +391,7 @@ class ChatPanel extends StatelessWidget {
                         ? Icons.stop_rounded
                         : Icons.arrow_upward_rounded,
                     tooltip: canStopPlayback ? '停止' : '发送（Enter）',
-                    onPressed: canStopPlayback ? onStopPlayback : onSend,
+                    onPressed: canStopPlayback ? onStopPlayback : _handleSend,
                   ),
                 ],
               ),
@@ -365,6 +402,18 @@ class ChatPanel extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// 发送键（圆键 / Enter）的统一入口：Pi 路由由控制器全权处理，
+  /// 其余路由落到宿主的既有发送路径（皮套 say / TTS / 口型 / 导演 cue）。
+  ///
+  /// 为什么分发放在面板而不是只放宿主：键盘快捷键在 `main.dart`，
+  /// 圆键 / Enter 在这里——两个入口必须同一份判据，否则会出现
+  /// 「按钮发 Pi、快捷键发皮套」的漂移。
+  void _handleSend() {
+    final PeerChatController? peer = this.peer;
+    if (peer != null && peer.submitFromInput(input)) return;
+    onSend();
   }
 }
 

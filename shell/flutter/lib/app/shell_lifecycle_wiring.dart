@@ -82,6 +82,12 @@ extension _ShellLifecycleWiring on _ShellRootState {
       sessions: loadChatSessions(),
       persistSessions: saveChatSessions,
     );
+    // 「这条发给」路由（0.4.5 rc.2）：Pi 出站 + 侧列表。会话 id 按**发送那一刻**
+    // 的当前会话取（不缓存——切换会话后 Pi 自己的会话也要跟着换）。
+    _peer = PeerChatController(
+      sessionIdOf: () => _chat.sessions.activeId,
+      chatMessageCountOf: () => _chat.messages.length,
+    );
 
     // 音频 RMS → 舞台口型（30 Hz 高频信号，**不进 Widget 树**，原则 P6）。
     _levelSubscription = _audio.levels.listen((level) {
@@ -271,6 +277,8 @@ extension _ShellLifecycleWiring on _ShellRootState {
     _diagApi.dispose();
     _voiceListen.dispose();
     _voiceApi.dispose();
+    // 0.4.5 rc.2：「这条发给」路由控制器（关掉它自己的 http.Client）。
+    _peer.dispose();
     _chat.dispose();
     _ws.dispose();
     _audio.dispose();

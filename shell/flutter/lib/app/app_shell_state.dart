@@ -606,6 +606,7 @@ class AppShellState extends State<AppShell> {
     listenError: widget.listenError,
     onToggleListen: widget.onToggleListen,
     listenNote: widget.listenNote,
+    peer: widget.peer,
   ),
   );
 

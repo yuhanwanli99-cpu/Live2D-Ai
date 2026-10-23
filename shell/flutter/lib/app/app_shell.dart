@@ -68,6 +68,7 @@ import 'package:flutter/services.dart';
 
 import '../api/ws_status.dart';
 import '../chat/chat_message.dart';
+import '../chat/peer_route.dart';
 import '../design/background_item.dart';
 import '../design/breakpoints.dart';
 import '../design/tokens.dart';
@@ -165,6 +166,7 @@ class AppShell extends StatefulWidget {
     this.listenError,
     this.onToggleListen,
     this.listenNote,
+    this.peer,
     super.key,
   });
 
@@ -246,6 +248,12 @@ class AppShell extends StatefulWidget {
 
   /// 一行诚实说明（Web Speech 需联网、音频出本机）。
   final String? listenNote;
+
+  /// 「这条发给」路由 + Pi 侧列表（0.4.5 rc.2）。
+  ///
+  /// 外壳只**转手**：路由状态、Pi 出站与侧列表都在 [PeerChatController]
+  /// （宿主持有）。`null` = 未接线（测试桩）⇒ 聊天面板不画路由条。
+  final PeerChatController? peer;
 
   /// L1 基座：Mod 变更后的统一「需重新点火 / 重启后生效」提示。
   ///
