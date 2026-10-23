@@ -295,9 +295,14 @@ fn claude_is_404_peer_unavailable_without_lookup_or_spawn() {
         body.contains("这一版不接 Claude Code"),
         "message 锁定：{body}"
     );
-    let _ = &marker;
+    // 执行单第 570 行：claude 的请求必须在找二进制之前返回，测试要**断言没有子进程**。
+    // 假 pi 脚本被启动时会写 `ran.txt`；这个文件不存在 = 一个 pi 子进程都没起（
+    // 与空白 text 那条 400 测试同一条判据，见本文件上方 `blank_text_is_400_and_never_spawns`）。
+    assert!(
+        !marker.join("ran.txt").exists(),
+        "claude 请求不得启动 pi 子进程"
+    );
     assert!(!ctx.peer_pi.is_busy(), "claude 请求不得占用单飞名额");
-    // 假 pi 若被执行会打印 stdout，marker 里没有它写的任何东西（脚本只 cat 固定文件）。
     assert!(
         call(&ctx, Method::Post, PATH_CLAUDE, &valid_body("问", "")).is_some(),
         "claude 路径要被本模块接住（而不是掉回 501）"
