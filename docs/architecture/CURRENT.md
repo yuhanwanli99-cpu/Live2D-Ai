@@ -31,7 +31,7 @@
 - **0.3.12 已落地（2026-10-20，本地 tag `v0.3.12-rc.1` = `acc9ea4`（清单预检）、`v0.3.12-rc.2` = `28bfa69`（启动器「已发现」），rc.3 只清理（tag `v0.3.12-rc.3` 在 `8ca0201`），未 push）**：启动器只读扫描工作目录 `mods/<id>/mod.toml`（`GET /api/v1/mods/discovered`），显示已发现 / 不可用（带原因）；不执行 `entry` / `launch.program`、不 spawn、不把文件夹写进 `AVAILABLE_MOD_FACTORIES`（工厂仍 0），保留 id（`director`、`local-llm`、`wallpaper`、`pet-desktop`、`local-tts`）不可选。点「进入」：工厂仍走 0.3.11 的启停，可选文件夹**只记勾选**（写 `mods.json`，不启停）。不改 `mod-product-chain` §8 与 `mod-community-license` §2（仍是静态链接、不做动态 `.so`）。不并进 `0.3.11` / `0.4.0` / `0.4.1`。执行单 [`PLAN-0.3.12-mod-folder-scan-2026-10-20.md`](../plans/PLAN-0.3.12-mod-folder-scan-2026-10-20.md)，发布说明 [`docs/releases/v0.3.12-rc.3.md`](../releases/v0.3.12-rc.3.md)。
 - **0.3.13 已落地（2026-10-21，本地 tag `v0.3.13-rc.1` = `747a1aa`（子进程）、`v0.3.13-rc.2` = `225fd81`（启动器），rc.3 只清理（tag `v0.3.13-rc.3` 在 `3528c65`），未 push）**：勾选的文件夹在点「进入」时启动清单里的程序（`process` 与 `launch.mode = with_app`）；`on_demand` 只记勾选；扫描与刷新仍不执行。Linux 子进程带 `PDEATHSIG=SIGTERM` + 独立进程组，工作目录 = Mod 目录，不经过 shell、不传 `.env` 与密钥环境变量。启动失败不影响进入。不编回工厂（仍 0），不并进 `0.3.12` / `0.4.0` / `0.4.1`。执行单 [`PLAN-0.3.13-folder-spawn-2026-10-21.md`](../plans/PLAN-0.3.13-folder-spawn-2026-10-21.md)，发布说明 [`v0.3.13-rc.3.md`](../releases/v0.3.13-rc.3.md)。
 - **0.3.14 已落地（2026-10-22，本地 tag `v0.3.14-rc.1` = `d7e83f5`（宿主闸门 + FIFO）、`v0.3.14-rc.2` = `9cb8f9e`（按句 cue + 播放上报），rc.3 只清理，未 push）**：下一条外部注入要「本轮生成已结束」且「浏览器里上一句已播完」才逐条说，多出来的按 FIFO 排队，不再用换行拼进同一次（待发合计 2000 字符只丢当条，超时不倒队列）；同一轮的动作按 `sentence_seq` 留下，后一帧只覆盖自己那一条，清空只在六处（停止 / `new_epoch` / baseline / 换模 / 被接受的新 `user_line` / 播放忙→闲且不在 streaming）。聊天框自己的下一句不等待，停止与 `new_epoch` 仍立刻打断。缺省二进制的外部入口仍是 404 `mod_disabled`（`web_api/external_queue.rs` 等挂回 `external-input` 时由宿主 `push` / `pump`）。不并进 `0.3.13` / `0.4.0` / `0.4.1`。执行单 [`PLAN-0.3.14-playback-queue-2026-10-22.md`](../plans/PLAN-0.3.14-playback-queue-2026-10-22.md)，发布说明 [`v0.3.14-rc.3.md`](../releases/v0.3.14-rc.3.md)。
-- **0.4.0 已落地（2026-10-22，本地 tag `v0.4.0-rc.1`…`rc.3`，未 push；GNU 交叉编出 PE32+，端口空闲时双击已看到、像素未看）**：WSL2 只负责编。Windows 跑原生 `--web` exe，浏览器打开启动器；关掉 WSL 仍能开。exe 旁检查 `mods/`。七个库只在打包用的临时树里静态链上，缺省提交仍是工厂 0。不恢复已删原生壳，不做桌宠。`0.4.1` 已落地。`0.4.2` 已落地。`0.4.3` 桌宠 demo 已落地（真实窗口未验），正文同页。正文 [`versions/0.4.md`](../versions/0.4.md)。
+- **0.4.0 已落地（2026-10-22，本地 tag `v0.4.0-rc.1`…`rc.3`，未 push；GNU 交叉编出 PE32+，端口空闲时双击已看到、像素未看）**：WSL2 只负责编。Windows 跑原生 `--web` exe，浏览器打开启动器；关掉 WSL 仍能开。exe 旁检查 `mods/`。七个库只在打包用的临时树里静态链上，缺省提交仍是工厂 0。不恢复已删原生壳，不做桌宠。`0.4.1` 已落地。`0.4.2` 已落地。`0.4.3` 桌宠 demo 已落地（真实窗口未验）；`0.4.4` 已落地（本地 tag `v0.4.4-rc.1`…`rc.4`，未 push、未并 main：导演卡两键 + 会话同步 + TurnPrompt 记丢）。正文 [`versions/0.4.md`](../versions/0.4.md)。
 - **多 Live2D（0.3.5）**：设置 → 模型库可加载本机 `model3`。唯一真源仍是
   `model_registry.json.active_id`；`GET /api/v1/app/status` 同时派生 `active_model_url`
   （空 = 无模型），不加 DisplayPrefs/localStorage 字段、不加端点。白模 `bai` 出厂
@@ -68,10 +68,10 @@
   `DirectorCuePlan` / `PresetStatus` 并重设动作幅度上下文，旧 epoch 的 preset 帧渲染面 Ignore。
 - 同槽换动作从屏幕上的姿势接上。表情进出走曲线。撤销从屏幕值收回；手势到期也走同一条放回（`ttl × (1-HOLD_END)`），表情到期仍立即清槽。
 - 第二路失败（请求失败 / 超时 / 坏 JSON）：回退**按句规则表**。
-- 设置一级「**导演**」卡：常驻状态 + 动作幅度滑条；`dev_mode` 下才显示可观测四栏与调试面板。
+- 设置一级「**导演**」卡：常驻状态 + 两个动作偏好下拉（倾向 / 频率）+ 动作幅度滑条；`dev_mode` 下才显示可观测四栏与调试面板。
   「扩展」区不再有导演卡，也**没有启用开关**。
 
-## 5. 表演倾向（三档）
+## 5. 表演挡位与动作频率（导演卡两键）
 
 | 档 | 行为 |
 |---|---|
@@ -79,8 +79,8 @@
 | `normal` 平常（**缺省**） | 提示词更愿意选一个；仍**不**回退规则表 |
 | `eager` 主动 | 1~2 个；只有它对该句原文命中的规则表动作回退 |
 
-三档由宿主从 `mods.json` 的既有 `mods.director.config.motion_bias` 读取（界面不显示，不新增配置键）。
-动作幅度滑条走界面底部「**保存并重载**」：后端热重载，**进程不重启**。
+- `motion_bias` 三档与 `motion_rate` 频率（`sparse` 少 / `normal` 平常 / `dense` 多，缺省平常）都在导演卡上，写 `mods.director.config`；频率是 0.4.4 新增的那一个键。两个键都只进草稿，由底部「**保存并重载**」经 `POST /api/v1/mods/director/config` 一次写盘并热重载，进程不重启。
+- 过滤顺序锁死：先倾向得出本句 cue（主动档空数组回退规则表仍在这一步），再按频率删/补；克制档空数组仍是成功，主动档已填整表，「多」不会再加。
 
 ## 5.1 设置与保存纪律（0.3.6）
 
@@ -182,7 +182,7 @@
 - `local-engine`（0.3.4）：spawn-only，4 项 schema（program / args_json / workdir / launch_mode），无 `base_url`；不写 `[tts]`/`[llm]`、不探活、不换地址、不重启；`apply_settings` 恒 0 次。立即退出（1s 窗口）→ Failed 带 stderr 尾；之后退出只进 `state_json`。**2026-10-18 裁决：不删除、不注销。** 设置 → 扩展不再显示这张卡；缺省未挂载（见上表）。出声仍是 `local-tts-melo`（挂回后），对话云 / 本地仍是 `[llm].mode`。
 - `memory`：本地 JSONL + 词重叠检索（**零向量云依赖**），缺省**关**。
 - `director` 的 crate 仍在主仓 workspace（规则表已迁入核心），但**退出 `AVAILABLE_MOD_FACTORIES`、不再投递，禁止挂回**；
-  旧 8 个配置键（3 个词表映射 + 5 个 `staging_*`）不再出现在界面，`mods.json` 残留键被忽略。
+  八个隐藏键（3 个词表映射 + 5 个 `staging_*`）仍不出现在界面；导演卡上只留 `motion_bias` / `motion_rate` 两个键（§5）。
 - `wallpaper`、`pet-desktop`、`local-llm` **已删除，禁止挂回**（台账 `docs/architecture/ARCHIVED-mods.md`）。
 
 ## 9. 开发工具
