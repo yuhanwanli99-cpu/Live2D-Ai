@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""0.4.0 Windows 包的实现体（由 scripts/pack-windows.sh 调用，不单独对外）。
+"""0.4.6 带 Mod 的 Windows 包实现体（由 scripts/pack-windows.sh 调用，不单独对外）。
 
-职责（与 docs/versions/0.4.md 一致）：
+职责（与 docs/versions/0.4.md §0.4.6 一致）：
   1. 用 mktemp 临时根 + 「git worktree add --detach <BASE_SHA>」起一次性干净树；
-  2. 七个兄弟仓库存在才「git archive HEAD」导出到临时根（目录名必须是
-     Live2D-Ai / live2d-ai-mod-*，让它们 Cargo.toml 的 ../Live2D-Ai/... path 依赖自洽）；
-  3. 在临时树里按 docs/architecture/two-repo-mods.md 第 4 节五步链挂载：根/desktop
-     Cargo.toml path 依赖、main.rs 工厂表+工厂数断言、宿主集成代码（从拆仓前
-     提交 6a0a1ef 恢复 external/voice/a2a/coalesce + mod.rs/cli_entry.rs glue）、
-     缺省 manifest 只启用 external-input（0.4.2 起 local-tts-melo 出厂停用：
-     Windows 侧没有随包入口，启用它必然失败）；
+  2. 七个兄弟仓库按 PINNED 里的**固定完整提交**导出（`git archive <full sha>`；
+     绝不 HEAD、绝不 clone、绝不回退到当前 checkout；任一仓库/提交缺失即硬失败）。
+     目录名必须是 Live2D-Ai / live2d-ai-mod-*，让它们 Cargo.toml 的
+     ../Live2D-Ai/... path 依赖自洽；dirty src/child.rs 不会进包；
+  3. 在临时树里按 docs/architecture/two-repo-mods.md 第 4 节挂载：根
+     [workspace.dependencies] path、desktop 七个 **optional** 依赖、把已提交的
+     空特征 `packed-mods = []` 改写成 `["dep:..."]` 清单、main.rs 工厂表+工厂数
+     断言、缺省 manifest 只启用 external-input。宿主路由已由分支提交的
+     web_api/mod_front_routes.rs 承担——**不再**恢复任何旧文件、不生成
+     external_coalesce.rs、不再改 web_api/mod.rs 的合并器/A2A 分支；
   4. 验证：Linux cargo check、windows-msvc check（缺 MSVC 原生工具链，记录原文）、
-     windows-gnu check（本机唯一可走通）、gnu release 编 exe；
-  5. trunk 构建 /render wasm、flutter build web、组装 dist/windows/、可选 zip；
+     windows-gnu check（本机唯一可走通）、gnu release 编 exe——全部带
+     `--features packed-mods`；
+  5. trunk 构建 /render wasm、flutter build web、组装 dist/windows/（包根含出厂
+     mods.json + README.txt）、可选 zip；
   6. 临时树一律删除（含失败路径），并验证 git worktree list 恢复原状。
 
 红线：不改主仓、不提交、不 push；不克隆兄弟仓库、不下载权重；不拷维护者的
@@ -52,6 +57,41 @@ INFO = {
     "local-engine": ("live2d-ai-mod-local-engine", "live2d_ai_mod_local_engine", "FACTORY"),
     "a2a": ("live2d-ai-mod-a2a", "live2d_ai_mod_a2a", "FACTORY"),
 }
+
+# 0.4.6：七个兄弟仓库的**固定完整提交**（40 位 sha）。导出只认这些值——
+# 不接受 HEAD / 分支名 / 短 sha，也不回退到当前 checkout；仓库或提交缺失 =
+# 硬失败（见 export_repo_commit）。改这里 = 明确换一次导出基线。
+PINNED = {
+    "external-input": "66f82868e01165cecb7faffd6f1a6233c5a6804f",
+    "persona": "e6165f920f9138ef26b5d1749ed73c26dc4e6119",
+    "voice-input": "9031f9ca7a99e7496a94043f513169ba9d7a5718",
+    "memory": "d7a7a960666365df4bd41951d3629cf547e059e1",
+    "local-tts": "440f7ea51253754491f0c08ad0eeb28214f30351",
+    "local-engine": "32bbe9ff56b247fb36b6ec91f188386a00137946",
+    "a2a": "e878b3905d82c8eb1f5af5780588714f31bbc0f1",
+}
+
+# 包根 mods.json（出厂态，2 空格缩进）：只有 external-input 启用；
+# 两个 spawn-only Mod 固定 on_apply + 空 program（Windows 侧没有随包入口）。
+PACKAGE_MODS_JSON = """{
+  "mods": {
+    "external-input": { "enabled": true, "config": {} },
+    "persona": { "enabled": false, "config": {} },
+    "voice-input": { "enabled": false, "config": {} },
+    "memory": { "enabled": false, "config": {} },
+    "local-tts-melo": { "enabled": false, "config": { "launch_mode": "on_apply", "program": "" } },
+    "local-engine": { "enabled": false, "config": { "launch_mode": "on_apply", "program": "" } },
+    "a2a": { "enabled": false, "config": {} }
+  }
+}
+"""
+
+# 包根 README.txt（UTF-8，四行，行尾 \n；不再多空行）。
+PACKAGE_README = """进入本目录后双击 live2d-ai-desktop.exe。它听 127.0.0.1:18080。
+不要用 WSL 里的 mods.json、.env、live2d-ai.toml 覆盖本目录。
+出厂只启用 external-input。local-tts-melo 没有 Windows 可执行文件，保持关闭。
+七个 Mod 已经编进 exe，不是旁边的 dll。
+"""
 
 PROXY_KEYS = [
     "HTTP_PROXY",
@@ -135,10 +175,21 @@ def target_installed(triple: str) -> bool:
     return proc.returncode == 0 and bool(proc.stdout.strip())
 
 
-def export_repo_head(src: Path, dest: Path) -> None:
-    """git archive HEAD | tar -x：只导出已提交内容（无 .git/target/权重）。"""
+def export_repo_commit(src: Path, sha: str, dest: Path) -> None:
+    """git archive <固定完整提交> | tar -x：只导出该提交内容（无 .git/target/权重）。
+
+    硬失败：仓库不存在、提交不存在、不是 40 位完整 sha、或 archive 失败都直接
+    die；**没有** HEAD 回退，也**没有**从当前 checkout 拷贝的兜底路径。
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        die("固定提交不是 40 位小写 sha：" + str(sha))
+    if not src.is_dir():
+        die("兄弟仓库不存在：" + str(src) + "（不回退到任何其他 checkout）")
+    if git(src, "cat-file", "-e", sha + "^{commit}", check=False).returncode != 0:
+        die("兄弟仓库 " + str(src) + " 里没有固定提交 " + sha
+            + "（不回退 HEAD、不 clone）")
     dest.mkdir(parents=True, exist_ok=True)
-    p1 = subprocess.Popen(["git", "-C", str(src), "archive", "HEAD"],
+    p1 = subprocess.Popen(["git", "-C", str(src), "archive", sha],
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     p2 = subprocess.Popen(["tar", "-x", "-C", str(dest)], stdin=p1.stdout)
     assert p1.stdout is not None
@@ -147,19 +198,8 @@ def export_repo_head(src: Path, dest: Path) -> None:
     rc1 = p1.wait()
     if rc1 != 0 or rc2 != 0:
         err = p1.stderr.read().decode("utf-8", "replace") if p1.stderr else ""
-        die("导出兄弟仓库失败：" + str(src) + "（git archive rc=" + str(rc1)
-            + "，tar rc=" + str(rc2) + "）" + err)
-
-
-def restore_from_commit(wtree: Path, commit: str, rel: str) -> None:
-    proc = subprocess.run(["git", "-C", str(wtree), "show", commit + ":" + rel],
-                          capture_output=True)
-    if proc.returncode != 0:
-        die("无法从 " + commit + " 恢复 " + rel + "（--source-commit 错？）")
-    path = wtree / rel
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(proc.stdout)
-    note("[restore] " + rel + " ← " + commit)
+        die("导出兄弟仓库失败：" + str(src) + "（" + sha + "，git archive rc="
+            + str(rc1) + "，tar rc=" + str(rc2) + "）" + err)
 
 
 def read_text(path: Path) -> str:
@@ -179,7 +219,7 @@ def replace_once(text: str, old: str, new: str, what: str) -> str:
 
 
 def patch_tree(wtree: Path, mods: list) -> int:
-    """五步链 1-5：Cargo 依赖 / 工厂表 / 宿主 glue / manifest。返回工厂数。"""
+    """挂载：可选依赖 / packed-mods 特征 / 工厂表 / 缺省 manifest。返回工厂数。"""
     mods = [m for m in ORDER if m in mods]
 
     # --- 五步链 1：根 [workspace.dependencies]
@@ -198,17 +238,32 @@ def patch_tree(wtree: Path, mods: list) -> int:
     )
     write_text(wtree / "Cargo.toml", root_toml)
 
-    # --- 五步链 2：desktop Cargo.toml
+    # --- 五步链 2a：desktop Cargo.toml 七个依赖必须是 optional（由特征开关）
     desk = read_text(wtree / "crates/live2d-ai-desktop/Cargo.toml")
     anchor = 'live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }\n'
-    deps = "".join(INFO[m][0] + " = { workspace = true }\n" for m in mods)
+    deps = "".join(
+        INFO[m][0] + " = { workspace = true, optional = true }\n" for m in mods
+    )
     desk = replace_once(
         desk,
         anchor,
         anchor
-        + "# pack-windows.sh 临时树（不提交）：七个 Mod 实现编进本二进制（工厂数同步）。\n"
+        + "# pack-windows.sh 临时树（不提交）：七个 Mod 实现编进本二进制，"
+          "由 packed-mods 特征统一启用（工厂数同步）。\n"
         + deps,
         "desktop Cargo.toml [dependencies]",
+    )
+
+    # --- 五步链 2b：把已提交的空特征填成 dep: 清单（锚点 = 单独一行）
+    # 分支提交的 [features] 段里有一行 `packed-mods = []`；这里只改这一行，
+    # 特征名保持 `packed-mods`，所有 cargo check/build 都带 --features packed-mods。
+    feature_anchor = "packed-mods = []\n"
+    features = ", ".join('"dep:' + INFO[m][0] + '"' for m in mods)
+    desk = replace_once(
+        desk,
+        feature_anchor,
+        "packed-mods = [" + features + "]\n",
+        "desktop Cargo.toml [features] packed-mods",
     )
     write_text(wtree / "crates/live2d-ai-desktop/Cargo.toml", desk)
 
@@ -248,94 +303,10 @@ def patch_tree(wtree: Path, mods: list) -> int:
     main_rs = main_rs[: match.start()] + new_test + main_rs[match.end():]
     write_text(main_rs_path, main_rs)
 
-    # --- 五步链 4：web_api/mod.rs 宿主 glue
-    mod_path = wtree / "crates/live2d-ai-desktop/src/web_api/mod.rs"
-    mod_rs = read_text(mod_path)
-    if "external-input" in mods:
-        mod_rs = replace_once(
-            mod_rs,
-            "pub mod external_queue;\n",
-            "pub mod external_queue;\n"
-            "// pack-windows.sh 临时树（不提交）：忙时合并窗口 + 常驻合并线程。\n"
-            "mod external_coalesce;\n",
-            "mod.rs external_coalesce 声明",
-        )
-        mod_rs = replace_once(
-            mod_rs,
-            "    pub folder_processes: std::sync::Arc<crate::folder_spawn::FolderProcesses>,\n",
-            "    pub folder_processes: std::sync::Arc<crate::folder_spawn::FolderProcesses>,\n"
-            "    /// pack-windows.sh 临时树：外部事件忙时合并窗口（3.0 队首第一片）。\n"
-            "    pub external_coalescer: external_coalesce::ExternalCoalescer,\n",
-            "mod.rs ServerContext.external_coalescer 字段",
-        )
-        mod_rs = replace_once(
-            mod_rs,
-            "            folder_processes: Arc::new(crate::folder_spawn::FolderProcesses::new()),\n",
-            "            folder_processes: Arc::new(crate::folder_spawn::FolderProcesses::new()),\n"
-            "            external_coalescer: external_coalesce::ExternalCoalescer::default(),\n",
-            "mod.rs ServerContext::new 初始化",
-        )
-        sig = "pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {\n"
-        mod_rs = replace_once(
-            mod_rs,
-            sig,
-            sig
-            + "    // pack-windows.sh 临时树（不提交）：合并线程随服务生命周期起停。\n"
-            + "    let coalesce_thread = crate::web_api::external_coalesce::spawn_flusher(ctx.clone());\n",
-            "mod.rs run_request_loop 起合并线程",
-        )
-        start = mod_rs.index(sig)
-        end = mod_rs.index("\n}\n", start)
-        tail = (
-            "\n    // pack-windows.sh 临时树（不提交）：停机唤醒合并线程并等它退出。\n"
-            "    ctx.external_coalescer.shutdown();\n"
-            "    let _ = coalesce_thread.join();"
-        )
-        mod_rs = mod_rs[:end] + tail + mod_rs[end:]
-
-    if "a2a" in mods:
-        old_a2a = (
-            "        if crate::web_api::a2a_gate::is_a2a_path(&path) {\n"
-            "            let resp = crate::web_api::a2a_gate::handle_a2a(&ctx);\n"
-            '            respond_and_log(request, &method, &path, "a2a", resp);\n'
-            "            continue;\n"
-            "        }\n"
-        )
-        new_a2a = (
-            "        // pack-windows.sh 临时树（不提交）：A2A 宿主门（协议核在兄弟仓库 Mod）。\n"
-            "        if crate::web_api::a2a_gate::is_a2a_path(&path) {\n"
-            "            if method == Method::Get {\n"
-            "                let resp = crate::web_api::a2a_gate::handle_a2a(\n"
-            "                    &ctx,\n"
-            "                    crate::web_api::a2a_gate::A2aRequest {\n"
-            "                        method: &method,\n"
-            "                        path: &path,\n"
-            "                        body: &body_str,\n"
-            "                        origin: origin.as_deref(),\n"
-            "                        content_type: content_type.as_deref(),\n"
-            "                    },\n"
-            "                );\n"
-            '                respond_and_log(request, &method, &path, "a2a", resp);\n'
-            "            } else {\n"
-            "                let (log_method, log_path) = (method.clone(), path.clone());\n"
-            "                crate::web_api::a2a_gate::spawn_a2a(\n"
-            "                    ctx.clone(),\n"
-            "                    method,\n"
-            "                    path,\n"
-            "                    body_str,\n"
-            "                    origin,\n"
-            "                    content_type,\n"
-            '                    move |resp| respond_and_log(request, &log_method, &log_path, "a2a", resp),\n'
-            "                );\n"
-            "            }\n"
-            "            continue;\n"
-            "        }\n"
-        )
-        mod_rs = replace_once(mod_rs, old_a2a, new_a2a, "mod.rs A2A 前置分支")
-    write_text(mod_path, mod_rs)
-
-    # --- 五步链 5：缺省 manifest 只启用 external-input
-    # 0.4.2：local-tts-melo **不进启用表**（出厂不拉起）。七个库仍链进临时树
+    # --- 缺省 manifest 只启用 external-input
+    # 宿主路由已由分支提交的 web_api/mod_front_routes.rs 承担，本脚本不再改
+    # web_api/mod.rs；这里只写 manifest，且 local-tts-melo **不进启用表**
+    # （出厂不拉起）。七个库仍链进临时树
     # （Cargo 依赖 / 工厂表不动），只是出厂不再启用一个在 Windows 上必然失败
     # 的 Mod——0.4.1 的包里它的缺省入口是打包机的
     # /tmp/live2d-ai-pack.<随机>/…/melo/start.sh。用户以后把 program 配成
@@ -425,32 +396,34 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         prog="pack-windows.sh",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="0.4.0 Windows 包组装：临时 worktree + 兄弟仓库 git archive + 交叉编译 + dist/windows/",
+        description="0.4.6 带 Mod 的 Windows 包组装：临时 worktree + 兄弟仓库固定提交导出 + 交叉编译 + dist/windows/",
         epilog=(
             "前置条件：\n"
             "  * 七个兄弟仓库：/home/skystar/live2d-ai-mod-<id>（external-input persona\n"
-            "    voice-input memory local-tts local-engine a2a）。存在才导出；缺哪个包里就\n"
-            "    不含哪个，报告里列出。不克隆、不下载 Melo 权重。\n"
+            "    voice-input memory local-tts local-engine a2a）。每个都必须含本脚本\n"
+            "    PINNED 里的固定完整提交；缺仓库或缺提交 = 硬失败（不 HEAD、不回退、\n"
+            "    不 clone）。不下载 Melo 权重。\n"
             "  * Windows 目标：本机唯一可走通 x86_64-pc-windows-gnu。需要 rustup target\n"
             "    add x86_64-pc-windows-gnu，且 ~/.local/bin 下有 MSYS2 mingw64 的\n"
             "    x86_64-w64-mingw32-{gcc,ar,dlltool,ld,windres} shim；脚本自动设置\n"
             "    CC/AR/LINKER 三个环境变量。MSVC 目标只尝试一次并记录缺 lib.exe/link.exe\n"
             "    的原文（工具链没装，不当作脚本失败）。\n"
             "  * Flutter SDK 在 ~/flutter（可用 --flutter-bin 覆盖）与 trunk 0.21+ 在 PATH。\n"
-            "  * 磁盘：CARGO_TARGET_DIR 默认 ~/.cache/win-pack-target，脚本按阶段清理并在\n"
-            "    结束时删除（--keep-target 保留）。\n"
+            "  * 磁盘：--target-dir 缺省 ~/.cache/win-pack-target（0.4.6 交付用\n"
+            "    ~/.cache/win-pack-target-046）；可用 < 4G 直接停，不删任何共享 target。\n"
+            "    脚本按阶段清理该目录并在结束时删除（--keep-target 保留）。\n"
             "\n"
-            "产物（<dist>/windows/）：live2d-ai-desktop.exe（编不出就没有）、\n"
-            "live2d-ai.toml（由仓库 example 生成的空密钥模板）、web/（Flutter 构建）、\n"
-            "web/render/（l2d-wasm-demo 的 /render wasm 产物）、assets/models/（仅 tracked\n"
-            "白名单）、assets/actions/、mods/（仅当临时树有文件夹 Mod）。\n"
+            "产物（<dist>/windows/）：live2d-ai-desktop.exe（七个 Mod 编进 exe，\n"
+            "特征 packed-mods；不是旁边的 dll）、live2d-ai.toml（由仓库 example 生成的\n"
+            "空密钥模板）、mods.json（出厂只启用 external-input）、README.txt（四行）、\n"
+            "web/（Flutter 构建）、web/render/（l2d-wasm-demo 的 /render wasm 产物）、\n"
+            "assets/models/（仅 tracked 白名单）、assets/actions/、mods/（仅当临时树有\n"
+            "文件夹 Mod）。\n"
             "报告：stdout 摘要 + dist/pack-logs/report-<base7>.txt（dist/ 已忽略）。"
         ),
     )
     parser.add_argument("--base", default="HEAD", metavar="REF",
                         help="临时 worktree 的基线（默认 HEAD；必须是已提交 ref）")
-    parser.add_argument("--source-commit", default="6a0a1ef", metavar="COMMIT",
-                        help="恢复宿主集成代码的源码提交（默认 6a0a1ef = v0.3.10-rc.3）")
     parser.add_argument("--dist", default=str(repo_root / "dist/windows"), metavar="DIR",
                         help="产物目录（默认 <repo>/dist/windows）")
     parser.add_argument("--target-dir", default=os.environ.get(
@@ -480,7 +453,6 @@ def main() -> int:
     target_dir = Path(args.target_dir)
     sibling_root = Path(args.sibling_root)
     flutter_bin = Path(args.flutter_bin)
-    source_commit = args.source_commit
     log_dir.mkdir(parents=True, exist_ok=True)
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -507,7 +479,6 @@ def main() -> int:
     wtree = tmp / "Live2D-Ai"
     stage = tmp / "stage"
     chained: list = []
-    missing: list = []
     stages: list = []
 
     def stage_snapshot(label: str) -> None:
@@ -546,46 +517,21 @@ def main() -> int:
                 + (proc.stderr.strip() or proc.stdout.strip()))
         note("worktree 就绪（detached at " + base_sha + "）")
 
-        # ------------------------------------------------ 兄弟仓库导出
-        log("导出兄弟仓库（git archive HEAD；不克隆、不带 target/.git/权重）")
+        # ------------------------------------------------ 兄弟仓库导出（固定完整提交）
+        log("导出兄弟仓库（git archive <固定完整提交>；不克隆、不带 target/.git/权重）")
         for name in MOD_NAMES:
             src = sibling_root / ("live2d-ai-mod-" + name)
-            if src.is_dir() and git(src, "rev-parse", "--git-dir",
-                                    check=False).returncode == 0:
-                dest = tmp / ("live2d-ai-mod-" + name)
-                export_repo_head(src, dest)
-                chained.append(name)
-                sha = git(src, "rev-parse", "--short", "HEAD").stdout.strip()
-                note("[chain] " + name + " ← " + str(src) + "（HEAD " + sha + "）")
-                if git(src, "status", "--porcelain").stdout.strip():
-                    warn("兄弟仓库 " + name + " 有未提交改动：按规范只导出 HEAD，"
-                         "未提交改动不会进包")
-            else:
-                missing.append(name)
-                note("[skip]  " + name + "：" + str(src) + " 不存在（包里不含它）")
-        if not chained:
-            die("一个兄弟仓库都没找到——至少要有 external-input 等目录才能挂载")
-        note("链入：" + (" ".join(chained) if chained else "无")
-             + "；缺失：" + (" ".join(missing) if missing else "无"))
-
-        # ------------------------------------------------ 恢复宿主集成代码
-        if "external-input" in chained:
-            restore_from_commit(wtree, source_commit,
-                                "crates/live2d-ai-desktop/src/web_api/external_routes.rs")
-            restore_from_commit(wtree, source_commit,
-                                "crates/live2d-ai-desktop/src/web_api/external_coalesce.rs")
-        if "voice-input" in chained:
-            restore_from_commit(wtree, source_commit,
-                                "crates/live2d-ai-desktop/src/web_api/voice_routes.rs")
-        if "a2a" in chained:
-            restore_from_commit(wtree, source_commit,
-                                "crates/live2d-ai-desktop/src/web_api/a2a_gate.rs")
-            restore_from_commit(wtree, source_commit,
-                                "crates/live2d-ai-desktop/src/web_api/a2a_gate/llm.rs")
+            sha = PINNED[name]
+            dest = tmp / ("live2d-ai-mod-" + name)
+            export_repo_commit(src, sha, dest)
+            chained.append(name)
+            note("[chain] " + name + " ← " + str(src) + "（固定提交 " + sha + "）")
+        note("链入（" + str(len(chained)) + "）：" + " ".join(chained)
+             + "；全部为固定完整提交（不认 HEAD）")
 
         # ------------------------------------------------ 五步链 glue
         log("在临时树里按 two-repo-mods.md 第 4 节挂载"
-            "（Cargo 依赖 + 工厂表 + 宿主 glue + manifest）")
+            "（可选依赖 + packed-mods 特征 + 工厂表 + 缺省 manifest）")
         factory_count = patch_tree(wtree, chained)
         note("临时树工厂数：" + str(factory_count))
         stage_snapshot("整树挂载后（尚未编译）")
@@ -606,15 +552,21 @@ def main() -> int:
 
         # ------------------------------------------------ 1) Linux check
         if not args.skip_cargo:
+            # docs/versions/0.4.md §0.4.6：磁盘可用 < 4G 停止打包，不要去删别的缓存。
+            free_gb = target_dir_free_gb()
+            if free_gb < 4.0:
+                die("磁盘可用 %.1fG < 4G：停止打包（按 0.4.6 纪律，不要删别的缓存）"
+                    % free_gb)
             if args.skip_linux_check:
                 note("--skip-linux-check：跳过 Linux 主机目标 check（调试用）")
             else:
-                if target_dir_free_gb() < 1.5:
-                    warn("磁盘可用 < 1.5G：交叉编译可能 ENOSPC")
                 linux_log = log_dir / ("check-linux-" + base_sha[:7] + ".log")
-                ok = run_logged("cargo check -p live2d-ai-desktop（Linux 主机目标）",
-                                ["cargo", "check", "-p", "live2d-ai-desktop"],
-                                linux_log, cwd=wtree, env=env, fatal=False)
+                ok = run_logged(
+                    "cargo check -p live2d-ai-desktop --features packed-mods"
+                    "（Linux 主机目标）",
+                    ["cargo", "check", "-p", "live2d-ai-desktop",
+                     "--features", "packed-mods"],
+                    linux_log, cwd=wtree, env=env, fatal=False)
                 if not ok:
                     die("Linux 目标 cargo check 失败——先修 glue，别急着交叉编译（原文见 "
                         + str(linux_log) + "）")
@@ -627,10 +579,12 @@ def main() -> int:
                 note("--skip-msvc-check：跳过（上一轮失败原文已记在 pack-logs）")
             elif target_installed(MSVC_TARGET):
                 msvc_log = log_dir / ("check-msvc-" + base_sha[:7] + ".log")
-                log("cargo check -p live2d-ai-desktop --target " + MSVC_TARGET
+                log("cargo check -p live2d-ai-desktop --features packed-mods"
+                    " --target " + MSVC_TARGET
                     + "（已知缺 MSVC 原生工具链，ring 会失败）")
                 ok = run_logged("MSVC check（预期失败）",
                                 ["cargo", "check", "-p", "live2d-ai-desktop",
+                                 "--features", "packed-mods",
                                  "--target", MSVC_TARGET],
                                 msvc_log, cwd=wtree, env=env, fatal=False)
                 if ok:
@@ -671,19 +625,23 @@ def main() -> int:
                     die("缺 " + gnu["CC_x86_64_pc_windows_gnu"]
                         + "（MSYS2 mingw64 shim）；windows-gnu 无法编 C 依赖")
                 gnu_log = log_dir / ("check-gnu-" + base_sha[:7] + ".log")
-                if run_logged("cargo check -p live2d-ai-desktop --target "
-                              + GNU_TARGET + "（GNU 交叉）",
+                if run_logged("cargo check -p live2d-ai-desktop --features "
+                              "packed-mods --target " + GNU_TARGET + "（GNU 交叉）",
                               ["cargo", "check", "-p", "live2d-ai-desktop",
+                               "--features", "packed-mods",
                                "--target", GNU_TARGET],
                               gnu_log, cwd=wtree, env=gnu, fatal=False):
                     result["gnu"] = "pass"
                     shutil.rmtree(target_dir / GNU_TARGET / "debug", ignore_errors=True)
                     stage_snapshot("windows-gnu check 后（已删 target/" + GNU_TARGET + "/debug）")
                     build_log = log_dir / ("build-gnu-release-" + base_sha[:7] + ".log")
-                    ok = run_logged("cargo build --release --target " + GNU_TARGET,
-                                    ["cargo", "build", "--release", "-p",
-                                     "live2d-ai-desktop", "--target", GNU_TARGET],
-                                    build_log, cwd=wtree, env=gnu, fatal=False)
+                    ok = run_logged(
+                        "cargo build --release --features packed-mods --target "
+                        + GNU_TARGET,
+                        ["cargo", "build", "--release", "-p",
+                         "live2d-ai-desktop", "--features", "packed-mods",
+                         "--target", GNU_TARGET],
+                        build_log, cwd=wtree, env=gnu, fatal=False)
                     if ok:
                         exe_src = (target_dir / GNU_TARGET / "release"
                                    / "live2d-ai-desktop.exe")
@@ -786,6 +744,12 @@ def main() -> int:
         if not example.is_file():
             die("基线没有 live2d-ai.toml.example，无法生成空密钥模板")
         shutil.copy2(example, stage / "live2d-ai.toml")
+        # 包根出厂配置（0.4.6）：mods.json 只启用 external-input；README.txt 四行
+        # 写明双击入口 / 端口 / 不要用 WSL 配置覆盖 / local-tts-melo 保持关闭 /
+        # 七个 Mod 编进 exe。内容与行数由 task 钉死，别顺手美化。
+        write_text(stage / "mods.json", PACKAGE_MODS_JSON)
+        write_text(stage / "README.txt", PACKAGE_README)
+        note("包根：mods.json（出厂只启用 external-input）+ README.txt（四行）")
         # 临时树若有文件夹 Mod（缺省提交没有），才带 mods/。
         mods_tracked = git(wtree, "ls-tree", "-r", "--name-only",
                            "HEAD", "mods").stdout.strip()
@@ -826,13 +790,14 @@ def main() -> int:
                                 capture_output=True, text=True).stdout.split()
             dist_du = du[0] if du else "0"
         report_lines = [
-            "0.4.0 Windows 包（scripts/pack-windows.sh）",
-            "基线：" + args.base + " = " + base_sha,
-            "恢复宿主集成代码：" + source_commit,
-            "链入兄弟仓库（" + str(len(chained)) + "）："
-            + (" ".join(chained) if chained else "无"),
-            "缺失兄弟仓库（" + str(len(missing)) + "）："
-            + (" ".join(missing) if missing else "无"),
+            "0.4.6 带 Mod 的 Windows 包（scripts/pack-windows.sh）",
+            "主仓临时树基线（full）：" + base_sha + "（--base " + args.base + "）",
+            "七个兄弟仓库固定提交（full，git archive <sha>）：",
+        ]
+        for name in MOD_NAMES:
+            report_lines.append("  " + name + "  " + PINNED[name])
+        report_lines.extend([
+            "链入兄弟仓库（" + str(len(chained)) + "）：" + " ".join(chained),
             "临时树工厂数：" + str(factory_count),
             "Linux check：" + result["linux"],
             "windows-msvc check：" + result["msvc"]
@@ -841,7 +806,7 @@ def main() -> int:
             "exe：" + result["exe"],
             "",
             "阶段快照（target 体积 / 磁盘可用；脚本按阶段清理）：",
-        ]
+        ])
         report_lines.extend(stages)
         report_lines.extend([
             "",
