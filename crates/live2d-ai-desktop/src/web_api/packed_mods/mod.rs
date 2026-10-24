@@ -8,7 +8,7 @@
 //! 边界：接线代码只做「宿主门 + 队列 + 调用钉死提交里已有的 Mod 纯函数」，
 //! 不重写 Mod 协议、不改 `[llm]` / `[tts]`、不碰 `action_tx`。
 
-// rc.2（voice-input / a2a 接线）会在这里补上：
-//   pub mod a2a; pub mod a2a_llm; pub mod voice;
+pub mod a2a;
 pub mod external;
 pub mod pump;
+pub mod voice;

@@ -29,6 +29,10 @@ pub(super) fn dummy_ctx(sec: SecurityContext) -> ServerContext {
         )),
         folder_processes: std::sync::Arc::new(crate::folder_spawn::FolderProcesses::new()),
         playback_gate: std::sync::Arc::new(crate::web_api::playback_gate::PlaybackGate::new()),
+        // 0.4.6：打包树（feature packed-mods）下 ServerContext 多这一个字段；
+        // 缺省树该字段不存在，本行整行不参与编译。
+        #[cfg(feature = "packed-mods")]
+        external_queue: std::sync::Arc::new(crate::web_api::external_queue::ExternalQueue::new()),
     }
 }
 
