@@ -74,8 +74,9 @@ pub mod env_routes;
 /// `env_routes` 的单元测试（自 `env_routes.rs` 拆出：>500 行棘轮，2026-10-16）。
 #[cfg(test)]
 mod env_routes_tests;
-/// 外部注入 FIFO 队列（0.3.14）：挂回 `external-input` 后由宿主 `push` /
-/// `pump`；当前无调用方（见 [`external_queue`] 头注「尚未接线」）。
+/// 外部注入 FIFO 队列（0.3.14）：打包树（`feature = "packed-mods"`）里由
+/// `packed_mods::external` 的 handler `push`、`packed_mods::pump` 线程 `pump`；
+/// 缺省树仍是 404 存根、队列没有调用方（见 [`external_queue`] 头注）。
 pub mod external_queue;
 /// 外部文本注入端点（**未挂载存根**，2026-10-19）：`POST /api/v1/external/chat`
 /// 未挂载时 404 `mod_disabled`（实现随 `external-input` Mod 移出主仓）。
@@ -87,6 +88,9 @@ pub mod flutter_app;
 /// 页面逻辑全在 `assets/launcher.html` 的内联 CSS/JS 里，不新增 API 路由。
 pub mod launcher;
 pub mod log_routes;
+/// 0.4.6：三条前置路由的编译期分派——缺省树 = 未挂载存根（404），打包树
+/// （`feature = "packed-mods"`）= `packed_mods` 的真实宿主接线。
+pub mod mod_front_routes;
 /// **唯一模型根**（rc.2，2026-09-12）：静态 `/models/*` 与模型库 registry /
 /// import 共用的那一个根。两个根会导致「激活了但没换皮」，见模块头注。
 pub(crate) mod model_root;
@@ -97,6 +101,11 @@ pub mod models_routes;
 /// Mod 管理 HTTP API（节点 E5 补充，2026-08-30）：
 /// `GET /api/v1/mods` 与 `POST /api/v1/mods/{id}/{action}`。
 pub mod mods_routes;
+/// 0.4.6：**打包临时树专用**的宿主接线（七 Mod 静态链进 binary 时才编译）。
+/// 缺省提交不引用任何 Mod 实现，见 [`mod_front_routes`] 与 Cargo.toml 的
+/// `packed-mods` 特性说明。
+#[cfg(feature = "packed-mods")]
+pub mod packed_mods;
 /// 浏览器播放忙上报（0.3.14）：`POST /api/v1/playback`。状态 = [`ServerContext`]
 /// 上的 [`playback_gate::PlaybackGate`]；缺省闲，超时视为闲（不丢队列）。
 pub mod playback_gate;
@@ -355,8 +364,12 @@ pub struct ServerContext {
     pub folder_processes: std::sync::Arc<crate::folder_spawn::FolderProcesses>,
     /// 0.3.14：浏览器播放忙闸门（`POST /api/v1/playback` 写入）。
     /// 缺省闲；`busy=true` 后 120s 无新上报视为闲（warn 一次，**不丢队列**）。
-    /// 挂回外部注入后是 `external_queue::pump` 的 `ready` 判据来源。
+    /// 外部注入泵的 `ready` 判据来源。
     pub playback_gate: std::sync::Arc<crate::web_api::playback_gate::PlaybackGate>,
+    /// 0.4.6：外部注入 FIFO 队列（**仅打包树**——缺省树的三条前置路由是 404
+    /// 存根、没有 push 调用方，故字段也只在 `packed-mods` 特性下存在）。
+    #[cfg(feature = "packed-mods")]
+    pub external_queue: std::sync::Arc<crate::web_api::external_queue::ExternalQueue>,
 }
 
 impl ServerContext {
@@ -382,6 +395,8 @@ impl ServerContext {
             )),
             folder_processes: Arc::new(crate::folder_spawn::FolderProcesses::new()),
             playback_gate: Arc::new(crate::web_api::playback_gate::PlaybackGate::new()),
+            #[cfg(feature = "packed-mods")]
+            external_queue: Arc::new(crate::web_api::external_queue::ExternalQueue::new()),
         }
     }
 
@@ -572,8 +587,11 @@ fn respond_and_log(
 }
 
 pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
-    // 2026-10-19：忙时合并窗口（`external_coalesce` + 常驻 flusher 线程）已随
-    // `external-input` Mod 移出主仓删除；服务不再起任何合并线程。
+    // 0.4.6：打包树（`feature = "packed-mods"`）起外部注入队列泵——handler 只
+    // `push` 一条原文，泵在 ready 时一次 `pump` 至多一条交给 `supervisor.say`，
+    // 不拼接、不清队列。缺省树没有队列字段，也不起线程。
+    #[cfg(feature = "packed-mods")]
+    let external_pump = crate::web_api::packed_mods::pump::spawn(ctx.clone());
     for mut request in server.incoming_requests() {
         let method = request.method().clone();
         // **带查询串的原始 URL**（日志用）与**剥掉查询串的路径**（路由用）。
@@ -630,12 +648,22 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             .find(|h| h.field.equiv("Authorization"))
             .map(|h| h.value.as_str().to_string());
         let body_str = read_body_from_request(&mut request);
-        // 2026-10-19：A2A 前置路由 = **未挂载存根**（Mod 实现已移出主仓）。
-        // 两条路径都 404 mod_disabled，不派生工作线程——没有上游 LLM 可等，
-        // 直接在本循环里 respond（仍走 respond_and_log 留请求级日志）。
+        // 0.4.6：A2A 前置路由经 `mod_front_routes` 编译期分派——缺省树是未挂载
+        // 存根（两条路径都 404 `mod_disabled`，同步 respond）；打包树是真实宿主门
+        // （GET card 在循环内直答，POST 派生工作线程等上游，见 packed_mods::a2a）。
+        // 两条分支都走 `respond_and_log`，保留请求级日志。
         if crate::web_api::a2a_gate::is_a2a_path(&path) {
-            let resp = crate::web_api::a2a_gate::handle_a2a(&ctx);
-            respond_and_log(request, &method, &path, "a2a", resp);
+            let log_method = method.clone();
+            let log_path = path.clone();
+            crate::web_api::mod_front_routes::handle_a2a_request(
+                ctx.clone(),
+                method,
+                path,
+                body_str,
+                origin,
+                content_type,
+                move |resp| respond_and_log(request, &log_method, &log_path, "a2a", resp),
+            );
             continue;
         }
         // L1 基座（2026-09-15）：会话 id 宿主能力
@@ -652,10 +680,10 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             respond_and_log(request, &method, &path, "chat.session", resp);
             continue;
         }
-        // 2026-10-19：外部文本注入端点 = **未挂载存根**（`external-input` Mod
-        // 实现已移出主仓）。路径命中即 404 mod_disabled，不读 body / 不打主链
-        // （详见 external_routes 头注）。
-        if let Some(resp) = crate::web_api::external_routes::handle_external_chat(
+        // 0.4.6：外部文本注入端点经 `mod_front_routes` 编译期分派——缺省树是
+        // 未挂载存根（404 `mod_disabled`）；打包树入队 + 泵线程逐条 say（一条原文
+        // 一次 say，不恢复合并窗口）。
+        if let Some(resp) = crate::web_api::mod_front_routes::handle_external_chat(
             &ctx,
             &method,
             &path,
@@ -667,10 +695,10 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             respond_and_log(request, &method, &path, "external.chat", resp);
             continue;
         }
-        // 2026-10-19：语音转写注入端点 = **未挂载存根**（`voice-input` Mod
-        // 实现已移出主仓）。路径命中即 404 mod_disabled，不读 body / 不打主链
-        // （详见 voice_routes 头注）。
-        if let Some(resp) = crate::web_api::voice_routes::handle_voice_transcript(
+        // 0.4.6：语音转写注入端点经 `mod_front_routes` 编译期分派——缺省树是
+        // 未挂载存根（404 `mod_disabled`）；打包树走 `voice-input` 钉死提交里的
+        // 清洗 / 闸门 / 归一化后 say。
+        if let Some(resp) = crate::web_api::mod_front_routes::handle_voice_transcript(
             &ctx,
             &method,
             &path,
@@ -707,6 +735,9 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
         );
         let _ = request.respond(response);
     }
+    // 0.4.6：服务停机——通知外部注入泵退出并 join，不留线程跨实例存活。
+    #[cfg(feature = "packed-mods")]
+    external_pump.stop_and_join();
 }
 
 /// 派发（保持 mod.rs 简洁：实际实现见 [`dispatch`] 模块）。

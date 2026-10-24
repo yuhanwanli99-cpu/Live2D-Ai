@@ -101,6 +101,19 @@ tungstenite = { version = "0.24" }
 # 用于检测 `live2d-ai.toml` 外部修改并触发 supervisor reload。
 notify = "8"
 
+[features]
+# 0.4.6（带 Mod 的 Windows 部署）：**打包临时树专用**的宿主接线开关。
+#
+# 缺省提交里它是空特性：主仓不引用任何 Mod 实现（`AVAILABLE_MOD_FACTORIES` 为空、
+# 上面 `[dependencies]` 仍是 18 条），三条前置路由走 `web_api::mod_front_routes`
+# 的未挂载存根（404 `mod_disabled`），外部注入泵不起。
+#
+# `scripts/pack_windows_glue.py` 在临时树里把七个 Mod 依赖加成 optional，并把本行
+# 改写成 `packed-mods = ["dep:live2d-ai-mod-external-input", ...]`，再用
+# `cargo ... --features packed-mods` 编译——只有那时 `web_api/packed_mods/` 的
+# 接线代码才参与编译。**不要**把它设成 default。
+packed-mods = []
+
 [dev-dependencies]
 # 仅供测试；生产路径下由 main.rs 在 [dependencies] 直接使用。
 

@@ -1,4 +1,4 @@
-//! 外部注入 FIFO 队列（0.3.14）：挂回 external-input 前先在宿主侧立好排队账本。
+//! 外部注入 FIFO 队列（0.3.14；0.4.6 在打包树里接线）。
 //!
 //! # 为什么不再拼接
 //!
@@ -19,17 +19,19 @@
 //!   超时只影响 pump 的 ready 参数（playback_gate 判闲），本模块没有任何清空 /
 //!   过期逻辑。
 //!
-//! # 尚未接线（hang-back）
+//! # 谁在调用（0.4.6）
 //!
-//! 当前缺省二进制里 POST /api/v1/external/chat 仍是 404 mod_disabled 存根
-//! （external-input Mod 实现已移出主仓）。将来挂回 external-input 时：
-//! 宿主在 handler 里调用 [ExternalQueue::push]；在「本轮结束 / 播放由忙转闲」
-//! 的时机调用 [ExternalQueue::pump]，ready = !turn_in_flight &&
-//! !playback_gate.is_busy()。**不得**恢复换行合并。
+//! 缺省二进制里 POST /api/v1/external/chat 仍是 404 mod_disabled 存根
+//! （external-input Mod 实现已移出主仓），队列没有调用方。
+//! 打包临时树（Cargo 特性 `packed-mods`，七个 Mod 静态链进 binary）里：
+//! `packed_mods::external` 的 handler 调用 [ExternalQueue::push]；
+//! `packed_mods::pump` 的常驻线程在「本轮生成已结束 / 播放由忙转闲」时调用
+//! [ExternalQueue::pump]，ready = !turn_in_flight && !playback_gate.is_busy()。
+//! **不得**恢复换行合并（0.3.1 的忙时合并窗口已废弃，0.4.6 不恢复）。
 //!
-//! 在那之前本模块的公开入口在生产构建里没有调用方，故整模块 allow(dead_code)
-//! （测试里全部入口都被用到，不会掩盖测试代码的问题）。
-#![allow(dead_code)] // 挂回 external-input 前无调用方（见上方「尚未接线」）。
+//! 缺省树里公开入口仍没有调用方，故整模块 allow(dead_code)（测试里全部入口
+//! 都被用到，不会掩盖测试代码的问题）。
+#![allow(dead_code)] // 缺省树无调用方；打包树在 packed_mods 里使用（见上）。
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
