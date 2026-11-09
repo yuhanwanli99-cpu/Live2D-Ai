@@ -122,6 +122,9 @@ Live2D-Ai-debug*.apk
 # 边界 / 免责 / 「权利人要求后 24 小时内从 main 移除」见
 # assets/models/bai/MODEL_LICENSE.md「本仓库的特殊说明」。
 assets/models/*
+# 0.5.1：本地「出厂模型」声明（用户自持模型的 id / display_name 列表）。
+# 模型文件与这份声明都不入库、不随包分发（第三方皮套作者条约禁止重新分发）。
+assets/models/seed.local.json
 !assets/models/README.md
 !assets/models/.gitkeep
 # 白模型（bai）：为 bai/ 开目录例外，只放行渲染必需的运行时文件 + 条约。

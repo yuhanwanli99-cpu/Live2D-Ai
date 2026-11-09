@@ -35,12 +35,12 @@
 - **多 Live2D（0.3.5）**：设置 → 模型库可加载本机 `model3`。唯一真源仍是
   `model_registry.json.active_id`；`GET /api/v1/app/status` 同时派生 `active_model_url`
   （空 = 无模型），不加 DisplayPrefs/localStorage 字段、不加端点。白模 `bai` 出厂
-  seed、可从列表切回、不可删除；active 指向坏 entry / 缺 `model3` 时启动按无 active
+  seed、可从列表切回、不可删除（0.5.1：`seed.local.json` 声明的本地皮肤同待遇）；active 指向坏 entry / 缺 `model3` 时启动按无 active
   回 bai（id/URL 同步回退，不写盘）。未授权模型不入库（`assets/models` 白名单只有
-  `README.md` / `.gitkeep` / `bai`），用户须自持授权。参数名不匹配的动作继续丢弃并
+  `README.md` / `.gitkeep` / `bai`；本地出厂模型由 gitignore 的 `seed.local.json` 声明），用户须自持授权。参数名不匹配的动作继续丢弃并
   沿用 ack 原因；不新增 remap 表。**未验**：第二张合法 `model3`、浏览器肉眼、真实服务
   HTTP 换模、公开远端 / CI；换模 / 回滚 / 字段映射仅 fixture 单测。known minor：
-  `ModelsSection` 仍硬编码 `bai`（后端 builtin id 真源），`FieldMap::for_model` 无直接单测。
+  `ModelsSection` 已不硬编码 `bai`（0.5.1 起 entry.builtin + display_name），`FieldMap::for_model` 无直接单测。
 
 ## 3. 出厂不设人设
 

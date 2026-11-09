@@ -247,10 +247,9 @@ class ModelsSection extends StatelessWidget {
         else
           for (final ModelInfo m in models)
             AdminRow(
-              // bai 是出厂白模：标题说人话，但 id 仍原样显示在副标题里。
-              title: m.id == 'bai'
-                  ? '白模（bai）'
-                  : (m.displayName.isEmpty ? m.id : m.displayName),
+              // 0.5.1：不再硬编码 bai —— 出厂模型由后端 `builtin` 标记 +
+              // `display_name` 驱动（bai 与本地 seed.local.json 同待遇）。
+              title: m.displayName.isEmpty ? m.id : m.displayName,
               subtitle:
                   '${m.id} · v${m.version} · ${m.humanSize} · '
                   '${m.textureCount} 张贴图',
@@ -258,7 +257,7 @@ class ModelsSection extends StatelessWidget {
               // 「含物理」「有显示配置」是模型工程属性（开发者排障用）。
               badges: <String>[
                 if (m.active) '当前激活',
-                if (m.id == 'bai') '出厂白模',
+                if (m.builtin) '出厂模型',
                 if (devMode && m.hasPhysics) '含物理',
                 if (devMode && m.hasDisplayInfo) '有显示配置',
               ],
@@ -271,7 +270,7 @@ class ModelsSection extends StatelessWidget {
                       child: Text(
                         busyId == m.id
                             ? '激活中…'
-                            : (m.id == 'bai' ? '切回白模' : '激活'),
+                            : (m.builtin ? '切回出厂模型' : '激活'),
                       ),
                     ),
             ),

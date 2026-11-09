@@ -63,3 +63,30 @@ assets/models/bai/
 - `crates/l2d/tests/bai_asset.rs` 采用「资产缺失则明确 skip」的纪律——本地未放置 Bai 模型时，
   该集成测试打印 `SKIP:` 后直接返回，**不会**因找不到文件而失败。
 - 同进程双渲染 hash 比对与 coverage/bbox 容差窗仅在资产存在时执行。
+
+## 出厂模型（0.5.1）
+
+「出厂模型」从 0.5.1 起是**数据驱动**的：`bai` 仍由编译期常量 seed，用户本机
+合法持有、但作者禁止再分发的皮肤可以写进 **`assets/models/seed.local.json`**
+（已 gitignore，模型文件与声明都**不入库、不随包分发**）：
+
+```json
+[
+  { "id": "dafeiyu", "display_name": "大肥鱼" }
+]
+```
+
+- 载入时逐条校验：id 合法（`[a-zA-Z0-9_-]`、非 `.` 开头、无 `..`）、
+  目录存在、能找到 `*.model3.json`、`ModelPackage::load` 成功——全部通过
+  才进模型库；
+- 通过后与 `bai` 同待遇：列表里带「出厂模型」徽章、显示 `display_name`、
+  「切回出厂模型」按钮，且 `DELETE /api/v1/models/{id}` 返回 409
+  `model_builtin`；
+- 文件缺失 / 坏 JSON / 单条无效都只 warn，不阻断启动；
+- `model3.json` 的 `Layout` 两套键都认（官方 PascalCase `CenterX…` 与
+  既有小写 `center_x…`，小写优先）；完全不带 `Layout` 的模型按与 bai 同口径的
+  默认取景（`center_y = -0.07`、`0.56 × 0.56`）装入，不再 1.0×1.0 撑满裁头。
+
+> 许可边界：第三方皮套（如《大肥鱼》）只按作者免费配布的**使用**条约在本机使用；
+> 作者禁止重新分发模型文件，所以**不要**提交 `seed.local.json` 或任何模型目录，
+> 也不要把它们打进 zip。仓库不做运行期 license gate（与「多模型与授权」一致）。

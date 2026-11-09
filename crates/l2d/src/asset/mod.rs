@@ -101,7 +101,8 @@ impl std::error::Error for LoadError {
 /// model3.json 的 `Layout` 块（显示用构图框，归一化坐标）。
 ///
 /// `meta` 层未建模该块，这里按 bakeoff 验证过的口径从原始 JSON 补齐；
-/// 缺省值为「整画布」（center 0/0、宽高 1/1）。
+/// Default 为「整画布」（center 0/0、宽高 1/1）；model3 **缺 Layout** 时解析层
+/// 改用产品默认取景（见 manifest::LayoutBox::product_framing）。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LayoutBox {
     pub center_x: f32,
@@ -134,7 +135,7 @@ pub struct PackageManifest {
     pub physics_file: Option<String>,
     /// cdi3.json 相对路径（可无）。
     pub display_info_file: Option<String>,
-    /// `Layout` 构图框（缺省整画布）。
+    /// `Layout` 构图框（model3 缺 Layout 时用产品默认取景，见 manifest::LayoutBox::from_json）。
     pub layout: LayoutBox,
     /// model3 `Groups` 里 `Target == "Parameter"` 且 `Name == "LipSync"` 的 `Ids`
     /// （按出现顺序拼接）。

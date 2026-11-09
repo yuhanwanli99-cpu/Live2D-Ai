@@ -30,7 +30,7 @@ use super::registry::{
     ModelDisplay, ModelEntry, ModelRegistry, ModelSource, StoredManifest, default_stage,
     normalize_relative_id,
 };
-use super::util::{compute_dir_size, find_model3_json, now_iso8601};
+use super::util::{compute_dir_size, find_model3_json, model3_rel_path_from_abs, now_iso8601};
 
 // =====================================================================
 // 路径安全：拒绝 `..` / 绝对路径 / 符号链接外指
@@ -115,6 +115,7 @@ fn entry_to_list_item(
         active: active_id == Some(entry.id.as_str()),
         imported_at: entry.imported_at.clone(),
         size_bytes: size,
+        builtin: entry.builtin,
     }
 }
 
@@ -182,15 +183,20 @@ pub(crate) fn handle_import(store: &ModelStore, body_str: &str) -> Response<Curs
     };
 
     let manifest = StoredManifest::from(package.manifest());
-    // P1-4：只存相对 `assets_root` 的路径；handler 端按需派生绝对路径。
-    // 用 `strip_prefix` 而不是「`id/` + file_name」：`find_model3_json` 允许
-    // **向下看一层**（`bai/runtime/bai.model3.json`），那种布局下拼 file_name
-    // 会丢掉 `runtime/` 段，于是回给前端的 `model_url` 404——「激活成功但换不了皮」。
-    let model3_rel_path = model3_path
-        .strip_prefix(&store.assets_root)
-        .unwrap_or(&model3_path)
-        .to_string_lossy()
-        .replace('\\', "/");
+    // P1-4 / 0.5.1 rc.1：只存相对 `assets_root` 的路径；handler 端按需派生绝对路径。
+    // 2026-11-09 真机：Windows `canonicalize` 返回带 verbatim 前缀的路径，旧实现
+    // `strip_prefix` 失败后回落到**绝对路径**，model_url 变成 `/models///?/D:/...`
+    // → 404 → 换模静默回退 bai。这里统一走 `model3_rel_path_from_abs`（先剥
+    // verbatim / UNC 前缀，再算相对路径；结果非相对或含 `..` 一律 400）。
+    let model3_rel_path = match model3_rel_path_from_abs(&store.assets_root, &model3_path) {
+        Ok(rel) => rel,
+        Err(e) => {
+            return bad_request(
+                "invalid_model3_json",
+                &format!("model3 路径无法相对模型根: {e}"),
+            );
+        }
+    };
     let new_entry = ModelEntry {
         id: id.clone(),
         display_name: id.clone(),
@@ -201,6 +207,7 @@ pub(crate) fn handle_import(store: &ModelStore, body_str: &str) -> Response<Curs
         display: ModelDisplay::default(),
         stage: default_stage(),
         imported_at: now_iso8601(),
+        builtin: false,
     };
     // 关键：先在写锁中插入（同时判重），**释放写锁**再调 `persist`。
     {
@@ -373,10 +380,11 @@ pub(crate) fn handle_delete(store: &ModelStore, id: &str) -> Response<Cursor<Vec
         Ok(s) => s,
         Err(e) => return bad_request("invalid_resource_path", &format!("id 非法: {e}")),
     };
-    // 白模是出厂模型：**不提供删除 / 隐藏入口**（0.3.5 裁决）。即使它当前
-    // 不是 active，也不允许把「回退出厂白模」这条路从 registry 里拿掉。
+    // 兜底（0.5.1）：bai 的 id 是编译期常量，即使 entry 丢了（旧 registry / 坏
+    // 数据），也不允许把「回退出厂模型」这条路从列表里拿掉。真正的判据是下面
+    // 的 `entry.builtin`（覆盖 bai + `assets/models/seed.local.json`）。
     if normalized == crate::web_api::model_root::builtin_model_id() {
-        return conflict_response("model_builtin", "出厂白模不可删除（也不提供隐藏入口）");
+        return conflict_response("model_builtin", "出厂模型不可删除（也不提供隐藏入口）");
     }
     // 关键：先在写锁中完成内存变更，**释放写锁**再调 `persist`（避免死锁）。
     let prev_entry: Option<ModelEntry> = {
@@ -384,8 +392,17 @@ pub(crate) fn handle_delete(store: &ModelStore, id: &str) -> Response<Cursor<Vec
             Ok(g) => g,
             Err(e) => return persist_failed_response(&format!("registry 锁毒化: {e}")),
         };
-        if !g.entries.contains_key(&normalized) {
+        let Some(entry) = g.entries.get(&normalized) else {
             return not_found_response("model_not_found", &format!("模型 {normalized:?} 不存在"));
+        };
+        if entry.builtin {
+            return conflict_response(
+                "model_builtin",
+                &format!(
+                    "出厂模型 {:?} 不可删除（bai / seed.local.json 声明）",
+                    entry.display_name
+                ),
+            );
         }
         if g.active_id.as_deref() == Some(normalized.as_str()) {
             return conflict_response(

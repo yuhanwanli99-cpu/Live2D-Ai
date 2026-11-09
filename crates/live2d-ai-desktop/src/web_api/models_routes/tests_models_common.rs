@@ -46,34 +46,46 @@ pub(super) fn tmp_dir(name: &str) -> PathBuf {
     ))
 }
 
-/// 在 tmp_dir/{id}/ 下组装一个最小合法 model3 包（含 moc3/纹理/physics3
-/// 文件）；返回 model3.json 路径。`assets_root` = `tmp_dir` 父目录（= tmp）。
-pub(super) fn make_minimal_package(id: &str) -> (PathBuf, PathBuf) {
-    let assets_root = tmp_dir(&format!("pkg_assets_{id}"));
-    let model_dir = assets_root.join(id);
-    std::fs::create_dir_all(&model_dir).expect("create model dir");
+/// 在 `dir` 下写一个最小合法 model3 包（moc3 / 纹理 / physics3 齐全，包内相对
+/// 文件名固定）；`model3_json` 由调用方给正文，用于 Layout 有无 / 键大小写等用例。
+/// 返回 model3.json 路径。
+pub(super) fn write_package_at(dir: &std::path::Path, model3_json: &str) -> PathBuf {
+    std::fs::create_dir_all(dir).expect("create model dir");
     // moc3 头（64 字节，version byte = 4 = Bai 档位）
     let mut moc3 = vec![0u8; 64];
     moc3[..4].copy_from_slice(b"MOC3");
     moc3[4] = 4;
-    std::fs::write(model_dir.join("bai.moc3"), &moc3).expect("write moc3");
-    std::fs::write(model_dir.join("tex_00.png"), b"\x89PNG-fake").expect("write tex");
+    std::fs::write(dir.join("bai.moc3"), &moc3).expect("write moc3");
+    std::fs::write(dir.join("tex_00.png"), b"\x89PNG-fake").expect("write tex");
     std::fs::write(
-        model_dir.join("physics3.json"),
+        dir.join("physics3.json"),
         br#"{"Version":3,"Meta":{},"PhysicsSettings":[]}"#,
     )
     .expect("write physics");
-    let model3 = br#"{
-        "Version": 3,
-        "FileReferences": {
-            "Moc": "bai.moc3",
-            "Textures": ["tex_00.png"],
-            "Physics": "physics3.json"
-        },
-        "Layout": {"center_x": 0.0, "center_y": 0.0, "width": 1.0, "height": 1.0}
-    }"#;
-    let model3_path = model_dir.join("bai.model3.json");
-    std::fs::write(&model3_path, model3).expect("write model3");
+    let model3_path = dir.join("bai.model3.json");
+    std::fs::write(&model3_path, model3_json).expect("write model3");
+    model3_path
+}
+
+/// 最小合法 model3.json 正文；`layout` = `None` 时不带 Layout（模拟 VTS 导出）。
+pub(super) fn minimal_model3_json(layout: Option<&str>) -> String {
+    match layout {
+        Some(layout) => format!(
+            r#"{{"Version": 3, "FileReferences": {{"Moc": "bai.moc3",
+            "Textures": ["tex_00.png"], "Physics": "physics3.json"}},
+            "Layout": {layout}}}"#
+        ),
+        None => r#"{"Version": 3, "FileReferences": {"Moc": "bai.moc3",
+            "Textures": ["tex_00.png"], "Physics": "physics3.json"}}"#
+            .to_string(),
+    }
+}
+
+/// 在 tmp_dir/{id}/ 下组装一个最小合法 model3 包（含 moc3/纹理/physics3
+/// 文件）；返回 model3.json 路径。`assets_root` = `tmp_dir` 父目录（= tmp）。
+pub(super) fn make_minimal_package(id: &str) -> (PathBuf, PathBuf) {
+    let assets_root = tmp_dir(&format!("pkg_assets_{id}"));
+    let model3_path = write_package_at(&assets_root.join(id), &minimal_model3_json(None));
     (assets_root, model3_path)
 }
 
@@ -120,6 +132,7 @@ pub(super) fn sample_registry() -> ModelRegistry {
         display: ModelDisplay::default(),
         stage: default_stage(),
         imported_at: "2026-08-28T12:00:00.000Z".into(),
+        builtin: false,
     };
     let mut entries = std::collections::BTreeMap::new();
     entries.insert("bai".into(), entry);

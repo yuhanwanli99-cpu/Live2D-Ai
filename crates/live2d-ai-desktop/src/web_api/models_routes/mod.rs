@@ -40,6 +40,10 @@ use tiny_http::{Method, Response};
 pub mod dto;
 pub mod handlers;
 pub mod registry;
+/// 0.5.1 rc.1：载入期修复历史绝对 / verbatim `model3_rel_path`。
+mod repair;
+/// 0.5.1 rc.1：出厂模型 seed（bai + `assets/models/seed.local.json`）。
+mod seed;
 mod util;
 
 #[cfg(test)]
@@ -51,7 +55,11 @@ mod tests_models_core;
 #[cfg(test)]
 mod tests_models_handlers;
 #[cfg(test)]
+mod tests_models_import_path;
+#[cfg(test)]
 mod tests_models_p1;
+#[cfg(test)]
+mod tests_models_seed;
 
 pub(crate) use registry::{ModelRegistry, atomic_write_json};
 
@@ -186,7 +194,10 @@ impl ModelStore {
         // ——否则「列表里没有白模」等于把出厂模型变成不可切回的状态。
         // 只在内存里 seed，不在这里写盘（启动路径不制造运行时文件）。
         if let Ok(mut g) = store.inner.write() {
-            seed_builtin_entry(&mut g, &store.assets_root);
+            seed::seed_builtin_entries(&mut g, &store.assets_root);
+            // 0.5.1 rc.1：兜住旧 registry 里绝对 / verbatim 的 `model3_rel_path`
+            //（Windows 真机 import 写坏过；见 repair.rs 头注）。
+            repair::repair_legacy_model3_paths(&mut g, &store.assets_root);
         }
         store
     }
@@ -304,45 +315,6 @@ fn pick_active_model(
         };
     }
     ActiveModel::default()
-}
-
-/// 空 registry + 白模文件存在 → 在内存里补一条 `bai` entry（不写盘）。
-///
-/// manifest 从真实 `bai.model3.json` 解析（复用 import 的同一套
-/// `ModelPackage::load`），因此列表里的贴图数 / 物理 / 体积与手工 import
-/// 的模型是同一口径；解析失败只 warn，绝不阻断启动。
-fn seed_builtin_entry(reg: &mut ModelRegistry, assets_root: &Path) {
-    let id = crate::web_api::model_root::builtin_model_id();
-    if id.is_empty() || reg.entries.contains_key(id) {
-        return;
-    }
-    let rel = crate::web_api::model_root::builtin_model3_rel_path();
-    let model3_path = assets_root.join(rel);
-    if !model3_path.is_file() {
-        return;
-    }
-    let package = match l2d::asset::ModelPackage::load(&model3_path) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!(
-                "[warn] 出厂白模 {} 解析失败（{e}）；模型库不自动收录它",
-                model3_path.display()
-            );
-            return;
-        }
-    };
-    let entry = registry::ModelEntry {
-        id: id.to_string(),
-        display_name: id.to_string(),
-        source: registry::ModelSource::LocalImport,
-        relative_dir: id.to_string(),
-        model3_rel_path: rel.to_string(),
-        manifest: registry::StoredManifest::from(package.manifest()),
-        display: registry::ModelDisplay::default(),
-        stage: registry::default_stage(),
-        imported_at: util::now_iso8601(),
-    };
-    reg.entries.insert(id.to_string(), entry);
 }
 
 fn default_paths() -> (PathBuf, PathBuf) {

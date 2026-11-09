@@ -23,6 +23,7 @@ class ModelInfo {
     required this.displayName,
     required this.version,
     required this.active,
+    required this.builtin,
     required this.hasPhysics,
     required this.hasDisplayInfo,
     required this.sizeBytes,
@@ -37,6 +38,10 @@ class ModelInfo {
 
   /// 是否为当前激活模型。
   final bool active;
+
+  /// 是否为**出厂模型**（bai 或 `assets/models/seed.local.json` 声明）：不可删除，
+  /// 列表显示「出厂模型」徽章与「切回出厂模型」按钮（0.5.1 起不再硬编码 bai）。
+  final bool builtin;
 
   /// 是否有物理效果（`has_physics`）——**用它代替缩略图**：
   /// 后端没有缩略图端点，用 `Image.network` 拉贴图当缩略图在 Web 上行为不同
@@ -64,6 +69,7 @@ class ModelInfo {
       displayName: _str(json['display_name']),
       version: _int(json['version']),
       active: json['active'] == true,
+      builtin: json['builtin'] == true,
       hasPhysics: json['has_physics'] == true,
       hasDisplayInfo: json['has_display_info'] == true,
       sizeBytes: _int(json['size_bytes']),

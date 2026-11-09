@@ -10,11 +10,17 @@ import 'package:live2d_ai_shell/ui/theme.dart';
 /// 为什么值得钉：DoD 的端到端是「导入 → 激活 → 皮套真的换了」。此前
 /// `ModelsApi.import` 全仓**零调用方**，空态还写着「然后在这里导入」——
 /// 界面上根本没有那个「这里」。这两条测试守的就是入口存在且真的接线。
-ModelInfo _model(String id, {bool active = false}) => ModelInfo(
+ModelInfo _model(
+  String id, {
+  bool active = false,
+  bool builtin = false,
+  String? displayName,
+}) => ModelInfo(
   id: id,
-  displayName: id,
+  displayName: displayName ?? id,
   version: 3,
   active: active,
+  builtin: builtin,
   hasPhysics: true,
   hasDisplayInfo: false,
   sizeBytes: 2048,
@@ -128,23 +134,74 @@ void main() {
     expect(button.onPressed, isNull, reason: '忙时不得再提交');
   });
 
-  testWidgets('白模行：标明「出厂白模」，可就地切回', (WidgetTester tester) async {
+  testWidgets('出厂模型行：徽章与「切回出厂模型」由 builtin 驱动（不再硬编码 bai）',
+      (WidgetTester tester) async {
     final List<String> activated = <String>[];
     await _pump(
       tester,
       ModelsSection(
-        models: <ModelInfo>[_model('bai'), _model('neko', active: true)],
+        models: <ModelInfo>[
+          _model('bai', builtin: true, displayName: '白模（bai）'),
+          _model('neko', active: true),
+        ],
         loading: false,
         onActivate: (String id) async => activated.add(id),
         onImport: (String id) async {},
       ),
     );
 
-    expect(find.text('白模（bai）'), findsOneWidget);
-    expect(find.text('出厂白模'), findsOneWidget);
-    await tester.tap(find.text('切回白模'));
+    expect(find.text('白模（bai）'), findsOneWidget, reason: '标题取自 display_name');
+    expect(find.text('出厂模型'), findsOneWidget);
+    expect(find.text('出厂白模'), findsNothing, reason: '旧硬编码文案已移除');
+    expect(find.text('切回白模'), findsNothing, reason: '按钮文案已通用化');
+    await tester.tap(find.text('切回出厂模型'));
     await tester.pumpAndSettle();
-    expect(activated, <String>['bai'], reason: '白模必须能从列表切回');
+    expect(activated, <String>['bai'], reason: '出厂模型必须能从列表切回');
+  });
+
+  testWidgets('本地出厂模型（seed.local.json）：与 bai 同待遇，标题用 display_name',
+      (WidgetTester tester) async {
+    final List<String> activated = <String>[];
+    await _pump(
+      tester,
+      ModelsSection(
+        models: <ModelInfo>[
+          _model('bai', builtin: true, displayName: '白模（bai）'),
+          _model('dafeiyu', builtin: true, displayName: '大肥鱼'),
+          _model('neko', active: true),
+        ],
+        loading: false,
+        onActivate: (String id) async => activated.add(id),
+        onImport: (String id) async {},
+      ),
+    );
+
+    expect(find.text('大肥鱼'), findsOneWidget);
+    expect(find.text('出厂模型'), findsNWidgets(2), reason: 'bai 与本地出厂模型同待遇');
+    expect(find.text('切回出厂模型'), findsNWidgets(2));
+    await tester.tap(find.text('切回出厂模型').first);
+    await tester.pumpAndSettle();
+    expect(activated, <String>['bai']);
+  });
+
+  test('ModelInfo.fromJson：builtin 缺省 false，true 透传', () {
+    ModelInfo parse(Map<String, Object?> extra) => ModelInfo.fromJson(
+      <String, Object?>{
+        'id': 'x',
+        'display_name': 'x',
+        'version': 3,
+        'active': false,
+        'has_physics': false,
+        'has_display_info': false,
+        'size_bytes': 1,
+        'texture_files': <Object?>[],
+        'imported_at': '2026-11-09T00:00:00.000Z',
+        'moc3_file': 'x.moc3',
+        ...extra,
+      },
+    );
+    expect(parse(<String, Object?>{}).builtin, isFalse, reason: '旧后端缺字段 → false');
+    expect(parse(<String, Object?>{'builtin': true}).builtin, isTrue);
   });
 
   testWidgets('换模失败：显示「重试换皮」，不把失败说成已切换', (WidgetTester tester) async {

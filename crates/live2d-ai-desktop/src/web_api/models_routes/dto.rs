@@ -21,6 +21,9 @@ pub struct ModelListItem {
     pub active: bool,
     pub imported_at: String,
     pub size_bytes: u64,
+    /// 是否出厂模型（bai / `seed.local.json`）：前端显示「出厂模型」徽章与
+    /// 「切回出厂模型」按钮，不再硬编码 bai。
+    pub builtin: bool,
 }
 
 /// `Layout` 段 DTO（与 `l2d::asset::LayoutBox` 字段一一对应）。

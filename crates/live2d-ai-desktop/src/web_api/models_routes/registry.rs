@@ -287,6 +287,11 @@ pub struct ModelEntry {
     pub display: ModelDisplay,
     pub stage: StageConfig,
     pub imported_at: String,
+    /// 是否**出厂模型**（bai 或 `assets/models/seed.local.json` 声明的本地模型）：
+    /// 列表徽章 / 禁止删除的唯一判据。旧 registry（0.5.1 之前）没有这个字段，
+    /// `serde(default)` 读成 false；载入时 seed 会把出厂 id 补成 true。
+    #[serde(default)]
+    pub builtin: bool,
 }
 
 /// 模型 registry（单一 JSON 文件）。
