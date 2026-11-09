@@ -62,6 +62,8 @@ pub(crate) struct ModelRefs {
     pub(crate) moc: String,
     pub(crate) textures: Vec<String>,
     pub(crate) physics: Option<String>,
+    /// 0.5.0 rc.4：model3 `FileReferences.Pose`（pose3.json）。
+    pub(crate) pose: Option<String>,
     pub(crate) cdi: Option<String>,
 }
 
@@ -74,6 +76,7 @@ impl ModelRefs {
             .textures
             .iter()
             .chain(self.physics.iter())
+            .chain(self.pose.iter())
             .chain(self.cdi.iter())
             .chain(std::iter::once(&self.moc));
         for path in all {
@@ -107,6 +110,7 @@ pub(crate) fn extract_refs(bytes: &[u8]) -> Result<ModelRefs, String> {
         moc,
         textures,
         physics: as_str("Physics"),
+        pose: as_str("Pose"),
         cdi: as_str("DisplayInfo"),
     })
 }

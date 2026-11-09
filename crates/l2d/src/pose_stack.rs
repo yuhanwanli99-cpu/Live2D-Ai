@@ -26,6 +26,7 @@ use ayagami::{meta, physics, pose};
 
 use crate::asset::ParamBinder;
 use crate::model::{LoadedModel, ModelHandle};
+use crate::pose_parts::PartLayer;
 
 /// 呼吸参数 ID（上游 demo 同款 idle 驱动；模型没有该参数时自动跳过）。
 pub const BREATH_PARAM: &str = "ParamBreath";
@@ -55,12 +56,15 @@ impl std::error::Error for InvalidDt {}
 pub enum PoseStackError {
     /// physics3.json 解析失败。
     PhysicsJson(String),
+    /// pose3.json 解析失败（0.5.0 rc.4）。
+    PoseJson(String),
 }
 
 impl fmt::Display for PoseStackError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::PhysicsJson(e) => write!(f, "physics3.json 解析失败: {e}"),
+            Self::PoseJson(e) => write!(f, "pose3.json 解析失败: {e}"),
         }
     }
 }
@@ -78,6 +82,8 @@ pub struct PoseStack {
     final_override: pose::Pose,
     /// 最近一次 update 重算出的 idle 层（finalize 用；初始为空 = 全默认）。
     latest_idle: pose::Pose,
+    /// pose3 part 层（0.5.0 rc.4；空层 = 模型没有 pose3，不干预任何 part）。
+    parts: PartLayer,
     engine: Option<physics::PhysicsEngine>,
     breath_range: Option<(f32, f32)>,
     breath_key: pose::Key<'static>,
@@ -105,12 +111,15 @@ impl PoseStack {
             .get(&pose::Key::param(BREATH_PARAM))
             .map(|(_, d)| (d.min, d.max));
         let has_angle_z = map.has_key(&pose::Key::param(ANGLE_Z_PARAM));
+        // 先建 part 层（要用 map），再移交 map 所有权。
+        let parts = PartLayer::empty(Arc::clone(&map));
         Self {
             map,
             input: empty.clone(),
             physics_work: empty.clone(),
             final_override: empty.clone(),
             latest_idle: empty,
+            parts,
             engine: None,
             breath_range,
             breath_key: pose::Key::param(BREATH_PARAM),
@@ -134,6 +143,10 @@ impl PoseStack {
         let mut stack = Self::new(loaded.handle());
         if let Some(bytes) = loaded.package().physics_json() {
             stack.attach_physics_json(bytes)?;
+        }
+        // 0.5.0 rc.4：model3 `Pose` 声明了 pose3 就挂 part 层（声明即严格解析）。
+        if let Some(bytes) = loaded.package().pose3_json() {
+            stack.attach_pose_json(bytes)?;
         }
         Ok(stack)
     }
@@ -189,6 +202,33 @@ impl PoseStack {
     /// 是否已挂接物理引擎。
     pub fn has_physics(&self) -> bool {
         self.engine.is_some()
+    }
+
+    /// 从 pose3.json 字节构建 part 层（0.5.0 rc.4；[`Self::from_loaded_model`] 已自动调用）。
+    ///
+    /// 解析失败 → [`PoseStackError::PoseJson`] 且**状态不变**（旧 part 层保留）；
+    /// 成功则整份替换 part 层。part 选择规则见 [`PartLayer::from_pose_groups`]。
+    pub fn attach_pose_json(&mut self, json: &[u8]) -> Result<(), PoseStackError> {
+        let groups = crate::asset::pose3::PoseGroups::from_json(json)
+            .map_err(|e| PoseStackError::PoseJson(e.to_string()))?;
+        self.parts = PartLayer::from_pose_groups(&self.map, &groups);
+        Ok(())
+    }
+
+    /// pose3 part 层是否生效（false = 模型没有 pose3，或没有一个 part id 命中模型）。
+    pub fn has_pose_layer(&self) -> bool {
+        self.parts.has_layer()
+    }
+
+    /// pose3 诊断：`(生效组数, 可见 part 数, 隐藏 part 数)`。
+    pub fn pose_part_counts(&self) -> (usize, usize, usize) {
+        let (visible, hidden) = self.parts.counts();
+        (self.parts.group_count(), visible, hidden)
+    }
+
+    /// 观测：某 part 当前合成不透明度（模型没有该 part → `None`）。
+    pub fn get_part_opacity(&self, id: &str) -> Option<f32> {
+        self.finalize().get_flattened(&pose::Key::part(id))
     }
 
     /// 已推进的模拟时间（秒）。
@@ -311,9 +351,10 @@ impl PoseStack {
         Ok(())
     }
 
-    /// 合成当前最终姿态：base ← idle ← input ← physics ← final_override。
+    /// 合成当前最终姿态：base ← part(pose3) ← idle ← input ← physics ← final_override。
     pub fn finalize(&self) -> pose::Pose {
         let mut out = pose::Pose::with_map(Arc::clone(&self.map)); // base：全默认
+        out.update(self.parts.values()); // part：pose3 组选中的 part 不透明度
         out.update(&self.latest_idle); // idle
         out.update(&self.input); // input
         if self.engine.is_some() {
@@ -356,6 +397,7 @@ impl fmt::Debug for PoseStack {
             .field("elapsed", &self.elapsed)
             .field("breath", &self.breath_range.is_some())
             .field("angle_z", &self.has_angle_z)
+            .field("pose_layer", &self.parts.has_layer())
             .field("idle_enabled", &self.idle_enabled)
             .field("sway_suppress", &self.sway_suppress)
             .field("sway_suppress_target", &self.sway_suppress_target)
@@ -879,5 +921,79 @@ mod tests {
             reference.get_parameter(ANGLE_Z_PARAM),
             "恢复后必须与「从未抑制、同一 elapsed」的正弦同相"
         );
+    }
+
+    // ---- 0.5.0 rc.4：pose3 part 层 ----
+
+    /// 合成 part 描述表（min 0 / max 1 / default 1，与 moc3 part 语义一致）。
+    fn parts_map(ids: &[&str]) -> Arc<pose::PoseMap> {
+        let mut map = pose::PoseMap::new();
+        for (index, id) in ids.iter().enumerate() {
+            map.add(Descriptor {
+                key: pose::Key::from_part((*id).to_owned()),
+                uid: 100 + index as u64,
+                name: None,
+                min: 0.0,
+                max: 1.0,
+                default: 1.0,
+            });
+        }
+        Arc::new(map)
+    }
+
+    const SYNTHETIC_POSE3: &str = r#"{"Groups":[
+        [{"Id":"ArmR_A","Link":[]},{"Id":"ArmR_B","Link":[]}],
+        [{"Id":"ArmL_A","Link":[1]},{"Id":"ArmL_B","Link":[]}]
+    ]}"#;
+
+    #[test]
+    fn pose3_layer_selects_one_part_per_group_and_links() {
+        let mut stack = PoseStack::from_pose_map(parts_map(&[
+            "ArmR_A", "ArmR_B", "ArmL_A", "ArmL_B", "Other",
+        ]));
+        assert!(!stack.has_pose_layer(), "未挂 pose3 时无 part 层");
+        stack
+            .attach_pose_json(SYNTHETIC_POSE3.as_bytes())
+            .expect("合成 pose3 应可解析");
+        assert!(stack.has_pose_layer());
+        assert_eq!(stack.pose_part_counts(), (2, 3, 1));
+        assert_eq!(stack.get_part_opacity("ArmR_A"), Some(1.0));
+        assert_eq!(stack.get_part_opacity("ArmR_B"), Some(0.0));
+        assert_eq!(stack.get_part_opacity("ArmL_A"), Some(1.0));
+        assert_eq!(stack.get_part_opacity("ArmL_B"), Some(1.0));
+        // 组外 part 保持默认可见；不存在的 part → None。
+        assert_eq!(stack.get_part_opacity("Other"), Some(1.0));
+        assert_eq!(stack.get_part_opacity("Missing"), None);
+        for _ in 0..5 {
+            stack.update(FIXED_DT_60HZ).unwrap();
+        }
+        assert_eq!(stack.get_part_opacity("ArmR_B"), Some(0.0));
+    }
+
+    #[test]
+    fn pose3_layer_missing_keeps_all_parts_visible() {
+        let stack = PoseStack::from_pose_map(parts_map(&["A", "B"]));
+        assert!(!stack.has_pose_layer());
+        assert_eq!(stack.get_part_opacity("A"), Some(1.0));
+        assert_eq!(stack.get_part_opacity("B"), Some(1.0));
+        assert_eq!(stack.pose_part_counts(), (0, 0, 0));
+    }
+
+    #[test]
+    fn invalid_pose3_json_is_rejected_and_keeps_old_layer() {
+        let mut stack = PoseStack::from_pose_map(parts_map(&["ArmR_A", "ArmR_B"]));
+        let err = stack
+            .attach_pose_json(b"{oops")
+            .expect_err("坏 pose3 必须被拒");
+        assert!(matches!(err, PoseStackError::PoseJson(_)));
+        assert!(!stack.has_pose_layer(), "失败不得留下半个层");
+        stack
+            .attach_pose_json(SYNTHETIC_POSE3.as_bytes())
+            .expect("好 pose3 应可解析");
+        assert!(stack.has_pose_layer());
+        // 再来一次坏的：旧层必须保留（状态不变）。
+        assert!(stack.attach_pose_json(br#"{"Groups":{}}"#).is_err());
+        assert!(stack.has_pose_layer());
+        assert_eq!(stack.get_part_opacity("ArmR_B"), Some(0.0));
     }
 }

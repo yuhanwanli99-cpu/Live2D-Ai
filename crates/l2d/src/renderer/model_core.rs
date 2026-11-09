@@ -181,8 +181,7 @@ impl ModelRendererCore {
         // 待机开关抄过去，否则「待机小动作」关闭会被重新开模型（`/render` ready
         // 后异步 load-model / 换模型）悄悄拨回开，表现为眨眼停着、头的 ±3° 又回来。
         let idle_enabled = self.stack.idle_enabled();
-        self.stack = PoseStack::from_loaded_model(loaded)
-            .map_err(|e| RenderError::PhysicsJson(e.to_string()))?;
+        self.stack = PoseStack::from_loaded_model(loaded).map_err(RenderError::from)?;
         self.stack.set_idle_enabled(idle_enabled);
         self.transform = layout_transform(loaded);
 

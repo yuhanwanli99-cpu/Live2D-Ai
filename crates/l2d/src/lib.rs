@@ -7,7 +7,8 @@
 //! - 统一加载路径（[`model::LoadedModel`]）：包 → 运行时句柄原子解析 + 兼容报告 +
 //!   「头探测 × 运行时版本」交叉核对（不一致即类型化否决）；
 //! - 姿态分层栈（[`pose_stack`]）：base < idle < input < physics < final_override，
-//!   纯逻辑、无 GPU 可测；
+//!   纯逻辑、无 GPU 可测；另有 [`pose_parts`]：model3 `Pose`（pose3.json）的
+//!   part 不透明度层（0.5.0 rc.4，只选静态可见组，不恢复 motion3/exp3）；
 //! - 保守的格式探测（白名单匹配，永不 panic、不推断）。
 //!
 //! Runtime/render 底座（RFC D4 Bakeoff 结论：Ayagami，rev 固定 pin，
@@ -31,6 +32,7 @@
 pub mod asset;
 pub mod format;
 pub mod model;
+pub mod pose_parts;
 pub mod pose_stack;
 pub mod renderer;
 pub mod report;

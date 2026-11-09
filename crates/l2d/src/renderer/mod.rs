@@ -60,6 +60,8 @@ pub enum RenderError {
     Renderer(String),
     /// physics3.json 解析失败。
     PhysicsJson(String),
+    /// pose3.json 解析失败（0.5.0 rc.4）。
+    PoseJson(String),
     /// 非法尺寸：宽/高为 0 或超出限制。
     InvalidSize {
         /// 传入的宽度。
@@ -84,6 +86,7 @@ impl std::fmt::Display for RenderError {
             Self::Device(e) => write!(f, "GPU 设备创建失败: {e}"),
             Self::Renderer(e) => write!(f, "渲染器错误: {e}"),
             Self::PhysicsJson(e) => write!(f, "physics3.json 解析失败: {e}"),
+            Self::PoseJson(e) => write!(f, "pose3.json 解析失败: {e}"),
             Self::InvalidSize { width, height } => {
                 write!(f, "非法画布尺寸 {width}x{height}（宽高必须 > 0）")
             }
@@ -97,6 +100,16 @@ impl std::fmt::Display for RenderError {
 }
 
 impl std::error::Error for RenderError {}
+
+impl From<crate::pose_stack::PoseStackError> for RenderError {
+    fn from(value: crate::pose_stack::PoseStackError) -> Self {
+        // PoseStackError 是 crate 内 #[non_exhaustive]：在本 crate 内可穷尽匹配。
+        match value {
+            crate::pose_stack::PoseStackError::PhysicsJson(e) => Self::PhysicsJson(e),
+            crate::pose_stack::PoseStackError::PoseJson(e) => Self::PoseJson(e),
+        }
+    }
+}
 
 impl From<crate::pose_stack::InvalidDt> for RenderError {
     fn from(value: crate::pose_stack::InvalidDt) -> Self {

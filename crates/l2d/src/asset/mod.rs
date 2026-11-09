@@ -30,6 +30,7 @@ mod bind_report;
 pub(crate) mod lip_sync;
 mod manifest;
 mod param_bind;
+pub mod pose3;
 mod report;
 
 use std::{collections::BTreeMap, fmt, fs, io, path};
@@ -168,6 +169,11 @@ pub struct ModelPackage {
     /// [`ParamAdapter::source`]；覆盖在装载期由 [`ParamAdapter::bind`] 合成进
     /// 绑定表，因此磁盘与内存两条入口行为一致。
     param_adapter: ParamAdapter,
+    /// model3 `FileReferences.Pose` 的文件名（可无；0.5.0 rc.4）。
+    pose3_file: Option<String>,
+    /// pose3.json 原始字节（清单声明了才**严格**读取；解析在
+    /// [`crate::pose_stack::PoseStack::from_loaded_model`] 装载期）。
+    pose3_json: Option<Vec<u8>>,
 }
 
 impl ModelPackage {
@@ -281,6 +287,12 @@ impl ModelPackage {
             Some(name) => Some(read(normalize_resource_ref(name)?.as_str())?),
             None => None,
         };
+        // 0.5.0 rc.4：pose3.json（骨骼 / 部件组）。声明了就与 physics3 / cdi3
+        // 同一条严格纪律——严格读取，不做「读不到就当没有」的降级。
+        let pose3_json = match &refs.pose {
+            Some(name) => Some(read(normalize_resource_ref(name)?.as_str())?),
+            None => None,
+        };
 
         Ok(Self {
             manifest: PackageManifest {
@@ -299,6 +311,8 @@ impl ModelPackage {
             display_info_json,
             eye_blink_ids: manifest::group_ids(&json, "EyeBlink"),
             param_adapter: ParamAdapter::from_json(adapter_json),
+            pose3_file: refs.pose.clone(),
+            pose3_json,
         })
     }
 
@@ -315,6 +329,19 @@ impl ModelPackage {
     /// 每模型参数适配（0.5.0 rc.3；缺失 = 空适配、来源 `binder`）。
     pub fn param_adapter(&self) -> &ParamAdapter {
         &self.param_adapter
+    }
+
+    /// model3 `FileReferences.Pose` 的文件名（0.5.0 rc.4；无 pose3 时为 `None`）。
+    pub fn pose3_file(&self) -> Option<&str> {
+        self.pose3_file.as_deref()
+    }
+
+    /// pose3.json 原始字节（未声明 `Pose` 时为 `None`）。
+    ///
+    /// 解析与应用在 [`crate::pose_stack::PoseStack::from_loaded_model`]；本层
+    /// 只保证「声明了就严格读到字节」。
+    pub fn pose3_json(&self) -> Option<&[u8]> {
+        self.pose3_json.as_deref()
     }
 
     /// moc3 文件原始字节。
@@ -691,6 +718,32 @@ mod tests {
         assert_eq!(package.param_adapter().source(), AdapterSource::Degraded);
         assert!(!package.param_adapter().warnings().is_empty());
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn pose_reference_is_parsed_and_strictly_read() {
+        // 0.5.0 rc.4：model3 `FileReferences.Pose` → pose3 字节（严格读）。
+        let model3 = br#"{"Version":3,"FileReferences":{
+            "Moc":"dummy.moc3","Textures":[],"Pose":"arm.pose3.json"}}"#;
+        let mut resources = BTreeMap::new();
+        resources.insert("dummy.moc3".to_owned(), moc_header(4));
+        resources.insert(
+            "arm.pose3.json".to_owned(),
+            br#"{"Groups":[[{"Id":"A","Link":[]}]]}"#.to_vec(),
+        );
+        let package = ModelPackage::from_memory_map(model3, &resources).expect("带 Pose 的内存包");
+        assert_eq!(package.pose3_file(), Some("arm.pose3.json"));
+        assert_eq!(
+            package.pose3_json(),
+            Some(br#"{"Groups":[[{"Id":"A","Link":[]}]]}"#.as_slice())
+        );
+
+        // 声明了但资源缺失 → 与 physics3 同一条严格纪律（MissingResource 带名字）。
+        resources.remove("arm.pose3.json");
+        match ModelPackage::from_memory_map(model3, &resources) {
+            Err(LoadError::MissingResource { name }) => assert_eq!(name, "arm.pose3.json"),
+            other => panic!("期望 pose3 MissingResource，实际 {other:?}"),
+        }
     }
 
     #[test]
