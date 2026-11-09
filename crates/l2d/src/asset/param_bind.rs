@@ -41,7 +41,7 @@
 //! 本层只**解析 id**，不判定幅值 / 通道；白名单与幅值仍在
 //! `l2d-wasm-demo::preset`（`ALLOWED_PARAMS` 仍是 13 条，本模块不改协议）。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// 13 条标准语义参数名（与 `l2d-wasm-demo` 的 `ALLOWED_PARAMS` 同集合）。
 ///
@@ -79,6 +79,11 @@ pub struct BindConflict {
 pub struct ParamBinder {
     map: BTreeMap<String, String>,
     conflicts: Vec<BindConflict>,
+    /// adapter `disable_channels` 禁用的 canonical（0.5.0 rc.3；见 [`ParamAdapter`]）。
+    ///
+    /// 禁用 = 从 `map` 移除 **且** 记进本集合：调用方据此区分「模型没有该参数」
+    /// （按字面 id 写、保持 0.4.x 静默降级）与「用户显式禁用」（一笔都不写）。
+    disabled: BTreeSet<String>,
 }
 
 impl ParamBinder {
@@ -116,7 +121,11 @@ impl ParamBinder {
                 });
             }
         }
-        Self { map, conflicts }
+        Self {
+            map,
+            conflicts,
+            disabled: BTreeSet::new(),
+        }
     }
 
     /// 表是否为空（空表 = 所有语义名都解析为 `None`，模型没有可绑参数）。
@@ -145,6 +154,32 @@ impl ParamBinder {
             return None;
         }
         self.map.get(&key).map(String::as_str)
+    }
+
+    /// 该语义是否被 adapter 显式禁用（[`Self::resolve`] 同时返回 `None`）。
+    pub fn is_disabled(&self, id: &str) -> bool {
+        let key = canonical(id);
+        !key.is_empty() && self.disabled.contains(&key)
+    }
+
+    /// 覆盖 / 移除一条 canonical 绑定（adapter `param_aliases` 用；crate 内部）。
+    ///
+    /// `None` 表示该通道在本模型上不可用（例如 alias 指向模型不存在的 id）。
+    pub(crate) fn rebind(&mut self, canonical: String, actual: Option<String>) {
+        match actual {
+            Some(actual) => {
+                self.map.insert(canonical, actual);
+            }
+            None => {
+                self.map.remove(&canonical);
+            }
+        }
+    }
+
+    /// 显式禁用一条 canonical（adapter `disable_channels` 用；crate 内部）。
+    pub(crate) fn disable(&mut self, canonical: String) {
+        self.map.remove(&canonical);
+        self.disabled.insert(canonical);
     }
 }
 
@@ -377,6 +412,29 @@ mod tests {
             vec!["PARAM_ANGLE_X", "ParamAngle_X"],
             "落选者按定级 + 出现顺序稳定记录"
         );
+    }
+
+    #[test]
+    fn rebind_overrides_and_removes_bindings() {
+        let mut binder = ParamBinder::from_ids(["ParamAngleX", "ParamAngleY"]);
+        binder.rebind("anglex".to_owned(), Some("CustomX".to_owned()));
+        assert_eq!(binder.resolve("ParamAngleX"), Some("CustomX"));
+        binder.rebind("angley".to_owned(), None);
+        assert_eq!(
+            binder.resolve("ParamAngleY"),
+            None,
+            "指向不存在 id 的 alias 视为不可用"
+        );
+    }
+
+    #[test]
+    fn disabled_channel_is_unresolvable_but_distinguishable() {
+        let mut binder = ParamBinder::from_ids(["ParamMouthForm", "ParamAngleX"]);
+        binder.disable("mouthform".to_owned());
+        assert_eq!(binder.resolve("ParamMouthForm"), None);
+        assert!(binder.is_disabled("ParamMouthForm"));
+        assert!(!binder.is_disabled("ParamAngleX"), "未禁用通道不得误报");
+        assert_eq!(binder.resolve("ParamAngleX"), Some("ParamAngleX"));
     }
 
     #[test]

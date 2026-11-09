@@ -105,6 +105,11 @@ impl SwapHost for WasmHost {
     fn emit(&mut self, ty: &str, payload: serde_json::Value) {
         emit_event(ty, payload);
     }
+
+    /// 0.5.0 rc.3：`loaded.param_bind{source,missing,conflicts}` 由模型侧报告。
+    fn param_bind_report(&self, model: &LoadedModel) -> serde_json::Value {
+        model.param_bind_report().to_json()
+    }
 }
 
 /// 模型拉取器：持有 `Window`（fetch 需要它），每次 load 起一个 boxed future。

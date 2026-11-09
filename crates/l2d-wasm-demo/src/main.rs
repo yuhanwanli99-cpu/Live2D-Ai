@@ -222,8 +222,17 @@ mod web {
                 serde_json::json!({ "phase": "resources", "ratio": (idx + 1) as f64 / total as f64 }),
             );
         }
-        let package = l2d::asset::ModelPackage::from_memory_map(&model3_bytes, &resources)
-            .map_err(|e| format!("ModelPackage::from_memory 失败：{e}"))?;
+        // 0.5.0 rc.3：可选每模型 adapter（资产约定 `<model>/adapter.json`）。
+        // 取不到（404 / 网络错）一律视为「没有 adapter」→ 回退 binder，绝不阻塞装载；
+        // 来源由 `loaded.param_bind.source` 报告（binder / adapter / degraded）。
+        let adapter_url = crate::model_ref::adapter_url_for_model(model_url);
+        let adapter_bytes = net::fetch_bytes(window, &adapter_url).await.ok();
+        let package = l2d::asset::ModelPackage::from_memory_map_with_adapter(
+            &model3_bytes,
+            &resources,
+            adapter_bytes.as_deref(),
+        )
+        .map_err(|e| format!("ModelPackage::from_memory 失败：{e}"))?;
         LoadedModel::resolve(package).map_err(|e| format!("moc3 解析失败：{e}"))
     }
 
@@ -292,6 +301,8 @@ mod web {
         let loaded = load_model_from_url(&window, &model_url).await?;
 
         let summary = load_summary(&model_url, &loaded);
+        // 0.5.0 rc.3：首装 `loaded` 也带可选 `param_bind`（与换模 ack 同形状）。
+        let param_bind = loaded.param_bind_report().to_json();
 
         status(&format!(
             "{summary}\n正在初始化 GPU（WebGPU，不可用时回退 WebGL2）…"
@@ -381,6 +392,7 @@ mod web {
                 "model_id": model_id,
                 "model_epoch": model_epoch,
                 "field_map": field_map_report.to_json(),
+                "param_bind": param_bind,
             }),
         );
         start_render_loop(state);

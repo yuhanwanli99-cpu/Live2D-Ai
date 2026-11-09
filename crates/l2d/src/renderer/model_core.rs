@@ -91,6 +91,9 @@ impl ModelRendererCore {
     /// [`ParamBinder`] 解析成该模型实际 id，解析不到才按字面写（保持 0.4.x
     /// 「缺 id 静默 false」语义）。
     pub fn set_parameter(&mut self, id: &str, value: f32) -> bool {
+        if self.binder.is_disabled(id) {
+            return false;
+        }
         let binder = &self.binder;
         let stack = &mut self.stack;
         stack.set_parameter(binder.resolve(id).unwrap_or(id), value)
@@ -98,6 +101,9 @@ impl ModelRendererCore {
 
     /// 撤销 **input 层**参数（下一帧起不再生效）。
     pub fn clear_parameter(&mut self, id: &str) -> bool {
+        if self.binder.is_disabled(id) {
+            return false;
+        }
         let binder = &self.binder;
         let stack = &mut self.stack;
         stack.clear_parameter(binder.resolve(id).unwrap_or(id))
@@ -108,6 +114,9 @@ impl ModelRendererCore {
     /// 与 [`Self::set_parameter`] 同一套 [`ParamBinder`] 解析：动作预设、三字段
     /// cue、待机微表情全部经本入口，不各自复制解析逻辑。
     pub fn override_parameter(&mut self, id: &str, value: f32) -> bool {
+        if self.binder.is_disabled(id) {
+            return false;
+        }
         let binder = &self.binder;
         let stack = &mut self.stack;
         stack.override_parameter(binder.resolve(id).unwrap_or(id), value)
@@ -115,6 +124,9 @@ impl ModelRendererCore {
 
     /// 撤销 **final_override 层**参数。
     pub fn clear_override_parameter(&mut self, id: &str) -> bool {
+        if self.binder.is_disabled(id) {
+            return false;
+        }
         let binder = &self.binder;
         let stack = &mut self.stack;
         stack.clear_override_parameter(binder.resolve(id).unwrap_or(id))
@@ -126,6 +138,9 @@ impl ModelRendererCore {
     /// `Groups[LipSync].Ids` > binder 把 `ParamMouthOpenY` 解析到的实际 id > 不写。
     /// 名单为空就一笔都不写；多个 id 写同一个值。逐字段借用
     /// （`self.mouth_ids` × `self.stack`），不克隆名单。
+    ///
+    /// 注：名单来自 model3 `Groups` 时是**模型自带绑定**，不经过 binder /
+    /// adapter `disable_channels`（后者只作用于 13 条语义通道）。
     pub fn set_mouth_open(&mut self, value: f32) {
         for id in &self.mouth_ids {
             self.stack.set_parameter(id, value);
@@ -137,7 +152,8 @@ impl ModelRendererCore {
     /// 名单 = [`Self::load_model`] 里 `eye_blink_write_ids` 的结果（0.5.0 rc.2）：
     /// `Groups[EyeBlink].Ids` > binder 解析出的 `ParamEyeLOpen` / `ParamEyeROpen`
     /// 实际 id > 不写。名单为空就一笔都不写；名单里多个 id 写同一个开合值
-    /// （Cubism EyeBlink 组左右同值，不依赖组内顺序）。
+    /// （Cubism EyeBlink 组左右同值，不依赖组内顺序）。同 `set_mouth_open`：
+    /// 名单来自 model3 `Groups` 时不经过 adapter `disable_channels`。
     pub fn set_eye_open(&mut self, value: f32) {
         for id in &self.eye_ids {
             self.stack.set_parameter(id, value);
@@ -172,7 +188,12 @@ impl ModelRendererCore {
 
         // 0.5.0 rc.1：按新模型 moc3 参数 id 表重建绑定层，并让空闲层的呼吸 / 摆头
         // 改走该模型实际 id（大写 `PARAM_*` 旧样本由此恢复呼吸与摆头）。
-        let binder = ParamBinder::from_ids(loaded.handle().parameter_ids());
+        // 0.5.0 rc.3：绑定合成带上包内可选 adapter（13 语义名显式覆盖 /
+        // disable_channels）；缺文件 / 坏 JSON 时 adapter 为空，行为与 rc.2 一致。
+        let binder = loaded
+            .package()
+            .param_adapter()
+            .bind(loaded.handle().parameter_ids());
         self.stack.bind_idle_params(&binder);
 
         // 确定性初始姿态：先同步一次合成结果（含物理 settle 输出）。

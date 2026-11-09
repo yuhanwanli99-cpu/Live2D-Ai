@@ -57,6 +57,20 @@ fn success_installs_revokes_and_emits_loaded_once() {
         "field_map.reason 必须可读：{}",
         loaded[0].1
     );
+    // 0.5.0 rc.3：loaded 另带可选 param_bind（默认 fake = binder / 无缺失）。
+    assert_eq!(loaded[0].1["param_bind"]["source"], "binder");
+    assert_eq!(
+        loaded[0].1["param_bind"]["missing"]
+            .as_array()
+            .map(Vec::len),
+        Some(0)
+    );
+    assert_eq!(
+        loaded[0].1["param_bind"]["conflicts"]
+            .as_array()
+            .map(Vec::len),
+        Some(0)
+    );
     assert!(
         st.statuses.iter().any(|s| s.contains("模型已切换")),
         "状态栏必须报告成功：{:?}",
@@ -220,6 +234,52 @@ fn stale_result_is_discarded_and_only_latest_swap_lands() {
         st.phases
     );
 }
+// ─────────────────────────────────── 0.5.0 rc.3：param_bind 可观测
+
+/// `loaded.param_bind` 原样透传宿主报告；宿主给 `Null` 时该键**整体省略**
+/// （旧宿主 / 无绑定信息的兼容语义）。
+#[test]
+fn loaded_param_bind_is_passed_through_and_optional() {
+    let report = serde_json::json!({
+        "source": "adapter",
+        "missing": ["ParamEyeLSmile", "ParamMouthForm"],
+        "conflicts": [{
+            "canonical": "anglex",
+            "kept": "ParamAngleX",
+            "dropped": ["PARAM_ANGLE_X"],
+        }],
+    });
+    let host = FakeHost::new(OLD).with_param_bind(report.clone());
+    let loader = FakeLoader::new([Ok(NEW.to_owned())]);
+    let field_map = FakeFieldMap::default();
+    let mut h = host.clone();
+    block_on(run_swap(&mut h, NEW.to_owned(), &loader, &field_map));
+
+    let st = host.snapshot();
+    let loaded: Vec<_> = st.emitted.iter().filter(|(ty, _)| ty == "loaded").collect();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(
+        loaded[0].1["param_bind"], report,
+        "宿主报告必须原样透传（不裁剪 / 不重排）"
+    );
+
+    // 宿主不提供 → 省略键，其余字段一字不少。
+    let host = FakeHost::new(OLD).with_param_bind(serde_json::Value::Null);
+    let loader = FakeLoader::new([Ok(NEW.to_owned())]);
+    let mut h = host.clone();
+    block_on(run_swap(&mut h, NEW.to_owned(), &loader, &field_map));
+    let st = host.snapshot();
+    let loaded: Vec<_> = st.emitted.iter().filter(|(ty, _)| ty == "loaded").collect();
+    assert_eq!(loaded.len(), 1);
+    assert!(
+        loaded[0].1.get("param_bind").is_none(),
+        "Null 报告必须省略 param_bind 键：{}",
+        loaded[0].1
+    );
+    assert_eq!(loaded[0].1["model_id"], "Epsilon_free");
+    assert_eq!(loaded[0].1["model_epoch"], 2);
+}
+
 // ─────────────────────────────────── 0.3.6 T2：模型身份 / field map 重绑
 
 /// 字段表**降级**（外置表读取失败）也必须换到新 model id 的内建表——绝不沿用旧表。

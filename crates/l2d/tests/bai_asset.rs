@@ -283,3 +283,68 @@ fn binder_wires_standard_names_to_actual_bai_ids() {
     assert!(!core.set_parameter("ParamEyeLSmile", 1.0));
     assert!(!core.set_parameter("ParamNope", 1.0));
 }
+
+/// **0.5.0 rc.3 每模型 adapter（端到端）**：用 bai 真实资源 + 测试内 adapter
+/// （不入库）验证「alias 覆盖 / disable_channels / loaded.param_bind 报告」一路
+/// 到渲染核心的写参数入口。
+#[test]
+fn adapter_override_and_report_reach_the_core() {
+    let Some(model3) = bai_model3_path() else {
+        println!("SKIP: 未找到 Bai 真实资产 `{BAI_MODEL3}`（门控跳过）");
+        return;
+    };
+    // bai 的 FileReferences 在仓库里是稳定的四件（moc / 1 张纹理 / physics / cdi）。
+    let base = model3.parent().expect("model3 必有父目录");
+    let model3_bytes = std::fs::read(&model3).expect("读 bai.model3.json");
+    let mut resources = std::collections::BTreeMap::new();
+    for name in [
+        "bai.moc3",
+        "bai.16384/texture_00_4096.png",
+        "bai.physics3.json",
+        "bai.cdi3.json",
+    ] {
+        resources.insert(
+            name.to_owned(),
+            std::fs::read(base.join(name)).expect("读 bai 资源"),
+        );
+    }
+    // 测试专用 adapter：AngleX 显式改绑到模型确实存在的 AngleY；禁用嘴形。
+    let adapter = br#"{"version":1,
+        "param_aliases":{"ParamAngleX":"ParamAngleY"},
+        "disable_channels":["ParamMouthForm"]}"#;
+    let package = ModelPackage::from_memory_map_with_adapter(
+        &model3_bytes,
+        &resources,
+        Some(adapter.as_slice()),
+    )
+    .expect("带 adapter 的内存组包");
+    let loaded = LoadedModel::resolve(package).expect("bai moc3 解析");
+
+    // 报告：adapter 生效；被禁用的嘴形算「不可写」；其余通道照常。
+    let report = loaded.param_bind_report();
+    assert_eq!(report.source(), l2d::asset::AdapterSource::External);
+    assert!(report.missing().contains(&"ParamMouthForm"));
+    assert!(!report.missing().contains(&"ParamAngleX"));
+    assert_eq!(report.to_json()["source"], "adapter");
+
+    let mut renderer = match OffscreenRenderer::new(64, 64) {
+        Ok(r) => r,
+        Err(l2d::renderer::RenderError::NoGpuBackend(notes)) => {
+            println!("SKIP: 无可用 headless GPU 后端（{notes}）");
+            return;
+        }
+        Err(e) => panic!("离屏渲染器创建失败: {e}"),
+    };
+    renderer.load_model(&loaded).expect("加载带 adapter 的 bai");
+
+    // alias 生效：写语义名 ParamAngleX 实际落到 ParamAngleY。
+    assert!(renderer.core().set_parameter("ParamAngleX", 5.0));
+    assert_eq!(
+        renderer.core().stack().get_parameter("ParamAngleY"),
+        Some(5.0),
+        "adapter alias 必须把写入改绑到实际 id"
+    );
+    // disable_channels 生效：该通道一律不写（返回 false，不是静默写进别的 id）。
+    assert!(!renderer.core().set_parameter("ParamMouthForm", 1.0));
+    assert!(!renderer.core().override_parameter("ParamMouthForm", 1.0));
+}

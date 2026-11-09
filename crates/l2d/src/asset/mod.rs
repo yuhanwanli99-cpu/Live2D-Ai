@@ -25,6 +25,8 @@
 //! 磁盘缺失 → [`LoadError::Io`]；内存映射缺失 → [`LoadError::MissingResource`]；
 //! 不做任何推断或降级。
 
+mod adapter;
+mod bind_report;
 pub(crate) mod lip_sync;
 mod manifest;
 mod param_bind;
@@ -38,6 +40,8 @@ use crate::report::CompatibilityReport;
 
 use manifest::ManifestFile;
 
+pub use adapter::{AdapterSource, ParamAdapter};
+pub use bind_report::ParamBindReport;
 pub use param_bind::{BindConflict, ParamBinder};
 
 /// 包加载错误。
@@ -158,6 +162,12 @@ pub struct ModelPackage {
     /// 放在包上而不是 [`PackageManifest`]：后者是全字段公开、可被下游 crate
     /// 直接构造的值类型，加字段会破坏既有调用方；解析逻辑仍在 `manifest.rs`。
     eye_blink_ids: Vec<String>,
+    /// 每模型参数适配（`<model>/adapter.json`，可选；0.5.0 rc.3）。
+    ///
+    /// 缺失 / 坏 JSON 都折叠成**空适配**（只用 moc3 binder），来源记在
+    /// [`ParamAdapter::source`]；覆盖在装载期由 [`ParamAdapter::bind`] 合成进
+    /// 绑定表，因此磁盘与内存两条入口行为一致。
+    param_adapter: ParamAdapter,
 }
 
 impl ModelPackage {
@@ -174,7 +184,10 @@ impl ModelPackage {
             .parent()
             .map(path::Path::to_path_buf)
             .unwrap_or_default();
-        Self::assemble(&raw, base_dir.clone(), |name| {
+        // 0.5.0 rc.3：可选每模型 adapter（标准布局 `<model>/adapter.json`）；
+        // 缺失 / 不可读不阻塞装载，来源由 ParamAdapter 报告成 binder。
+        let adapter_bytes = read_optional_adapter(&base_dir);
+        Self::assemble(&raw, base_dir.clone(), adapter_bytes.as_deref(), |name| {
             read_file(base_dir.join(name))
         })
     }
@@ -189,11 +202,27 @@ impl ModelPackage {
     /// - 相对路径先经 [`normalize_resource_ref`] 校验规范化（防 `..` 上跳与
     ///   绝对路径），再查映射；常规清单引用规范化后不变；
     /// - 包的 `base_dir` 为空（无磁盘目录语义）。
-    pub fn from_memory<F>(model3_json: &[u8], mut resources: F) -> Result<Self, LoadError>
+    pub fn from_memory<F>(model3_json: &[u8], resources: F) -> Result<Self, LoadError>
     where
         F: FnMut(&str) -> Option<Vec<u8>>,
     {
-        Self::assemble(model3_json, path::PathBuf::new(), |name| {
+        Self::from_memory_with_adapter(model3_json, None, resources)
+    }
+
+    /// 与 [`Self::from_memory`] 相同，但额外接受可选的每模型 `adapter.json` 字节
+    /// （0.5.0 rc.3；`None` = 没有该文件 → 只用 binder）。
+    ///
+    /// 浏览器侧由 loader 先 fetch `<model>/adapter.json`（404 → `None`），再与
+    /// 资源映射一起传进来；解析 / 回退规则见 [`ParamAdapter`]。
+    pub fn from_memory_with_adapter<F>(
+        model3_json: &[u8],
+        adapter_json: Option<&[u8]>,
+        mut resources: F,
+    ) -> Result<Self, LoadError>
+    where
+        F: FnMut(&str) -> Option<Vec<u8>>,
+    {
+        Self::assemble(model3_json, path::PathBuf::new(), adapter_json, |name| {
             resources(name).ok_or_else(|| LoadError::MissingResource {
                 name: name.to_owned(),
             })
@@ -206,7 +235,18 @@ impl ModelPackage {
         model3_json: &[u8],
         resources: &BTreeMap<String, Vec<u8>>,
     ) -> Result<Self, LoadError> {
-        Self::from_memory(model3_json, |name| resources.get(name).cloned())
+        Self::from_memory_with_adapter(model3_json, None, |name| resources.get(name).cloned())
+    }
+
+    /// [`Self::from_memory_with_adapter`] 的映射表便利重载（0.5.0 rc.3）。
+    pub fn from_memory_map_with_adapter(
+        model3_json: &[u8],
+        resources: &BTreeMap<String, Vec<u8>>,
+        adapter_json: Option<&[u8]>,
+    ) -> Result<Self, LoadError> {
+        Self::from_memory_with_adapter(model3_json, adapter_json, |name| {
+            resources.get(name).cloned()
+        })
     }
 
     /// 统一组装逻辑（私有）：解析清单 → 逐个校验/规范化引用 → 经 `read` 取字节。
@@ -216,6 +256,7 @@ impl ModelPackage {
     fn assemble<R>(
         raw_model3: &[u8],
         base_dir: path::PathBuf,
+        adapter_json: Option<&[u8]>,
         mut read: R,
     ) -> Result<Self, LoadError>
     where
@@ -257,6 +298,7 @@ impl ModelPackage {
             physics_json,
             display_info_json,
             eye_blink_ids: manifest::group_ids(&json, "EyeBlink"),
+            param_adapter: ParamAdapter::from_json(adapter_json),
         })
     }
 
@@ -268,6 +310,11 @@ impl ModelPackage {
     /// 包根目录（model3.json 所在目录；内存构造的包为空路径）。
     pub fn base_dir(&self) -> &path::Path {
         &self.base_dir
+    }
+
+    /// 每模型参数适配（0.5.0 rc.3；缺失 = 空适配、来源 `binder`）。
+    pub fn param_adapter(&self) -> &ParamAdapter {
+        &self.param_adapter
     }
 
     /// moc3 文件原始字节。
@@ -305,6 +352,14 @@ impl ModelPackage {
     pub fn compatibility_report(&self) -> CompatibilityReport {
         report::build_compatibility_report(&self.manifest, &self.moc3_bytes)
     }
+}
+
+/// 读取可选的每模型 `adapter.json`（磁盘入口；0.5.0 rc.3）。
+///
+/// 路径见 [`adapter::adapter_path`]；文件缺失 / 不可读一律当「没有 adapter」，
+/// 由 [`ParamAdapter`] 报告 `source = binder`——可选文件绝不阻塞模型装载。
+fn read_optional_adapter(model3_dir: &path::Path) -> Option<Vec<u8>> {
+    fs::read(adapter::adapter_path(model3_dir)).ok()
 }
 
 fn read_file(path: impl AsRef<path::Path>) -> Result<Vec<u8>, LoadError> {
@@ -591,5 +646,77 @@ mod tests {
             };
             assert_eq!(name, bad, "错误必须携带原始资源名");
         }
+    }
+    // ---- 0.5.0 rc.3：每模型 adapter（可选，不入库） ----
+
+    #[test]
+    fn missing_adapter_keeps_binder_source() {
+        // 内存包没有 adapter 字节 = 正常出厂：source=binder，行为与 rc.2 一致。
+        let (model3, resources) = mem_fixture(4);
+        let package = ModelPackage::from_memory_map(&model3, &resources).expect("内存包");
+        assert_eq!(package.param_adapter().source(), AdapterSource::Missing);
+        assert!(package.param_adapter().aliases().is_empty());
+        assert!(package.param_adapter().disabled().is_empty());
+    }
+
+    #[test]
+    fn disk_adapter_next_to_model_dir_is_loaded() {
+        let root = std::env::temp_dir().join(format!("l2d-adapter-disk-{}", std::process::id()));
+        let runtime = root.join("m").join("runtime");
+        let model3_path = write_fixture(&runtime, 4);
+        std::fs::write(
+            root.join("m").join("adapter.json"),
+            br#"{"version":1,"param_aliases":{"ParamAngleX":"PARAM_ANGLE_X"}}"#,
+        )
+        .unwrap();
+
+        let package = ModelPackage::load(&model3_path).expect("带 adapter 的包仍应可加载");
+        assert_eq!(package.param_adapter().source(), AdapterSource::External);
+        let binder = package
+            .param_adapter()
+            .bind(["PARAM_ANGLE_X", "ParamAngleY"]);
+        assert_eq!(binder.resolve("ParamAngleX"), Some("PARAM_ANGLE_X"));
+        assert_eq!(binder.resolve("ParamAngleY"), Some("ParamAngleY"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn broken_disk_adapter_degrades_but_never_blocks_package_load() {
+        let root = std::env::temp_dir().join(format!("l2d-adapter-bad-{}", std::process::id()));
+        let runtime = root.join("m").join("runtime");
+        let model3_path = write_fixture(&runtime, 4);
+        std::fs::write(root.join("m").join("adapter.json"), b"{oops").unwrap();
+
+        let package = ModelPackage::load(&model3_path).expect("坏 adapter 不得阻塞装载");
+        assert_eq!(package.param_adapter().source(), AdapterSource::Degraded);
+        assert!(!package.param_adapter().warnings().is_empty());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn memory_adapter_bytes_are_parsed_and_bad_ones_degrade() {
+        let (model3, resources) = mem_fixture(4);
+        let adapter = br#"{"version":1,"disable_channels":["ParamMouthForm"]}"#;
+        let package = ModelPackage::from_memory_map_with_adapter(
+            &model3,
+            &resources,
+            Some(adapter.as_slice()),
+        )
+        .expect("带 adapter 的内存包");
+        assert_eq!(package.param_adapter().source(), AdapterSource::External);
+        let binder = package
+            .param_adapter()
+            .bind(["ParamMouthForm", "ParamAngleX"]);
+        assert_eq!(binder.resolve("ParamMouthForm"), None);
+        assert!(binder.is_disabled("ParamMouthForm"));
+        assert_eq!(binder.resolve("ParamAngleX"), Some("ParamAngleX"));
+
+        let bad = ModelPackage::from_memory_map_with_adapter(
+            &model3,
+            &resources,
+            Some(b"{oops".as_slice()),
+        )
+        .expect("坏 adapter 仍可装载");
+        assert_eq!(bad.param_adapter().source(), AdapterSource::Degraded);
     }
 }
