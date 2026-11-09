@@ -142,18 +142,36 @@ impl PoseStack {
     ///
     /// 语义名 `ParamBreath` / `ParamAngleZ` 经 [`ParamBinder`] 解析成该模型
     /// 真实存在的 id（大写 `PARAM_*` 的旧样本由此恢复呼吸与摆头）；解析不到
-    /// 就保留标准名（与 0.4.x 逐值一致）。只影响**内部 idle 层**，public 写参数
-    /// 入口不放解析逻辑（那是 [`crate::renderer::ModelRendererCore`] 的职责）。
+    /// （模型没有该参数 / adapter 显式禁用）→ 本层不写。只影响**内部 idle 层**，
+    /// public 写参数入口不放解析逻辑（那是
+    /// [`crate::renderer::ModelRendererCore`] 的职责）。
     ///
     /// 装载成功路径由 [`crate::renderer::ModelRendererCore::load_model`] 调用；
     /// 合成参数表（测试 / 无模型路径）不调用它即保持原标准名行为。
     pub fn bind_idle_params(&mut self, binder: &ParamBinder) {
-        let breath_id = binder.resolve(BREATH_PARAM).unwrap_or(BREATH_PARAM);
-        let angle_id = binder.resolve(ANGLE_Z_PARAM).unwrap_or(ANGLE_Z_PARAM);
-        self.breath_key = pose::Key::from_param(breath_id.to_owned());
-        self.angle_key = pose::Key::from_param(angle_id.to_owned());
-        self.breath_range = self.map.get(&self.breath_key).map(|(_, d)| (d.min, d.max));
-        self.has_angle_z = self.map.has_key(&self.angle_key);
+        // 解析不到（模型没有该参数 / adapter 显式禁用）→ 本层不写：
+        // 「模型没有」与 0.4.x 的「按标准名写但缺 id 静默 false」观察等价；
+        // 「禁用」则必须真的不写（回落标准名反而会把值写进去）。
+        match binder.resolve(BREATH_PARAM) {
+            Some(id) => {
+                self.breath_key = pose::Key::from_param(id.to_owned());
+                self.breath_range = self.map.get(&self.breath_key).map(|(_, d)| (d.min, d.max));
+            }
+            None => {
+                self.breath_key = pose::Key::param(BREATH_PARAM);
+                self.breath_range = None;
+            }
+        }
+        match binder.resolve(ANGLE_Z_PARAM) {
+            Some(id) => {
+                self.angle_key = pose::Key::from_param(id.to_owned());
+                self.has_angle_z = self.map.has_key(&self.angle_key);
+            }
+            None => {
+                self.angle_key = pose::Key::param(ANGLE_Z_PARAM);
+                self.has_angle_z = false;
+            }
+        }
     }
 
     /// 从 physics3.json 字节挂接物理引擎并做确定性 settle

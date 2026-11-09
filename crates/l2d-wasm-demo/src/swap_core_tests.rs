@@ -33,6 +33,8 @@ struct FakeState {
     phases: Vec<String>,
     statuses: Vec<String>,
     emitted: Vec<(String, serde_json::Value)>,
+    /// 宿主提供给 `loaded.param_bind` 的内容（0.5.0 rc.3；`Null` = 省略该键）。
+    param_bind: serde_json::Value,
 }
 
 #[derive(Clone)]
@@ -48,9 +50,20 @@ impl FakeHost {
                 // 首次装载的初始代号 = 1（0.3.6 T2 契约）。
                 model_epoch: 1,
                 field_map_model: crate::preset::model_id_from_url(current_url),
+                param_bind: serde_json::json!({
+                    "source": "binder",
+                    "missing": [],
+                    "conflicts": [],
+                }),
                 ..Default::default()
             })),
         }
+    }
+
+    /// 指定 `loaded.param_bind` 的内容（`serde_json::Value::Null` = 宿主不提供）。
+    fn with_param_bind(self, value: serde_json::Value) -> Self {
+        self.st.borrow_mut().param_bind = value;
+        self
     }
 
     fn script_install(&self, results: impl IntoIterator<Item = Result<(), String>>) {
@@ -119,6 +132,10 @@ impl SwapHost for FakeHost {
 
     fn emit(&mut self, ty: &str, payload: serde_json::Value) {
         self.st.borrow_mut().emitted.push((ty.to_owned(), payload));
+    }
+
+    fn param_bind_report(&self, _model: &FakeModel) -> serde_json::Value {
+        self.st.borrow().param_bind.clone()
     }
 }
 

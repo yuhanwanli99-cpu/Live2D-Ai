@@ -24,6 +24,12 @@
 //! 首次装载 `model_epoch = 1`；只有**成功**换模才 +1。`loaded` 与换模失败 `error`
 //! 都带 `model_id` + `model_epoch`，`loaded` 另带字段表来源
 //! `field_map: {source, degraded, reason}`（见 [`crate::preset::FieldMapReport`]）。
+//!
+//! # 参数绑定可观测（0.5.0 rc.3）
+//!
+//! `loaded` 另带**可选**字段 `param_bind: {source, missing, conflicts}`（见
+//! [`SwapHost::param_bind_report`]）：协议只加可选键，旧宿主忽略即可；
+//! 宿主返回 `Value::Null` 时该键整体省略。
 
 use std::future::Future;
 
@@ -70,6 +76,11 @@ pub(crate) trait SwapHost {
 
     /// 向上层（Flutter / 宿主）发 v1 帧。
     fn emit(&mut self, ty: &str, payload: serde_json::Value);
+
+    /// 装载成功后 `loaded` 回执里的可选可观测块（0.5.0 rc.3）：
+    /// `{source,missing,conflicts}`。返回 `Value::Null` 表示宿主不提供该字段
+    /// （旧宿主 / 无绑定信息），`loaded` 里则省略 `param_bind` 键。
+    fn param_bind_report(&self, model: &Self::Model) -> serde_json::Value;
 }
 
 /// 模型拉取（wasm = fetch model3 + 引用资源 + 内存组包；native 测试 = 脚本化结果）。
@@ -189,15 +200,18 @@ where
     host.phase(&format!(
         "完成：emit loaded url={url} model_id={model_id} model_epoch={model_epoch}"
     ));
-    host.emit(
-        "loaded",
-        serde_json::json!({
-            "url": url,
-            "model_id": model_id,
-            "model_epoch": model_epoch,
-            "field_map": report.to_json(),
-        }),
-    );
+    // 0.5.0 rc.3：可选 `param_bind`（协议只加可选键；宿主不给就省略）。
+    let param_bind = host.param_bind_report(&loaded);
+    let mut payload = serde_json::json!({
+        "url": url,
+        "model_id": model_id,
+        "model_epoch": model_epoch,
+        "field_map": report.to_json(),
+    });
+    if !param_bind.is_null() {
+        payload["param_bind"] = param_bind;
+    }
+    host.emit("loaded", payload);
 }
 
 /// 原生 fake loader 单测：成功 / 失败（旧核心不变）/ 连点。

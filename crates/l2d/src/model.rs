@@ -223,6 +223,19 @@ impl LoadedModel {
     pub fn manifest(&self) -> &crate::asset::PackageManifest {
         self.package.manifest()
     }
+
+    /// `loaded` 回执里的可选可观测块 `param_bind{source,missing,conflicts}`
+    /// （0.5.0 rc.3）。
+    ///
+    /// 用**本模型** moc3 参数表 + 包内可选 adapter，按渲染核心装载时的同一套
+    /// 规则合成绑定并出报告（[`crate::asset::ParamBindReport`]）；宿主把它塞进
+    /// `loaded` 的 `param_bind` 字段，旧宿主忽略即可。报告只反映「写参数入口
+    /// 能不能落地」，不包含任何新语义通道。
+    pub fn param_bind_report(&self) -> crate::asset::ParamBindReport {
+        let adapter = self.package.param_adapter();
+        let binder = adapter.bind(self.handle.parameter_ids());
+        crate::asset::ParamBindReport::new(&binder, adapter)
+    }
 }
 
 impl fmt::Debug for LoadedModel {

@@ -50,6 +50,28 @@ fn has_scheme(rel: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
 }
 
+/// 由 model3 URL 推 `adapter.json` 的 URL（0.5.0 rc.3）。
+///
+/// 资产约定：每模型 adapter 在 `assets/models/<id>/adapter.json`，而 model3 在
+/// `assets/models/<id>/runtime/<name>.model3.json`。因此 URL 目录若以 `/runtime`
+/// 结尾就剥掉这一段，再拼 `adapter.json`；其它布局（自定义 / 测试）取 model3
+/// 同目录。查询串与片段先剥掉（fetch 用的 URL 不带它们）。
+///
+/// 只**推导** URL；文件存不存在由调用方 fetch 决定（404 → 没有 adapter）。
+pub(crate) fn adapter_url_for_model(model_url: &str) -> String {
+    let clean = model_url.split(['?', '#']).next().unwrap_or(model_url);
+    let dir = match clean.rsplit_once('/') {
+        Some((dir, _)) => dir,
+        None => "",
+    };
+    let base = dir.strip_suffix("/runtime").unwrap_or(dir);
+    if base.is_empty() {
+        "adapter.json".to_owned()
+    } else {
+        format!("{base}/adapter.json")
+    }
+}
+
 /// 把清单相对引用拼到 model3 URL 所在目录下（校验失败 → Err）。
 pub(crate) fn resolve_relative(model_url: &str, rel: &str) -> Result<String, String> {
     let rel = validate_reference(rel)?;
@@ -66,7 +88,7 @@ pub(crate) fn resolve_relative(model_url: &str, rel: &str) -> Result<String, Str
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_relative, validate_reference};
+    use super::{adapter_url_for_model, resolve_relative, validate_reference};
 
     #[test]
     fn normal_relative_references_are_joined_to_the_model_dir() {
@@ -109,6 +131,31 @@ mod tests {
                 "必须拒绝绝对/scheme 引用：{rel:?}"
             );
         }
+    }
+
+    #[test]
+    fn adapter_url_follows_the_model_dir_layout() {
+        // 标准布局：`<id>/runtime/<name>.model3.json` → `<id>/adapter.json`。
+        assert_eq!(
+            adapter_url_for_model("/models/bai/runtime/bai.model3.json"),
+            "/models/bai/adapter.json"
+        );
+        assert_eq!(
+            adapter_url_for_model("/models/epsilon_free/runtime/Epsilon_free.model3.json"),
+            "/models/epsilon_free/adapter.json"
+        );
+        // 非 runtime 布局：model3 同目录。
+        assert_eq!(
+            adapter_url_for_model("/models/bai/bai.model3.json"),
+            "/models/bai/adapter.json"
+        );
+        // 查询串 / 片段先剥掉。
+        assert_eq!(
+            adapter_url_for_model("/models/bai/runtime/bai.model3.json?v=1#x"),
+            "/models/bai/adapter.json"
+        );
+        // 无目录（内存/测试 URL）：退化成相对文件名。
+        assert_eq!(adapter_url_for_model("bai.model3.json"), "adapter.json");
     }
 
     #[test]
