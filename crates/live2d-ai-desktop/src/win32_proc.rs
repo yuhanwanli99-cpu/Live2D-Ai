@@ -12,9 +12,10 @@
 //! windows crate**。工作区 unsafe_code = deny，本文件级显式豁免（与 folder_job /
 //! desk_pet/win32 同一条纪律）。
 //!
-//! **未验**：本文件只在 cfg(windows) 下编译，Linux 单测覆盖不到运行时行为；
-//! 类型 / 签名按 mingw-w64 头文件（winbase.h / tlhelp32.h / winuser.h）核对，
-//! 真机行为由 Lead 在 Windows 上验证。
+//! **编译已验、运行时未验**：windows-gnu 目标的 cargo check 通过；类型 / 签名按
+//! mingw-w64 头文件（winbase.h / tlhelp32.h / winuser.h）核对，运行行为由 Lead
+//! 在 Windows 上验证。
+
 #![allow(unsafe_code)]
 
 use std::ffi::c_void;

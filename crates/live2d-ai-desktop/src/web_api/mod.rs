@@ -109,6 +109,8 @@ pub mod packed_mods;
 /// 浏览器播放忙上报（0.3.14）：`POST /api/v1/playback`。状态 = [`ServerContext`]
 /// 上的 [`playback_gate::PlaybackGate`]；缺省闲，超时视为闲（不丢队列）。
 pub mod playback_gate;
+/// /render 页面与 wasm-bindgen 产物文件名解析（0.4.7 rc.5：js 与 wasm 各自 hash）。
+pub mod render_page;
 /// 通用 JSON 错误响应 helper（D-P0B 拆分承载，2026-08-29）。
 pub(crate) mod responses;
 /// 设置保存「必须重启」时的**自重启**落点（2026-10-09）：

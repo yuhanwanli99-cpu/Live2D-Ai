@@ -1,25 +1,25 @@
 # Mod 怎么放（用户说明）
 
-> 2026-10-21。对应已落地的 **0.3.13**。这页只讲使用。行为以
+> 2026-11-09。对应已落地的 **0.3.13** 与 **0.4.7** 的 Windows 包（入口必须 `.exe`）。这页只讲使用。行为以
 > [`CURRENT.md`](architecture/CURRENT.md) 和源码为准。缺省程序里**没有**编进任何一个 Mod。
 
 对话本身不需要 Mod。填好 `[llm]` 和 `[tts]` 就能用。下面只在你想让启动器看见一个文件夹时才做。
 
 ## 固定位置
 
-服务的当前目录必须是仓库根（`./scripts/ignite.sh` 会自己切过去）。只认这一层：
+服务的当前目录（Windows 包则是 exe 所在目录）下只认这一层：
 
 ```text
-<仓库根>/mods/<目录名>/mod.toml
+<exe 目录或仓库根>/mods/<目录名>/mod.toml
 ```
 
 文件夹名是 `mods`（有 s）。没有这个目录也正常：启动器「已发现」为 0，照样能进 `/app/`。程序不会替你创建它。
 
-Windows 里的 `\\wsl.localhost\Ubuntu\home\skystar\Live2D-Ai` 和 WSL 的 `/home/skystar/Live2D-Ai` 是同一份文件。`mod.toml` 存成 **UTF-8、无 BOM**。换行可以是 CRLF。
+Windows 包把 `mods/` 放在 exe 旁边（`live2d-ai-desktop.exe` 那一层）；**不要**把入口写成 `\\wsl.localhost\...` 这类 WSL 网络路径——运行期不读它，也不会被扫描。`mod.toml` 存成 **UTF-8、无 BOM**。换行可以是 CRLF。
 
 ## 打开启动器之后
 
-浏览器打开 `http://127.0.0.1:18080/`。
+浏览器打开 `http://127.0.0.1:18080/`（Windows 包双击后会自动打开）。
 
 | 页面上的字 | 含义 |
 | --- | --- |
@@ -45,14 +45,14 @@ name = "演示"
 version = "0.1.0"
 api_version = 1
 kind = "process"
-entry = "run.sh"
+entry = "hello.exe"
 EOF
-printf '#!/bin/sh\n' > mods/demo-mod/run.sh && chmod +x mods/demo-mod/run.sh
+# 把 hello.exe 放进 mods/demo-mod/；Windows 上入口只能是 .exe 文件本身
 ```
 
-刷新后「已发现」为 1，这一行可以勾。进入后 `mods.json` 里有 `demo-mod`，`run.sh` 会被启动——要有可执行位，否则日志报启动失败。
+刷新后「已发现」为 1，这一行可以勾。进入后 `mods.json` 里有 `demo-mod`，`hello.exe` 会被启动。Windows 上入口必须是 `.exe` 文件本身（`.sh` / `.bat` 会被拒绝并给出可读原因）；Linux 上脚本要有可执行位。
 
-`id` 必须和目录名相同，并且是小写字母开头、只含小写字母、数字、连字符，最长 64。`api_version` 必须是 `1`。`kind` 只能是 `process` 或 `launcher`。`process` 要有相对路径 `entry`，指向本目录里一个普通文件。`launcher` 要有 `[launch]`：`program` 同样是本目录内的相对路径，`mode` 是 `with_app` 或 `on_demand`。路径不能是绝对路径，也不能含 `..`。多出来的键（包括 `[permissions]`）会让整份变成不可用。
+`id` 必须和目录名相同，并且是小写字母开头、只含小写字母、数字、连字符，最长 64。`api_version` 必须是 `1`。`kind` 只能是 `process` 或 `launcher`。`process` 要有相对路径 `entry`，指向本目录里一个普通文件（Windows 上必须是 `.exe`）。`launcher` 要有 `[launch]`：`program` 同样是本目录内的相对路径，`mode` 是 `with_app` 或 `on_demand`。路径不能是绝对路径，也不能含 `..`。多出来的键（包括 `[permissions]`）会让整份变成不可用。
 
 这五个 id 写对了也不可选：`director`、`local-llm`、`wallpaper`、`pet-desktop`、`local-tts`。原因是「保留，不能当文件夹装入」。
 

@@ -3,7 +3,7 @@
 //! 服务两条**读盘**路径（非 API，纯静态，无 mutating）：
 //! - `/models/<rel>`  → 读 `<cwd>/assets/models/<rel>` 返回（Bai 模型资产，
 //!   与原生桌宠的 `DEFAULT_BAI_MODEL3_RELATIVE` 同源，相对 cwd 查找）。
-//! - `/render`        → 返回 WASM loader HTML（注入 wasm-bindgen 脚本）。
+//! - `/render`        → 返回 WASM loader HTML（注入 wasm-bindgen 脚本；0.4.7 rc.5 起按 dist/ 真实文件名生成，见 render_page 模块）。
 //! - `/render/<file>` → 读 `crates/l2d-wasm-demo/dist/<file>`（wasm / js）。
 //!
 //! # 为什么读盘而非 include_str!
@@ -21,82 +21,6 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use tiny_http::{Method, Response, StatusCode};
-
-/// WASM 渲染页 HTML（runtime 生成，引用 dist 下的 wasm-bindgen 产物）。
-///
-/// `hash` 是 trunk 产物的 hash（形如 `3f6a9add9989bde5`），从 `dist/`
-/// 目录扫描得到（`*_bg.wasm` 文件名前缀）。
-///
-/// # 状态栏默认**不显示**（2026-09-11）
-///
-/// 用户裁决「舞台背影全黑/全白即可，中央不要放舞台贴图」。
-/// 这条状态栏是一块压在整个舞台底部的深色横条——它是**调试指标**，
-/// 而产品界面里的加载进度 / FPS / 错误都由 Flutter 壳自己画
-/// （`StageHost` 的覆盖层 + `Live2DStage` 的角标），所以它对用户是纯噪声。
-///
-/// 想说清楚的是：它此前**不是**布局问题（早已是 `position:absolute` 覆盖层），
-/// 而是**可见性问题**——不管怎么排，它都画在舞台上。
-/// 现在改成只在 `?hud=1` 时出现；`/render` 仍然可以单独打开来调试
-/// （`http://127.0.0.1:18080/render?hud=1`）。
-pub fn render_html(hash: &str) -> String {
-    format!(
-        r#"<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Live2D-Ai · 模型渲染</title>
-<style>
- :root {{ color-scheme: dark; }}
- html,body {{ margin:0;height:100%;background:#101418;color:#d7dde3;font-family:system-ui,sans-serif;overflow:hidden; }}
- /* #stage 铺满画布；#status 是**覆盖层**：
-    否则 #status 文案变长会挤压 canvas 的 CSS 高度，而窗口尺寸未变不触发 resize，
-    canvas 位图与显示盒宽高比不一致 → 浏览器非等比拉伸 → 模型被压矮（2026-09-10 实测）。 */
- #stage {{ position:absolute;inset:0; }}
- canvas {{ width:100%;height:100%;display:block; }}
- /* 默认 display:none。要看它：地址后加 `?hud=1`（见 body 上的内联脚本）。
-    左下角小片 + 半透明底：它现在压在任何主题色的舞台上，
-    纯色文字在浅色主题上会读不出来。 */
- #status {{ display:none;position:absolute;left:8px;bottom:8px;margin:0;padding:4px 8px;
-            max-width:calc(100% - 16px);max-height:40%;overflow:auto;
-            font-family:ui-monospace,"SF Mono","Courier New",monospace;
-            font-size:12px;white-space:pre;word-break:keep-all;
-            color:#9fd0a0;background:rgba(10,12,16,.72);
-            border:1px solid #2a323b;border-radius:6px;pointer-events:none; }}
- body.hud #status {{ display:block; }}
-</style>
-</head>
-<body>
-<div id="stage"><canvas id="canvas"></canvas></div>
-<pre id="status">初始化中…</pre>
-<script>
- /* 只在 `?hud=1` 时显示状态栏。内联，不引任何依赖。 */
- if (location.search.indexOf('hud=1') >= 0) {{ document.body.classList.add('hud'); }}
-</script>
-<script type="module">
-import init from '/render/l2d-wasm-demo-{hash}.js';
-await init({{ module_or_path: '/render/l2d-wasm-demo-{hash}_bg.wasm' }});
-</script>
-</body>
-</html>"#
-    )
-}
-
-/// 从 `dist/` 目录找 wasm-bindgen 产物的 hash（`*_bg.wasm` 文件名前缀）。
-pub fn wasm_hash_from_dist(dist_dir: &Path) -> Option<String> {
-    let entries = std::fs::read_dir(dist_dir).ok()?;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if let Some(base) = name.strip_suffix("_bg.wasm") {
-            // 形如 `l2d-wasm-demo-3f6a9add9989bde5_bg.wasm` → `l2d-wasm-demo-3f6a9add9989bde5`
-            if let Some(hash) = base.rsplit_once("l2d-wasm-demo-") {
-                return Some(hash.1.to_string());
-            }
-        }
-    }
-    None
-}
 
 /// 归一化资产相对路径（拒绝 `..`、绝对路径、`\`、空段+NUL；允许 `[A-Za-z0-9._/-]`）。
 pub fn normalize_rel(rel: &str) -> Result<String, String> {
@@ -146,20 +70,7 @@ pub fn handle_assets(method: &Method, path: &str) -> Option<Response<std::io::Cu
         return None;
     }
     if path == "/render" {
-        // scan dist 的 hash
-        let dist_dir = wasm_dist_dir();
-        return Some(match wasm_hash_from_dist(&dist_dir) {
-            Some(hash) => html_response(
-                StatusCode(200),
-                &render_html(&hash),
-                "text/html; charset=utf-8",
-            ),
-            None => json_error(
-                StatusCode(503),
-                "wasm_unavailable",
-                "WASM 产物缺失：请先 trunk build l2d-wasm-demo",
-            ),
-        });
+        return Some(render_response_for_dist(&wasm_dist_dir()));
     }
     if let Some(rel) = path.strip_prefix("/render/") {
         // 读 dist/<rel>（rel 是 wasm-bindgen 的 .js / _bg.wasm）
@@ -207,6 +118,26 @@ pub fn handle_assets(method: &Method, path: &str) -> Option<Response<std::io::Cu
         };
     }
     None
+}
+
+/// /render 页面响应（dist 目录可注入：路由与单测走同一条路径）。
+///
+/// 0.4.7 rc.5：页面引用的 js / wasm 文件名取自 dist/ 里**真实存在**的文件
+/// （trunk release 的 js 与 wasm 各自内容 hash，不能假设相同）；缺任意一个都回
+/// 503 wasm_unavailable，不生成注定 404 的死页面。
+fn render_response_for_dist(dist_dir: &Path) -> Response<std::io::Cursor<Vec<u8>>> {
+    match crate::web_api::render_page::find_render_assets(dist_dir) {
+        Some(assets) => html_response(
+            StatusCode(200),
+            &crate::web_api::render_page::render_html(&assets),
+            "text/html; charset=utf-8",
+        ),
+        None => json_error(
+            StatusCode(503),
+            "wasm_unavailable",
+            "WASM 产物缺失或不完整：请先 trunk build l2d-wasm-demo（需要 *_bg.wasm 与同 crate 前缀的 .js）",
+        ),
+    }
 }
 
 /// `<cwd>/assets/models`（**唯一模型根**；与模型库 registry / import 同源）。
@@ -364,38 +295,6 @@ mod tests {
         assert!(normalize_rel("models/bai/runtime/bai.moc3").is_ok());
     }
 
-    #[test]
-    fn render_html_contains_wasm_loader() {
-        let html = render_html("abc123");
-        assert!(html.contains("/render/l2d-wasm-demo-abc123.js"));
-        assert!(html.contains("/render/l2d-wasm-demo-abc123_bg.wasm"));
-        assert!(html.contains("id=\"canvas\""));
-    }
-
-    /// 状态栏**默认不可见**（2026-09-11 用户裁决「舞台背影全黑/全白即可」）。
-    ///
-    /// 这条守的是「舞台底部不会出现一块深色横条」：`#status` 的样式里必须有
-    /// `display:none`，且只有 `body.hud` 才把它打开——而 `body.hud` 只在
-    /// `?hud=1` 时由内联脚本加上。
-    #[test]
-    fn render_html_hides_hud_unless_explicitly_requested() {
-        let html = render_html("abc123");
-        assert!(
-            html.contains("#status { display:none;"),
-            "#status 必须默认隐藏，否则舞台底部会有一条深色横条"
-        );
-        assert!(
-            html.contains("body.hud #status { display:block; }"),
-            "必须保留 `?hud=1` 这条调试入口"
-        );
-        assert!(
-            html.contains("hud=1"),
-            "缺少开启 HUD 的判据（内联脚本读 location.search）"
-        );
-        // 舞台本体必须铺满整个 iframe（不能有布局边）。
-        assert!(html.contains("#stage { position:absolute;inset:0; }"));
-    }
-
     /// `?hud=1` 必须能路由到 `/render`（查询串在匹配前剥掉）。
     ///
     /// 这条不是「顺便测一下」：HUD 开关**就是**查询串，
@@ -453,5 +352,39 @@ mod tests {
                 .0,
             400
         );
+    }
+
+    /// 0.4.7 rc.5：dist 里只有 wasm 没有 js 时回 503（不生成注定 404 的死页面）；
+    /// 两个真实文件名不同则回 200。
+    #[test]
+    fn render_route_reports_503_for_incomplete_dist_and_200_for_real_pair() {
+        let root = std::env::temp_dir().join(format!(
+            "l2d-render-dist-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("temp dist");
+
+        // 只有 wasm：产物不完整 → 503（不能 200 一个引用不存在 js 的页面）。
+        std::fs::write(root.join("l2d-wasm-demo-1abe76bb6b842901_bg.wasm"), b"wasm")
+            .expect("写 wasm");
+        assert_eq!(
+            render_response_for_dist(&root).status_code().0,
+            503,
+            "只有 wasm 没有 js 必须 503 wasm_unavailable"
+        );
+
+        // 补上真实 js（与 wasm 不同 hash）→ 200。
+        std::fs::write(root.join("l2d-wasm-demo-a5fb29b722ce6403.js"), b"js").expect("写 js");
+        assert_eq!(
+            render_response_for_dist(&root).status_code().0,
+            200,
+            "js 与 wasm 都真实存在时必须 200"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
