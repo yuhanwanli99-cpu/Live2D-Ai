@@ -24,7 +24,8 @@
 //!   只存不播；缺失或坏 JSON 回退 binder）；
 //! - [`model`]：moc3 运行时句柄（画布/版本/规模，自有类型）+ 绑定的 [`model::LoadedModel`]；
 //! - [`renderer`]：headless 离屏渲染——共享 [`renderer::GpuContext`]（支持已有
-//!   device/queue 接入）、目标无关的 [`renderer::ModelRendererCore`]（render_to_view）、
+//!   device/queue 接入）、目标无关的 [`renderer::ModelRendererCore`]（render_to_view；
+//!   0.5.0 rc.6 起 `OffscreenRenderer::new_for_model` 按贴图最大边自动选档）、
 //!   便利层 [`renderer::OffscreenRenderer`]（固定 dt 更新 → RGBA/PNG 出帧）。
 //!
 //! 许可：**MIT OR Apache-2.0**（见 `LICENSE-MIT`、`LICENSE-APACHE`）。

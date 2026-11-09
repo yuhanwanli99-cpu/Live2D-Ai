@@ -310,6 +310,16 @@ mod web {
         let (gpu, adapter, surface_obj, config, adapter_max_dim) =
             init_gpu(&window, &canvas).await?;
 
+        // 0.5.0 rc.6：贴图尺寸 vs 设备纹理上限的可读检查——不足就带可读原因失败，
+        // 不静默（浏览器/设备 max_texture_dimension_2d 由 adapter 决定，档位改不了它）。
+        let device_limit = gpu.device().limits().max_texture_dimension_2d;
+        l2d::renderer::texture_dimension_fits(loaded.texture_max_dimension(), device_limit)
+            .map_err(|reason| format!("模型装载失败：{reason}"))?;
+        // 非错误提示：贴图最大边超过当前档位时告知用户（档位只影响画布分辨率）。
+        let tier_note = l2d::renderer::texture_tier_notice(
+            loaded.texture_max_dimension(),
+            l2d::renderer::RenderTier::DEFAULT,
+        );
         let mut core =
             ModelRendererCore::new(gpu.clone()).map_err(|e| format!("渲染核心创建失败：{e}"))?;
         core.load_model(&loaded)
@@ -375,8 +385,11 @@ mod web {
         let api = if is_webgpu { "WebGPU" } else { "WebGL2" };
         // 诊断：同时打印「缓冲」与「CSS」两组尺寸——两者宽高比不一致即为模型被压扁的根因。
         let (css_w, css_h, dpr) = canvas_css_metrics(&canvas, &window);
+        let tier_line = tier_note
+            .map(|note| format!("\n{note}"))
+            .unwrap_or_default();
         status(&format!(
-            "{summary}\n{preset_note}\n{field_map_note}\nGPU: {backend}/{api} ({adp_name})；画布 缓冲 {width}x{height} / CSS {css_w}x{css_h} @dpr {dpr}\n开始渲染循环（固定 dt {FIXED_DT_60HZ}s / 60Hz 步进）。",
+            "{summary}\n{preset_note}\n{field_map_note}{tier_line}\nGPU: {backend}/{api} ({adp_name})；画布 缓冲 {width}x{height} / CSS {css_w}x{css_h} @dpr {dpr}\n开始渲染循环（固定 dt {FIXED_DT_60HZ}s / 60Hz 步进）。",
         ));
 
         install_stage_bridge(&state);

@@ -54,6 +54,19 @@ impl RenderTier {
         }
     }
 
+    /// 覆盖 `max_edge` 所需的**最小**档位（4096 → 8192 → 16384）。
+    ///
+    /// 0.5.0 rc.6 档位自适应：模型贴图最长边 4096 → Tier4096；4097..8192 →
+    /// Tier8192；8193..16384 → Tier16384；0 或 >16384 → `None`（超出最高档）。
+    pub fn smallest_covering(max_edge: u32) -> Option<Self> {
+        if max_edge == 0 {
+            return None;
+        }
+        [Self::Tier4096, Self::Tier8192, Self::Tier16384]
+            .into_iter()
+            .find(|tier| tier.side() >= max_edge)
+    }
+
     /// 在 adapter `max_texture_dimension_2d` 约束下可用的**最高档位**。
     ///
     /// 从本档开始逐级向下找（本档 → 8192 → 4096）；`max_dim` 连 4096 都放不下
@@ -64,6 +77,37 @@ impl RenderTier {
             .into_iter()
             .find(|t| t.side() <= max_dim)
     }
+}
+
+/// 贴图尺寸 vs 设备纹理上限的可读检查（0.5.0 rc.6；wasm 舞台 load/swap 用）。
+///
+/// - `max_edge = None`（贴图尺寸未知）→ `Ok`（不猜，交给实际装载报错）；
+/// - `Some(edge)` 且 `edge <= device_limit` → `Ok`；
+/// - 超出 → `Err` 中文原因（含两个数字 + 上限提示），调用方把它当**可读错误**
+///   上报，不得静默失败。
+pub fn texture_dimension_fits(max_edge: Option<u32>, device_limit: u32) -> Result<(), String> {
+    let Some(edge) = max_edge else {
+        return Ok(());
+    };
+    if edge <= device_limit {
+        return Ok(());
+    }
+    Err(format!(
+        "模型贴图最大边 {edge}px 超过当前渲染设备纹理上限 {device_limit}px（该环境 max_texture_dimension_2d 不足，无法加载此皮肤）"
+    ))
+}
+
+/// 模型贴图需求 vs 当前**档位**的提示（非错误；wasm 档位只决定画布分辨率，
+/// 不限制贴图采样）。`None` = 无提示。
+pub fn texture_tier_notice(max_edge: Option<u32>, tier: RenderTier) -> Option<String> {
+    let edge = max_edge?;
+    if edge <= tier.side() {
+        return None;
+    }
+    Some(format!(
+        "该模型贴图最大边 {edge}px 超过当前渲染档位 {}px（档位只影响画布分辨率，不影响贴图加载；如需更高画质可手动调到 {edge} 档）",
+        tier.side()
+    ))
 }
 
 #[cfg(test)]
@@ -112,6 +156,64 @@ mod tests {
         assert_eq!(RenderTier::from_side(16384), Some(RenderTier::Tier16384));
         assert_eq!(RenderTier::from_side(2048), None);
         assert_eq!(RenderTier::from_side(0), None);
+    }
+
+    #[test]
+    fn smallest_covering_takes_the_minimal_sufficient_tier() {
+        // 不覆盖 / 正好覆盖 / 略超 / 最高档 / 超出最高档 / 0。
+        assert_eq!(
+            RenderTier::smallest_covering(1024),
+            Some(RenderTier::Tier4096)
+        );
+        assert_eq!(
+            RenderTier::smallest_covering(4096),
+            Some(RenderTier::Tier4096)
+        );
+        assert_eq!(
+            RenderTier::smallest_covering(4097),
+            Some(RenderTier::Tier8192)
+        );
+        assert_eq!(
+            RenderTier::smallest_covering(8192),
+            Some(RenderTier::Tier8192)
+        );
+        assert_eq!(
+            RenderTier::smallest_covering(8193),
+            Some(RenderTier::Tier16384)
+        );
+        assert_eq!(
+            RenderTier::smallest_covering(16384),
+            Some(RenderTier::Tier16384)
+        );
+        assert_eq!(RenderTier::smallest_covering(16385), None);
+        assert_eq!(RenderTier::smallest_covering(0), None);
+    }
+
+    #[test]
+    fn texture_dimension_fits_reports_readable_reason() {
+        // 未知尺寸不猜（交给实际装载报错）。
+        assert_eq!(texture_dimension_fits(None, 4096), Ok(()));
+        // 够用。
+        assert_eq!(texture_dimension_fits(Some(4096), 4096), Ok(()));
+        assert_eq!(texture_dimension_fits(Some(8192), 8192), Ok(()));
+        // 大肥鱼：8192 贴图 + 默认 4096 设备 → 可读错误含两个数字。
+        let err = texture_dimension_fits(Some(8192), 4096).expect_err("8192 > 4096");
+        assert!(err.contains("8192"), "{err}");
+        assert!(err.contains("4096"), "{err}");
+        assert!(err.contains("max_texture_dimension_2d"), "{err}");
+    }
+
+    #[test]
+    fn texture_tier_notice_is_advisory_only() {
+        assert_eq!(
+            texture_tier_notice(Some(8192), RenderTier::Tier4096)
+                .as_deref()
+                .map(|note| note.contains("8192")),
+            Some(true)
+        );
+        assert_eq!(texture_tier_notice(Some(8192), RenderTier::Tier8192), None);
+        assert_eq!(texture_tier_notice(Some(4096), RenderTier::Tier4096), None);
+        assert_eq!(texture_tier_notice(None, RenderTier::Tier4096), None);
     }
 
     /// adapter 上限回落：够就原样、不够就逐级降、连 4096 都没有就 `None`；

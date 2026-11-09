@@ -231,6 +231,14 @@ impl LoadedModel {
     /// 规则合成绑定并出报告（[`crate::asset::ParamBindReport`]）；宿主把它塞进
     /// `loaded` 的 `param_bind` 字段，旧宿主忽略即可。报告只反映「写参数入口
     /// 能不能落地」，不包含任何新语义通道。
+    /// 全部贴图的最长边最大值（0.5.0 rc.6；任一贴图尺寸未知 → `None`）。
+    ///
+    /// 渲染档位自适应（[`crate::renderer::RenderTier::smallest_covering`]）的输入；
+    /// 只读 PNG 头，不解码像素。
+    pub fn texture_max_dimension(&self) -> Option<u32> {
+        self.package.texture_max_dimension()
+    }
+
     pub fn param_bind_report(&self) -> crate::asset::ParamBindReport {
         let adapter = self.package.param_adapter();
         let binder = adapter.bind(self.handle.parameter_ids());

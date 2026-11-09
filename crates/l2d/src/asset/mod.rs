@@ -32,6 +32,7 @@ mod manifest;
 mod param_bind;
 pub mod pose3;
 mod report;
+mod texture_size;
 
 use std::{collections::BTreeMap, fmt, fs, io, path};
 
@@ -43,7 +44,7 @@ use manifest::ManifestFile;
 
 pub use adapter::{AdapterSource, ParamAdapter};
 pub use bind_report::ParamBindReport;
-pub use param_bind::{BindConflict, ParamBinder};
+pub use param_bind::{BindConflict, ParamBinder, STANDARD_PARAM_IDS, canonical};
 
 /// 包加载错误。
 #[derive(Debug)]
@@ -175,6 +176,11 @@ pub struct ModelPackage {
     /// pose3.json 原始字节（清单声明了才**严格**读取；解析在
     /// [`crate::pose_stack::PoseStack::from_loaded_model`] 装载期）。
     pose3_json: Option<Vec<u8>>,
+    /// 全部贴图的**最长边**最大值（只读 PNG 头、不解码；0.5.0 rc.6）。
+    ///
+    /// 用于渲染档位自适应（[`crate::renderer::RenderTier::smallest_covering`]）。
+    /// 任何一张贴图无法识别尺寸 → `None`（不猜：调用方按「尺寸未知」回退默认档）。
+    texture_max_dimension: Option<u32>,
 }
 
 impl ModelPackage {
@@ -279,6 +285,13 @@ impl ModelPackage {
         for name in &refs.textures {
             texture_bytes.push(read(normalize_resource_ref(name)?.as_str())?);
         }
+        // 0.5.0 rc.6：贴图最长边（只读 PNG 头，不解码）。任一张读不出尺寸 → None，
+        // 让调用方按「尺寸未知」回退默认档（不猜、不把 16384 当默认）。
+        let texture_edges: Option<Vec<u32>> = texture_bytes
+            .iter()
+            .map(|bytes| texture_size::png_max_edge(bytes))
+            .collect();
+        let texture_max_dimension = texture_edges.map(|edges| edges.into_iter().max().unwrap_or(0));
 
         let physics_json = match &refs.physics {
             Some(name) => Some(read(normalize_resource_ref(name)?.as_str())?),
@@ -314,6 +327,7 @@ impl ModelPackage {
             param_adapter: ParamAdapter::from_json(adapter_json),
             pose3_file: refs.pose.clone(),
             pose3_json,
+            texture_max_dimension,
         })
     }
 
@@ -341,6 +355,13 @@ impl ModelPackage {
     ///
     /// 解析与应用在 [`crate::pose_stack::PoseStack::from_loaded_model`]；本层
     /// 只保证「声明了就严格读到字节」。
+    /// 全部贴图的最长边最大值（只读 PNG 头；任一贴图尺寸未知 → `None`）。
+    ///
+    /// 0.5.0 rc.6 渲染档位自适应的输入；与 [`Self::texture_bytes`] 同源。
+    pub fn texture_max_dimension(&self) -> Option<u32> {
+        self.texture_max_dimension
+    }
+
     pub fn pose3_json(&self) -> Option<&[u8]> {
         self.pose3_json.as_deref()
     }
