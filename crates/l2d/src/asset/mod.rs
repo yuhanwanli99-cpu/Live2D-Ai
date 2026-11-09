@@ -27,6 +27,7 @@
 
 pub(crate) mod lip_sync;
 mod manifest;
+mod param_bind;
 mod report;
 
 use std::{collections::BTreeMap, fmt, fs, io, path};
@@ -36,6 +37,8 @@ use serde_json::Value;
 use crate::report::CompatibilityReport;
 
 use manifest::ManifestFile;
+
+pub use param_bind::{BindConflict, ParamBinder};
 
 /// 包加载错误。
 #[derive(Debug)]

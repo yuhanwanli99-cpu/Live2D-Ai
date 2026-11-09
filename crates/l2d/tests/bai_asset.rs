@@ -220,3 +220,52 @@ fn idle_switch_survives_model_reload() {
         "打开后换模型开关被丢"
     );
 }
+
+/// **0.5.0 rc.1 参数绑定接线（回归）**：`ModelRendererCore` 装载后必须按该模型
+/// moc3 参数 id 表建绑定，写参数入口把 13 条标准语义名解析成实际 id。
+///
+/// bai 是「标准命名」样本：11/13 可绑（缺两个 eye smile），且绑定结果与标准名
+/// 逐字相同 → 与 0.4.x 的精确写入逐值一致（行为不变）。
+#[test]
+fn binder_wires_standard_names_to_actual_bai_ids() {
+    let Some(model3) = bai_model3_path() else {
+        println!("SKIP: 未找到 Bai 真实资产 `{BAI_MODEL3}`（门控跳过）");
+        return;
+    };
+    let loaded = LoadedModel::resolve(ModelPackage::load(&model3).expect("load")).expect("resolve");
+
+    let mut renderer = match OffscreenRenderer::new(64, 64) {
+        Ok(r) => r,
+        Err(l2d::renderer::RenderError::NoGpuBackend(notes)) => {
+            println!("SKIP: 无可用 headless GPU 后端（{notes}）");
+            return;
+        }
+        Err(e) => panic!("离屏渲染器创建失败: {e}"),
+    };
+    renderer.load_model(&loaded).expect("加载 bai");
+
+    let core = renderer.core();
+    // bai：11/13；缺的两个如实 None，其余绑定到同名字面 id。
+    assert_eq!(core.binder().resolve("ParamAngleX"), Some("ParamAngleX"));
+    assert_eq!(
+        core.binder().resolve("ParamMouthOpenY"),
+        Some("ParamMouthOpenY")
+    );
+    assert_eq!(
+        core.binder().resolve("ParamEyeLSmile"),
+        None,
+        "bai 缺 eye smile"
+    );
+    assert_eq!(
+        core.binder().resolve("ParamEyeRSmile"),
+        None,
+        "bai 缺 eye smile"
+    );
+
+    // 写参数入口（input / final_override 两条）经 binder：bai 标准名可用。
+    assert!(core.set_parameter("ParamAngleX", 5.0));
+    assert!(core.override_parameter("ParamBodyAngleX", -3.0));
+    // 真缺的参数仍返回 false（保持「缺 id 静默 false」，不 panic）。
+    assert!(!core.set_parameter("ParamEyeLSmile", 1.0));
+    assert!(!core.set_parameter("ParamNope", 1.0));
+}

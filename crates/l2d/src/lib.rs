@@ -17,6 +17,8 @@
 //!   内存入口 [`asset::ModelPackage::from_memory`]/[`asset::ModelPackage::from_memory_map`]
 //!   共用同一「解析清单 → 校验引用 → 严格取 moc/纹理/physics/cdi」组装逻辑；
 //!   相对路径统一规范化加固（拒绝绝对路径与 `..` 上跳，错误携带资源名）；
+//!   另含 0.5.0 通用参数绑定层 [`asset::ParamBinder`]（13 条标准语义名 / 大写
+//!   snake → 模型实际 id；只做同 canonical 匹配，绝不跨语义猜）；
 //! - [`model`]：moc3 运行时句柄（画布/版本/规模，自有类型）+ 绑定的 [`model::LoadedModel`]；
 //! - [`renderer`]：headless 离屏渲染——共享 [`renderer::GpuContext`]（支持已有
 //!   device/queue 接入）、目标无关的 [`renderer::ModelRendererCore`]（render_to_view）、

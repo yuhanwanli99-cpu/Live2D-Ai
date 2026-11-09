@@ -13,6 +13,10 @@ use super::render::FrameState;
 /// `final_override` 层（动作已整体删除），breath/blink 参数
 /// （ParamBreath / ParamEyeLOpen / ParamEyeROpen）仍然只由这里驱动。
 ///
+/// 0.5.0 rc.1：这里写的全是标准语义名，由 `ModelRendererCore` 内部
+/// `ParamBinder` 解析成模型实际 id（大写 `PARAM_*` 旧样本由此恢复呼吸 /
+/// 眨眼 / 微表情）；本模块不复制解析逻辑。
+///
 /// 状态机与 py 版同构：
 /// - **呼吸**：周期 [3.1, 5]s 随机锁定，正弦 `0.5 + 0.15*sin(2π·t/period)`。
 /// - **眨眼**：间隔 [3000, 7500]ms 随机触发；闭眼 75ms 线性 1→0；睁眼
