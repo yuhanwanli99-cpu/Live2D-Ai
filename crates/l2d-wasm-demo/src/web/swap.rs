@@ -71,6 +71,16 @@ impl SwapHost for WasmHost {
     /// 失败时 `Err` 已在 `load_fresh` 内部 return，旧 `core` 未被赋值过。
     fn install(&mut self, loaded: &LoadedModel) -> Result<(), String> {
         let mut st = self.state.borrow_mut();
+        // 0.5.0 rc.6：先做「贴图尺寸 vs 设备纹理上限」的可读检查——不足时回可读
+        // error 帧（swap_core 包成「渲染核心换模型失败：…」），不静默失败。
+        let device_limit = st.gpu.device().limits().max_texture_dimension_2d;
+        l2d::renderer::texture_dimension_fits(loaded.texture_max_dimension(), device_limit)?;
+        if let Some(note) =
+            l2d::renderer::texture_tier_notice(loaded.texture_max_dimension(), st.bridge.tier)
+        {
+            // 非错误提示：档位只影响画布分辨率，不影响贴图加载。
+            phase(&format!("[tier] {note}"));
+        }
         let fresh = st.core.load_fresh(loaded).map_err(|e| e.to_string())?;
         // layout 基准属于「新模型的逻辑变换」，必须在替换前取好：
         // 下一帧 `apply_bridge_effects` 会用它重建用户缩放 / 平移。

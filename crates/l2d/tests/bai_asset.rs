@@ -71,9 +71,16 @@ fn bai_package_loads_with_header_runtime_version_consistency() {
         b"\x89PNG",
         "纹理必须是真实 PNG"
     );
+    // 0.5.0 rc.6：贴图最长边 4096 → 自动档位仍是默认 4096（普通模型零变化）。
+    assert_eq!(package.texture_max_dimension(), Some(4096));
 
     // ---- 统一加载路径：头探测 × 运行时版本交叉核对必须一致且通过 v0 ----
     let loaded = LoadedModel::resolve(package).expect("Bai moc3 应可被运行时解析");
+    assert_eq!(
+        l2d::renderer::ModelRendererCore::required_tier(&loaded),
+        Some(l2d::renderer::RenderTier::Tier4096),
+        "4096 贴图不应把默认档位抬高"
+    );
     let report = loaded.report();
     assert_eq!(
         report.format,

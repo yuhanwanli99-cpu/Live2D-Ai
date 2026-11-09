@@ -31,7 +31,7 @@ pub mod tier;
 pub use gpu::GpuContext;
 pub use model_core::ModelRendererCore;
 pub use offscreen::OffscreenRenderer;
-pub use tier::RenderTier;
+pub use tier::{RenderTier, texture_dimension_fits, texture_tier_notice};
 
 use std::{path::Path, sync::Arc};
 
@@ -62,6 +62,12 @@ pub enum RenderError {
     PhysicsJson(String),
     /// pose3.json 解析失败（0.5.0 rc.4）。
     PoseJson(String),
+    /// 模型贴图最长边超过最高渲染档位（16384）——headless 路径任何档位都装不下
+    /// （0.5.0 rc.6 档位自适应）。
+    TextureDimensionUnsupported {
+        /// 模型贴图最长边（像素）。
+        max_edge: u32,
+    },
     /// 非法尺寸：宽/高为 0 或超出限制。
     InvalidSize {
         /// 传入的宽度。
@@ -87,6 +93,10 @@ impl std::fmt::Display for RenderError {
             Self::Renderer(e) => write!(f, "渲染器错误: {e}"),
             Self::PhysicsJson(e) => write!(f, "physics3.json 解析失败: {e}"),
             Self::PoseJson(e) => write!(f, "pose3.json 解析失败: {e}"),
+            Self::TextureDimensionUnsupported { max_edge } => write!(
+                f,
+                "模型贴图最大边 {max_edge}px 超过最高渲染档位 16384px，无法装载"
+            ),
             Self::InvalidSize { width, height } => {
                 write!(f, "非法画布尺寸 {width}x{height}（宽高必须 > 0）")
             }

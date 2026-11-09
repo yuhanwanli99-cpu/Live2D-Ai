@@ -12,7 +12,9 @@ use std::sync::Arc;
 use ayagami_render::texture::Texture;
 use glam::u32::UVec2;
 
-use super::{GpuContext, ModelRendererCore, RenderError, RgbaFrame, readback_rgba, validate_size};
+use super::{
+    GpuContext, ModelRendererCore, RenderError, RenderTier, RgbaFrame, readback_rgba, validate_size,
+};
 use crate::model::LoadedModel;
 
 /// headless 离屏渲染器（便利层）。
@@ -36,6 +38,48 @@ impl OffscreenRenderer {
         #[allow(clippy::arc_with_non_send_sync)]
         let gpu = Arc::new(GpuContext::headless()?);
         Self::with_gpu_context(gpu, width, height)
+    }
+
+    /// 创建指定档位的 headless 离屏画布（**显式覆盖**档位；0.5.0 rc.6）。
+    ///
+    /// 与 [`Self::new`] 相同，只是把 native 设备的 `max_texture_dimension_2d`
+    /// 设为 `tier.required_max_texture_dimension()`。默认档仍是 4096——
+    /// 本方法只提供显式选择，不改任何默认语义。
+    pub fn new_with_tier(width: u32, height: u32, tier: RenderTier) -> Result<Self, RenderError> {
+        #[allow(clippy::arc_with_non_send_sync)]
+        let gpu = Arc::new(GpuContext::headless_with_tier(tier)?);
+        Self::with_gpu_context(gpu, width, height)
+    }
+
+    /// 按模型贴图最大边**自动选最小够用档**并装载模型（0.5.0 rc.6）。
+    ///
+    /// 规则（[ModelRendererCore::required_tier]）：
+
+    /// - 贴图最长边 ≤4096 → [`RenderTier::Tier4096`]（与默认档一致，普通模型零变化）；
+    /// - 4097..8192 → [`RenderTier::Tier8192`]（大肥鱼皮肤 4096×8192 属于这里）；
+    /// - 8193..16384 → [`RenderTier::Tier16384`]；
+    /// - 最长边 >16384 → [`RenderError::TextureDimensionUnsupported`]（可读错误）；
+    /// - 尺寸未知（非 PNG 头）→ 回退 [`RenderTier::DEFAULT`]，显式覆盖仍可用
+    ///   [`Self::new_with_tier`] / [`Self::with_gpu_context`]。
+    ///
+    /// **不做 16384 默认**：只有模型真的需要且不超过最高档时才用到高档。
+    pub fn new_for_model(
+        width: u32,
+        height: u32,
+        loaded: &LoadedModel,
+    ) -> Result<Self, RenderError> {
+        let tier = match ModelRendererCore::required_tier(loaded) {
+            Some(tier) => tier,
+            None => {
+                if let Some(max_edge) = loaded.texture_max_dimension() {
+                    return Err(RenderError::TextureDimensionUnsupported { max_edge });
+                }
+                RenderTier::DEFAULT
+            }
+        };
+        let mut renderer = Self::new_with_tier(width, height, tier)?;
+        renderer.load_model(loaded)?;
+        Ok(renderer)
     }
 
     /// 用**已有**共享 GPU 上下文创建离屏画布（宽高必须 > 0）。

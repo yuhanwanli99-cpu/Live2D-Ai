@@ -12,13 +12,14 @@
 //! 1. `ModelPackage::load` 成功，格式报告 = moc3 v5.0（非 v0 锚定，预览态）；
 //! 2. `ParamBinder` 命中 11/13（缺 `ParamEyeLSmile`/`ParamEyeRSmile`，与 bai 相同）；
 //! 3. `Groups[LipSync]` 空 → 口型名单回落 `ParamMouthOpenY`；
-//! 4. `OffscreenRenderer` headless 30 帧：像素非空、帧间有差异（idle 动）；
+//! 4. `OffscreenRenderer` headless（**自动档位**）30 帧：像素非空、帧间有差异（idle 动）；
 //!    口型再用「去掉 physics3 的真实资源内存变体」隔离验证：静态控制帧逐像素相同，
 //!    写 `ParamMouthOpenY` 后像素必变、写回 0 精确回到基线（131 组物理每帧数百
 //!    像素的漂移会把口型变化淹没，所以隔离是必要的）；
 //!    注：本皮肤贴图到 **4096×8192**，默认 4096 档的 `max_texture_dimension_2d`
-//!    会以 `TextureTooLarge` 装载失败 → 本文件的 headless 用例显式用
-//!    `RenderTier::Tier8192`（wasm 渲染面默认档位 4096，接这台皮肤需提到 8192）。
+//!    会以 `TextureTooLarge` 装载失败 → headless 主用例用 0.5.0 rc.6 的自动档位
+//!    （`OffscreenRenderer::new_for_model` → Tier8192）；口型隔离用例保留显式
+//!    `Tier8192`，证明手动覆盖语义未变。
 //! 5. 与 bai（标准命名 + v4.2）对照 binder 形状一致、格式/规模不同。
 //!
 //! 不扩 13 白名单、不新增语义通道；epsilon 官方样本未入库，本机不可用，
@@ -288,25 +289,16 @@ fn dafeiyu_headless_renders_and_mouth_moves_pixels() {
         return;
     };
     let loaded = LoadedModel::resolve(ModelPackage::load(&path).expect("load")).expect("resolve");
-    // 该皮肤贴图实测 4096×8192（超过默认 4096 档的 max_texture_dimension_2d），
-    // 因此显式用 Tier8192 的 headless 设备；这也说明 wasm 渲染面默认档位 4096
-    // 不足以加载本皮肤（需把档位提到 8192，见测试报告）。
-    let gpu =
-        match l2d::renderer::GpuContext::headless_with_tier(l2d::renderer::RenderTier::Tier8192) {
-            Ok(gpu) => std::sync::Arc::new(gpu),
-            Err(l2d::renderer::RenderError::NoGpuBackend(notes)) => {
-                println!("SKIP: 无可用 headless GPU 后端（{notes}）");
-                return;
-            }
-            Err(e) => panic!("headless GPU 上下文创建失败: {e}"),
-        };
-    let mut renderer = match OffscreenRenderer::with_gpu_context(gpu, 256, 256) {
+    // 0.5.0 rc.6：按贴图最大边自动选最小够用档（4096×8192 → Tier8192）并装载；
+    // ayagami 装载是全有或全无——Ok 即证明 5 张贴图全部上传成功。
+    let mut renderer = match OffscreenRenderer::new_for_model(256, 256, &loaded) {
         Ok(renderer) => renderer,
-        Err(e) => panic!("离屏渲染器创建失败: {e}"),
+        Err(l2d::renderer::RenderError::NoGpuBackend(notes)) => {
+            println!("SKIP: 无可用 headless GPU 后端（{notes}）");
+            return;
+        }
+        Err(e) => panic!("自动档位装载失败: {e}"),
     };
-    renderer
-        .load_model(&loaded)
-        .expect("大肥鱼模型应可装进渲染核心");
 
     // ③ 口型名单：LipSync 空 → binder 回落 ParamMouthOpenY；眨眼用 Groups 名单。
     assert_eq!(

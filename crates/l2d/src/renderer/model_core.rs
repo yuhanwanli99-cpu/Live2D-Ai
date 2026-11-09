@@ -15,7 +15,8 @@ use glam::f32::Affine2;
 use glam::u32::UVec2;
 
 use super::{
-    GpuContext, InnerRenderer, RenderError, aspect_fit_transform, layout_transform, validate_size,
+    GpuContext, InnerRenderer, RenderError, RenderTier, aspect_fit_transform, layout_transform,
+    validate_size,
 };
 use crate::asset::ParamBinder;
 use crate::model::LoadedModel;
@@ -56,6 +57,18 @@ impl ModelRendererCore {
             viewport: (1, 1),
             colorspace: RenderColorspace::SRgb,
         })
+    }
+
+    /// 按模型贴图最大边推荐的最小渲染档位（0.5.0 rc.6 档位自适应）。
+    ///
+    /// 贴图最长边 4096 → [`RenderTier::Tier4096`]（普通模型，与默认档一致）；
+    /// 4097..8192 → [`RenderTier::Tier8192`]（大肥鱼皮肤 4096×8192 属于这里）；
+    /// 8193..16384 → [`RenderTier::Tier16384`]；尺寸未知（非 PNG 头）或超过
+    /// 16384 → `None`（调用方自行回退 / 报错）。纯函数，不碰 GPU。
+    pub fn required_tier(loaded: &LoadedModel) -> Option<RenderTier> {
+        loaded
+            .texture_max_dimension()
+            .and_then(RenderTier::smallest_covering)
     }
 
     /// 共享 GPU 上下文。
