@@ -17,6 +17,7 @@ use glam::u32::UVec2;
 use super::{
     GpuContext, InnerRenderer, RenderError, aspect_fit_transform, layout_transform, validate_size,
 };
+use crate::asset::ParamBinder;
 use crate::model::LoadedModel;
 use crate::pose_stack::PoseStack;
 
@@ -25,8 +26,13 @@ pub struct ModelRendererCore {
     gpu: Arc<GpuContext>,
     renderer: InnerRenderer,
     stack: PoseStack,
-    /// 嘴张开的写入名单（装载时按 `Groups` / `ParamMouthOpenY` 定，见 [`Self::load_model`]）。
+    /// 参数绑定层（装载时按新模型 moc3 参数 id 表重建，见 [`Self::load_model`]）：
+    /// 写参数入口先把 13 条标准语义名解析成模型实际 id（0.5.0 rc.1）。
+    binder: ParamBinder,
+    /// 嘴张开的写入名单（装载时按 `Groups[LipSync]` / binder 回落定，见 [`Self::load_model`]）。
     mouth_ids: Vec<String>,
+    /// 眨眼的写入名单（装载时按 `Groups[EyeBlink]` / binder 回落定，见 [`Self::load_model`]）。
+    eye_ids: Vec<String>,
     /// 逻辑变换（Layout × 整画布；不含视口 aspect 修正）。
     transform: Affine2,
     /// 视口尺寸（mask 与之 1:1；aspect 修正按此计算）。
@@ -43,7 +49,9 @@ impl ModelRendererCore {
             gpu,
             renderer,
             stack: PoseStack::from_pose_map(Arc::new(ayagami::pose::PoseMap::new())),
+            binder: ParamBinder::default(),
             mouth_ids: Vec::new(),
+            eye_ids: Vec::new(),
             transform: Affine2::IDENTITY,
             viewport: (1, 1),
             colorspace: RenderColorspace::SRgb,
@@ -60,33 +68,78 @@ impl ModelRendererCore {
         &mut self.stack
     }
 
+    /// 当前参数绑定层（诊断 / 测试用）：标准语义名 → 模型实际 id。
+    ///
+    /// 未装载模型时为空表（语义名按字面 id 写，与 0.4.x 行为一致）。
+    pub fn binder(&self) -> &ParamBinder {
+        &self.binder
+    }
+
+    /// 当前嘴张开的写入名单（诊断 / 测试用；空 = 该模型没有可写的嘴通道）。
+    pub fn mouth_write_ids(&self) -> &[String] {
+        &self.mouth_ids
+    }
+
+    /// 当前眨眼的写入名单（诊断 / 测试用；空 = 该模型没有可写的眼通道）。
+    pub fn eye_blink_write_ids(&self) -> &[String] {
+        &self.eye_ids
+    }
+
     /// 向 **input 层**写入参数（模型缺失该参数时返回 `false`）。
+    ///
+    /// `id` 可以是 13 条标准语义名 / 大写 snake / 模型实际 id：先经装载时的
+    /// [`ParamBinder`] 解析成该模型实际 id，解析不到才按字面写（保持 0.4.x
+    /// 「缺 id 静默 false」语义）。
     pub fn set_parameter(&mut self, id: &str, value: f32) -> bool {
-        self.stack.set_parameter(id, value)
+        let binder = &self.binder;
+        let stack = &mut self.stack;
+        stack.set_parameter(binder.resolve(id).unwrap_or(id), value)
     }
 
     /// 撤销 **input 层**参数（下一帧起不再生效）。
     pub fn clear_parameter(&mut self, id: &str) -> bool {
-        self.stack.clear_parameter(id)
+        let binder = &self.binder;
+        let stack = &mut self.stack;
+        stack.clear_parameter(binder.resolve(id).unwrap_or(id))
     }
 
     /// 向 **final_override 层**写入最高优先级覆盖。
+    ///
+    /// 与 [`Self::set_parameter`] 同一套 [`ParamBinder`] 解析：动作预设、三字段
+    /// cue、待机微表情全部经本入口，不各自复制解析逻辑。
     pub fn override_parameter(&mut self, id: &str, value: f32) -> bool {
-        self.stack.override_parameter(id, value)
+        let binder = &self.binder;
+        let stack = &mut self.stack;
+        stack.override_parameter(binder.resolve(id).unwrap_or(id), value)
     }
 
     /// 撤销 **final_override 层**参数。
     pub fn clear_override_parameter(&mut self, id: &str) -> bool {
-        self.stack.clear_override_parameter(id)
+        let binder = &self.binder;
+        let stack = &mut self.stack;
+        stack.clear_override_parameter(binder.resolve(id).unwrap_or(id))
     }
 
     /// 按装载时定下的名单写嘴张开值（input 层；返回值一律丢掉）。
     ///
-    /// 名单 = [`Self::load_model`] 里 `mouth_write_ids` 的结果：模型 `Groups` 的
-    /// `LipSync` 优先，组空才回落 `ParamMouthOpenY`。名单为空就一笔都不写；
-    /// 多个 id 写同一个值。逐字段借用（`self.mouth_ids` × `self.stack`），不克隆名单。
+    /// 名单 = [`Self::load_model`] 里 `mouth_write_ids` 的结果（0.5.0 rc.2 优先级）：
+    /// `Groups[LipSync].Ids` > binder 把 `ParamMouthOpenY` 解析到的实际 id > 不写。
+    /// 名单为空就一笔都不写；多个 id 写同一个值。逐字段借用
+    /// （`self.mouth_ids` × `self.stack`），不克隆名单。
     pub fn set_mouth_open(&mut self, value: f32) {
         for id in &self.mouth_ids {
+            self.stack.set_parameter(id, value);
+        }
+    }
+
+    /// 按装载时定下的名单写左右眼开合（input 层；返回值一律丢掉）。
+    ///
+    /// 名单 = [`Self::load_model`] 里 `eye_blink_write_ids` 的结果（0.5.0 rc.2）：
+    /// `Groups[EyeBlink].Ids` > binder 解析出的 `ParamEyeLOpen` / `ParamEyeROpen`
+    /// 实际 id > 不写。名单为空就一笔都不写；名单里多个 id 写同一个开合值
+    /// （Cubism EyeBlink 组左右同值，不依赖组内顺序）。
+    pub fn set_eye_open(&mut self, value: f32) {
+        for id in &self.eye_ids {
             self.stack.set_parameter(id, value);
         }
     }
@@ -117,17 +170,30 @@ impl ModelRendererCore {
         self.stack.set_idle_enabled(idle_enabled);
         self.transform = layout_transform(loaded);
 
+        // 0.5.0 rc.1：按新模型 moc3 参数 id 表重建绑定层，并让空闲层的呼吸 / 摆头
+        // 改走该模型实际 id（大写 `PARAM_*` 旧样本由此恢复呼吸与摆头）。
+        let binder = ParamBinder::from_ids(loaded.handle().parameter_ids());
+        self.stack.bind_idle_params(&binder);
+
         // 确定性初始姿态：先同步一次合成结果（含物理 settle 输出）。
         let initial = self.stack.finalize();
         self.renderer.driver().apply_pose(&initial);
 
-        // 口型写入名单只在**装载成功路径末尾**写：首次装载与成功换模共用
-        // `load_model`，于是第一张皮（bai）也有名单；`load_fresh` 失败时新 core 被
-        // 丢掉，旧 core 的名单一个字段都没被碰过。
+        // 口型 / 眨眼写入名单只在**装载成功路径末尾**写（0.5.0 rc.2 优先级）：
+        // `Groups` 名单 > binder 解析出的实际 id > 不写。首次装载与成功换模共用
+        // `load_model`，于是第一张皮（bai）也有名单；换模失败时新 core 被丢掉，
+        // 旧 core 的名单 / binder 一个字段都没被碰过。
+        let manifest = loaded.package().manifest();
         self.mouth_ids = crate::asset::lip_sync::mouth_write_ids(
-            &loaded.package().manifest().lip_sync_ids,
-            loaded.handle().has_parameter("ParamMouthOpenY"),
+            &manifest.lip_sync_ids,
+            binder.resolve(crate::asset::lip_sync::MOUTH_OPEN_PARAM),
         );
+        self.eye_ids = crate::asset::lip_sync::eye_blink_write_ids(
+            loaded.package().eye_blink_ids(),
+            binder.resolve(crate::asset::lip_sync::EYE_L_OPEN_PARAM),
+            binder.resolve(crate::asset::lip_sync::EYE_R_OPEN_PARAM),
+        );
+        self.binder = binder;
         Ok(())
     }
 

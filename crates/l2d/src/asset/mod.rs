@@ -27,6 +27,7 @@
 
 pub(crate) mod lip_sync;
 mod manifest;
+mod param_bind;
 mod report;
 
 use std::{collections::BTreeMap, fmt, fs, io, path};
@@ -36,6 +37,8 @@ use serde_json::Value;
 use crate::report::CompatibilityReport;
 
 use manifest::ManifestFile;
+
+pub use param_bind::{BindConflict, ParamBinder};
 
 /// 包加载错误。
 #[derive(Debug)]
@@ -131,8 +134,8 @@ pub struct PackageManifest {
     /// model3 `Groups` 里 `Target == "Parameter"` 且 `Name == "LipSync"` 的 `Ids`
     /// （按出现顺序拼接）。
     ///
-    /// 只是**解析结果**，不含 `ParamMouthOpenY` 回落——回落要等 moc3 装载后由
-    /// `mouth_write_ids` 结合模型实际参数决定（见
+    /// 只是**解析结果**，不含回落——回落要等 moc3 装载后由 `mouth_write_ids`
+    /// 结合 [`ParamBinder`] 解析出的模型实际 id 决定（见
     /// [`crate::renderer::ModelRendererCore::load_model`]）。
     pub lip_sync_ids: Vec<String>,
 }
@@ -149,6 +152,12 @@ pub struct ModelPackage {
     texture_bytes: Vec<Vec<u8>>,
     physics_json: Option<Vec<u8>>,
     display_info_json: Option<Vec<u8>>,
+    /// model3 `Groups` 里 `Target == "Parameter"` 且 `Name == "EyeBlink"` 的
+    /// `Ids`（按出现顺序拼接；0.5.0 rc.2）。
+    ///
+    /// 放在包上而不是 [`PackageManifest`]：后者是全字段公开、可被下游 crate
+    /// 直接构造的值类型，加字段会破坏既有调用方；解析逻辑仍在 `manifest.rs`。
+    eye_blink_ids: Vec<String>,
 }
 
 impl ModelPackage {
@@ -247,6 +256,7 @@ impl ModelPackage {
             texture_bytes,
             physics_json,
             display_info_json,
+            eye_blink_ids: manifest::group_ids(&json, "EyeBlink"),
         })
     }
 
@@ -278,6 +288,11 @@ impl ModelPackage {
     /// cdi3.json 原始字节（清单未声明显示信息文件时为 `None`）。
     pub fn cdi3_json(&self) -> Option<&[u8]> {
         self.display_info_json.as_deref()
+    }
+
+    /// model3 `Groups[EyeBlink].Ids`（0.5.0 rc.2；空 = 由 binder 回落标准名）。
+    pub fn eye_blink_ids(&self) -> &[String] {
+        &self.eye_blink_ids
     }
 
     /// 对包内 moc3 头做白名单探测并生成兼容报告。

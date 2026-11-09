@@ -13,10 +13,16 @@ use super::render::FrameState;
 /// `final_override` 层（动作已整体删除），breath/blink 参数
 /// （ParamBreath / ParamEyeLOpen / ParamEyeROpen）仍然只由这里驱动。
 ///
+/// 0.5.0 rc.1：这里写的全是标准语义名，由 `ModelRendererCore` 内部
+/// `ParamBinder` 解析成模型实际 id（大写 `PARAM_*` 旧样本由此恢复呼吸 /
+/// 眨眼 / 微表情）；本模块不复制解析逻辑。
+///
 /// 状态机与 py 版同构：
 /// - **呼吸**：周期 [3.1, 5]s 随机锁定，正弦 `0.5 + 0.15*sin(2π·t/period)`。
 /// - **眨眼**：间隔 [3000, 7500]ms 随机触发；闭眼 75ms 线性 1→0；睁眼
 ///   [150,300]ms 随机线性 0→1。状态机：Open → Closing → Opening → Open。
+///   0.5.0 rc.2：左右眼不在这里写死参数名，统一走
+///   `ModelRendererCore::set_eye_open`（`Groups[EyeBlink].Ids` > binder 回落）。
 /// - **微表情**：间隔 [3,6]s 随机触发；随机选一个参数 ±0.05，400ms fade。
 ///
 /// 与 py 版差异（v1 简化）：
@@ -149,15 +155,13 @@ pub(crate) fn apply_idle_life(st: &mut FrameState, now_ms: f64, dt_ms: f64) {
                 st.idle.blink_phase = BlinkPhase::Closing;
                 st.idle.blink_phase_ms = 0.0;
                 // 首帧写入 1.0（开始下降）。
-                let _ = st.core.set_parameter("ParamEyeLOpen", 1.0);
-                let _ = st.core.set_parameter("ParamEyeROpen", 1.0);
+                st.core.set_eye_open(1.0);
             }
         }
         BlinkPhase::Closing => {
             // 线性 1→0，固定 75ms。
             let f = (1.0 - blink_factor(st.idle.blink_phase_ms, st.idle.blink_close_ms)) as f32;
-            let _ = st.core.set_parameter("ParamEyeLOpen", f);
-            let _ = st.core.set_parameter("ParamEyeROpen", f);
+            st.core.set_eye_open(f);
             if st.idle.blink_phase_ms >= st.idle.blink_close_ms {
                 // 闭眼到位 → 进入睁眼，随机 [150,300]ms。
                 st.idle.blink_phase = BlinkPhase::Opening;
@@ -168,12 +172,10 @@ pub(crate) fn apply_idle_life(st: &mut FrameState, now_ms: f64, dt_ms: f64) {
         BlinkPhase::Opening => {
             // 线性 0→1，随机时长。
             let f = blink_factor(st.idle.blink_phase_ms, st.idle.blink_open_ms) as f32;
-            let _ = st.core.set_parameter("ParamEyeLOpen", f);
-            let _ = st.core.set_parameter("ParamEyeROpen", f);
+            st.core.set_eye_open(f);
             if st.idle.blink_phase_ms >= st.idle.blink_open_ms {
                 // 睁眼完成 → 回到 Open，单次写回 1.0。
-                let _ = st.core.set_parameter("ParamEyeLOpen", 1.0);
-                let _ = st.core.set_parameter("ParamEyeROpen", 1.0);
+                st.core.set_eye_open(1.0);
                 st.idle.blink_phase = BlinkPhase::Open;
                 st.idle.blink_phase_ms = 0.0;
                 // 下一次间隔：[3000, 7500]ms。

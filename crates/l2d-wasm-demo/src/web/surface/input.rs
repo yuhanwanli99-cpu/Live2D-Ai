@@ -15,6 +15,10 @@ use crate::mouth::{DEFAULT_MOUTH_SENSITIVITY, mouth_open_from_level};
 ///
 /// 动作预设因此永远压过同帧**更晚**写的 idle 微表情（input 层），到点整批撤销；
 /// 口型 `ParamMouthOpenY` 仍走 `set_parameter`（input），两者互不干扰。
+///
+/// 0.5.0 rc.1：`id` 一律是 13 条标准语义名；解析成模型实际 id（大写 `PARAM_*`
+/// 旧样本）的逻辑在 [`l2d::renderer::ModelRendererCore`] 内部（`ParamBinder`），
+/// 本 impl 不复制。
 impl crate::preset::PresetSink for l2d::renderer::ModelRendererCore {
     fn override_param(&mut self, id: &str, value: f32) -> bool {
         self.override_parameter(id, value)

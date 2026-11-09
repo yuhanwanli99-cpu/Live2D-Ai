@@ -24,6 +24,7 @@ use std::{fmt, sync::Arc};
 
 use ayagami::{meta, physics, pose};
 
+use crate::asset::ParamBinder;
 use crate::model::{LoadedModel, ModelHandle};
 
 /// 呼吸参数 ID（上游 demo 同款 idle 驱动；模型没有该参数时自动跳过）。
@@ -135,6 +136,24 @@ impl PoseStack {
             stack.attach_physics_json(bytes)?;
         }
         Ok(stack)
+    }
+
+    /// 把 idle 内部驱动的呼吸 / 摆头参数改绑到模型实际 id（0.5.0 rc.1）。
+    ///
+    /// 语义名 `ParamBreath` / `ParamAngleZ` 经 [`ParamBinder`] 解析成该模型
+    /// 真实存在的 id（大写 `PARAM_*` 的旧样本由此恢复呼吸与摆头）；解析不到
+    /// 就保留标准名（与 0.4.x 逐值一致）。只影响**内部 idle 层**，public 写参数
+    /// 入口不放解析逻辑（那是 [`crate::renderer::ModelRendererCore`] 的职责）。
+    ///
+    /// 装载成功路径由 [`crate::renderer::ModelRendererCore::load_model`] 调用；
+    /// 合成参数表（测试 / 无模型路径）不调用它即保持原标准名行为。
+    pub fn bind_idle_params(&mut self, binder: &ParamBinder) {
+        let breath_id = binder.resolve(BREATH_PARAM).unwrap_or(BREATH_PARAM);
+        let angle_id = binder.resolve(ANGLE_Z_PARAM).unwrap_or(ANGLE_Z_PARAM);
+        self.breath_key = pose::Key::from_param(breath_id.to_owned());
+        self.angle_key = pose::Key::from_param(angle_id.to_owned());
+        self.breath_range = self.map.get(&self.breath_key).map(|(_, d)| (d.min, d.max));
+        self.has_angle_z = self.map.has_key(&self.angle_key);
     }
 
     /// 从 physics3.json 字节挂接物理引擎并做确定性 settle
@@ -733,6 +752,65 @@ mod tests {
                 "让开只让摆头，呼吸仍须离开默认"
             );
         }
+    }
+
+    /// 合成大写 snake 参数表：`PARAM_BREATH` / `PARAM_ANGLE_Z` / `PARAM_ANGLE_X`。
+    fn uppercase_map() -> Arc<pose::PoseMap> {
+        let mut map = pose::PoseMap::new();
+        for (i, (id, min, max)) in [
+            ("PARAM_BREATH", 0.0_f32, 1.0_f32),
+            ("PARAM_ANGLE_Z", -30.0, 30.0),
+            ("PARAM_ANGLE_X", -30.0, 30.0),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            map.add(Descriptor {
+                key: pose::Key::from_param(id.to_owned()),
+                uid: i as u64 + 1,
+                name: None,
+                min,
+                max,
+                default: 0.0,
+            });
+        }
+        Arc::new(map)
+    }
+
+    /// **0.5.0 rc.1 binder 接线（回归）**：idle 层的呼吸 / 摆头必须按 [`ParamBinder`]
+    /// 改写到模型实际 id（大写 snake），而不是表里不存在的标准名。
+    ///
+    /// 注：标准语义名 → 实际 id 的解析收在 `ModelRendererCore` 的写参数入口
+    /// （[crate::renderer::ModelRendererCore::set_parameter] 等），本栈只暴露精确
+    /// 写入；这里验证的是**栈内部驱动**（idle 层）的改绑。
+    #[test]
+    fn binder_redirects_idle_params_to_model_ids() {
+        // 对照组：不绑定时 idle 写标准名，大写 snake 表里没有 → 呼吸/摆头静默空转。
+        let mut unbound = PoseStack::from_pose_map(uppercase_map());
+        for _ in 0..30 {
+            unbound.update(FIXED_DT_60HZ).unwrap();
+        }
+        assert_eq!(unbound.get_parameter("PARAM_BREATH"), Some(0.0));
+        assert_eq!(unbound.get_parameter("PARAM_ANGLE_Z"), Some(0.0));
+
+        // 绑定后：同一条正弦落到实际 id。
+        let binder = ParamBinder::from_ids(["PARAM_BREATH", "PARAM_ANGLE_Z", "PARAM_ANGLE_X"]);
+        let mut bound = PoseStack::from_pose_map(uppercase_map());
+        bound.bind_idle_params(&binder);
+        for _ in 0..30 {
+            bound.update(FIXED_DT_60HZ).unwrap();
+        }
+        assert!(
+            bound.get_parameter("PARAM_BREATH") != Some(0.0),
+            "呼吸应写到 PARAM_BREATH 而非不存在的 ParamBreath"
+        );
+        assert!(
+            bound.get_parameter("PARAM_ANGLE_Z") != Some(0.0),
+            "摆头应写到 PARAM_ANGLE_Z 而非不存在的 ParamAngleZ"
+        );
+        // 精确写入仍按字面 id（写参数入口的解析在 core，栈不重复做）。
+        assert!(bound.set_parameter("PARAM_ANGLE_X", 5.0));
+        assert_eq!(bound.get_parameter("PARAM_ANGLE_X"), Some(5.0));
     }
 
     /// **待机摆头缓回（回归 2，2026-10-14）**：目标回到 0 后，摆头在 350ms 内离开
