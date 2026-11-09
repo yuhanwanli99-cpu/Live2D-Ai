@@ -26,6 +26,9 @@ pub(super) struct FileReferences {
     pub(super) physics: Option<String>,
     #[serde(default)]
     pub(super) display_info: Option<String>,
+    /// model3 `FileReferences.Pose`（pose3.json 文件名；0.5.0 rc.4）。
+    #[serde(default)]
+    pub(super) pose: Option<String>,
 }
 
 /// 从 model3.json 的 `Groups` 里取某个参数组的 `Ids`（0.4.1 LipSync / 0.5.0

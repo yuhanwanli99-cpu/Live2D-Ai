@@ -412,11 +412,12 @@ mod web {
             )
         };
         format!(
-            "已加载 {model_url}（model3 v{}）：moc3=`{}`，纹理 {} 张，physics={}，cdi={}；版本={}，{v0_note}",
+            "已加载 {model_url}（model3 v{}）：moc3=`{}`，纹理 {} 张，physics={}，pose={}，cdi={}；版本={}，{v0_note}",
             m.version,
             m.moc3_file,
             m.texture_files.len(),
             m.physics_file.as_deref().unwrap_or("-"),
+            loaded.package().pose3_file().unwrap_or("-"),
             m.display_info_file.as_deref().unwrap_or("-"),
             loaded
                 .handle()

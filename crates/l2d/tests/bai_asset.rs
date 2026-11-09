@@ -61,6 +61,9 @@ fn bai_package_loads_with_header_runtime_version_consistency() {
     );
     assert_eq!(manifest.physics_file.as_deref(), Some("bai.physics3.json"));
     assert_eq!(manifest.display_info_file.as_deref(), Some("bai.cdi3.json"));
+    // bai 没有声明 `Pose`（无 pose3）→ part 层不介入，行为与 0.4.x 逐值一致。
+    assert!(package.pose3_json().is_none(), "bai 不应声明 Pose");
+    assert!(package.pose3_file().is_none());
     assert!(package.physics_json().is_some());
     // 真实纹理应为 PNG（magic 校验，不做尺寸假设）。
     assert_eq!(
