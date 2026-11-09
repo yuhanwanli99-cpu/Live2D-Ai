@@ -262,6 +262,20 @@ fn binder_wires_standard_names_to_actual_bai_ids() {
         "bai 缺 eye smile"
     );
 
+    // 0.5.0 rc.2 写名单：bai `LipSync` 空数组 → binder 回落到 `ParamMouthOpenY`
+    // （与 0.4.1 逐值相同）；`EyeBlink` 组就是两个标准名。两者都证明 bai 行为不变。
+    assert_eq!(
+        core.mouth_write_ids(),
+        vec!["ParamMouthOpenY".to_owned()].as_slice()
+    );
+    assert_eq!(
+        core.eye_blink_write_ids(),
+        vec!["ParamEyeLOpen".to_owned(), "ParamEyeROpen".to_owned()].as_slice()
+    );
+    // 名单写入不 panic（input 层；缺 id 时为空操作）。
+    core.set_mouth_open(0.5);
+    core.set_eye_open(1.0);
+
     // 写参数入口（input / final_override 两条）经 binder：bai 标准名可用。
     assert!(core.set_parameter("ParamAngleX", 5.0));
     assert!(core.override_parameter("ParamBodyAngleX", -3.0));
