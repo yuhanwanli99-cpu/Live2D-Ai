@@ -4,7 +4,9 @@
 //! 没有这两样，改用**一个子进程一个 Job Object**：
 //!
 //! - 建 Job 时设 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`；
-//! - 子进程 spawn 后 `AssignProcessToJobObject` 放进去；
+//! - 0.4.7 rc.2 起子进程**挂起创建**（CREATE_SUSPENDED）：spawn 后先
+//!   `AssignProcessToJobObject` 放进去、再 `ResumeThread`——attach 之前子进程
+//!   一行代码都没跑，拉不起逃出 Job 的孙进程（W5 竞态）；
 //! - 父进程退出（正常关停 / 崩溃 / 任务管理器结束）→ 内核关闭最后一个 Job
 //!   句柄 → 该 Job 里的**整个进程树**被结束，不会留下孤儿；
 //! - 用户取消勾选时 `TerminateJobObject` 立刻结束整棵树（等价于 Linux 的

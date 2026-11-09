@@ -238,3 +238,57 @@ fn stop_kills_the_whole_process_group() {
         "孙进程 {pid} 必须随组一起结束"
     );
 }
+
+/// W5：Windows 子进程必须**挂起创建**（先 attach Job 再 resume），且独占控制台
+/// 进程组（W6 的 CTRL_BREAK 只打这个组）。常量按 Win32 头文件值钉死，Linux 可跑。
+#[test]
+fn windows_child_creation_flags_suspend_before_attach_and_own_group() {
+    const CREATE_SUSPENDED: u32 = 0x0000_0004;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    assert_eq!(
+        CHILD_CREATION_FLAGS & CREATE_SUSPENDED,
+        CREATE_SUSPENDED,
+        "必须挂起创建：attach Job 之前子进程一行都不能跑（W5 竞态）"
+    );
+    assert_eq!(
+        CHILD_CREATION_FLAGS & CREATE_NEW_PROCESS_GROUP,
+        CREATE_NEW_PROCESS_GROUP,
+        "必须独占控制台进程组：温和终止的 CTRL_BREAK_EVENT 只打这个组（W6）"
+    );
+}
+
+/// W21：spawn 失败翻成可执行中文，同时**保留 OS 原文**（诊断靠它）。
+#[test]
+fn spawn_failures_are_translated_to_actionable_chinese() {
+    let missing_dll =
+        spawn_failure_message(std::io::Error::from_raw_os_error(0xC000_0135u32 as i32));
+    assert!(missing_dll.contains("缺少 DLL"), "{missing_dll}");
+    assert!(
+        missing_dll.contains("0xc0000135"),
+        "保留 NTSTATUS 原文: {missing_dll}"
+    );
+    assert!(
+        missing_dll.contains("原始错误"),
+        "保留 OS 原文: {missing_dll}"
+    );
+
+    let bits = spawn_failure_message(std::io::Error::from_raw_os_error(0xC000_007Bu32 as i32));
+    assert!(bits.contains("64 位"), "0xC000007B 要提示位数: {bits}");
+
+    let denied = spawn_failure_message(std::io::Error::from_raw_os_error(5));
+    assert!(denied.contains("拒绝访问"), "{denied}");
+
+    let bad_exe = spawn_failure_message(std::io::Error::from_raw_os_error(193));
+    assert!(bad_exe.contains("不是有效的 Win32 应用程序"), "{bad_exe}");
+
+    let mismatch = spawn_failure_message(std::io::Error::from_raw_os_error(216));
+    assert!(mismatch.contains("架构不符"), "{mismatch}");
+
+    // 不认识的错误码：原样透传（0.3.13 行为），不编造原因。
+    let unknown = spawn_failure_message(std::io::Error::from_raw_os_error(9999));
+    assert!(unknown.starts_with("启动失败："), "{unknown}");
+    assert!(
+        unknown.contains("9999"),
+        "未识别错误码要保留原文: {unknown}"
+    );
+}

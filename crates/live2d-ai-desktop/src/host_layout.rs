@@ -103,7 +103,11 @@ pub fn mods_scan_roots(cwd: &Path, exe: Option<&Path>) -> Vec<PathBuf> {
     roots
 }
 
-/// 文件夹子进程的环境白名单：Linux 四项；Windows 再加三枚**已存在**的系统变量。
+/// 文件夹子进程的环境白名单：Linux 四项；Windows 再补**已存在**的系统变量。
+///
+/// 0.4.7 rc.2（W7）起 Windows 再补 TEMP / TMP / APPDATA / LOCALAPPDATA / COMSPEC：
+/// 用户给的 .exe（python / 本地引擎等）要靠 %TEMP% 写临时文件，cmd 类子进程要
+/// COMSPEC；只传**存在**的键，缺失的不补空值。
 ///
 /// 名单之外一律不传（`.env` 快照 / 密钥 / 代理都不进子进程，见 `folder_spawn`）。
 pub fn child_env_names(windows: bool) -> &'static [&'static str] {
@@ -116,6 +120,11 @@ pub fn child_env_names(windows: bool) -> &'static [&'static str] {
             "SYSTEMROOT",
             "USERPROFILE",
             "PATHEXT",
+            "TEMP",
+            "TMP",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "COMSPEC",
         ]
     } else {
         &["PATH", "HOME", "LANG", "LC_ALL"]
@@ -342,7 +351,12 @@ mod tests {
                 "LC_ALL",
                 "SYSTEMROOT",
                 "USERPROFILE",
-                "PATHEXT"
+                "PATHEXT",
+                "TEMP",
+                "TMP",
+                "APPDATA",
+                "LOCALAPPDATA",
+                "COMSPEC"
             ]
         );
     }
@@ -353,6 +367,8 @@ mod tests {
             "PATH" => Some(OsString::from("/usr/bin")),
             "SYSTEMROOT" => Some(OsString::from(r"C:\Windows")),
             "USERPROFILE" => Some(OsString::from(r"C:\Users\skystar")),
+            "TEMP" => Some(OsString::from(r"C:\Users\skystar\AppData\Local\Temp")),
+            "APPDATA" => Some(OsString::from(r"C:\Users\skystar\AppData\Roaming")),
             // 不在白名单：密钥 / 代理 / 其它一切都不许进子进程。
             "LIVE2D_AI_SENTINEL_SECRET" => Some(OsString::from("do-not-pass")),
             "HTTPS_PROXY" => Some(OsString::from("http://proxy")),
@@ -365,7 +381,12 @@ mod tests {
         );
         let windows = collect_child_env(true, lookup);
         let keys: Vec<&str> = windows.iter().map(|(key, _)| key.as_str()).collect();
-        assert_eq!(keys, vec!["PATH", "SYSTEMROOT", "USERPROFILE"]);
+        assert_eq!(
+            keys,
+            vec!["PATH", "SYSTEMROOT", "USERPROFILE", "TEMP", "APPDATA"]
+        );
+        // 缺失的键不补空值（COMSPEC / TMP 等等于没设置）。
+        assert!(!keys.contains(&"COMSPEC"), "{keys:?}");
         for (key, _) in &windows {
             assert!(!key.contains("SECRET") && !key.contains("PROXY"), "{key}");
         }

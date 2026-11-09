@@ -130,6 +130,9 @@ mod mods_scan_toml;
 mod session_scope;
 mod supervisor;
 mod web_api;
+/// 0.4.7 rc.2（W5/W6）：Windows 子进程的挂起启动恢复 + 温和终止（原生编译未验）。
+#[cfg(windows)]
+mod win32_proc;
 
 use std::process::ExitCode;
 

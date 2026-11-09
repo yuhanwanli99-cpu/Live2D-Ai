@@ -12,7 +12,8 @@
 //! - 工作目录 = 该 Mod 目录；不经过 shell、不加参数、不读 .env、不传密钥
 //!   环境变量（env_clear 之后只回填白名单：PATH / HOME / LANG / LC_ALL；
 //!   0.4.0 rc.1 起 Windows 上再带上**已存在**的 SYSTEMROOT / USERPROFILE /
-//!   PATHEXT，见 [`crate::host_layout::collect_child_env`]）；
+//!   PATHEXT；0.4.7 rc.2 起再补 TEMP / TMP / APPDATA / LOCALAPPDATA / COMSPEC
+//!   ——python / 本地引擎这类子进程要靠 %TEMP% 写临时文件，见 [`crate::host_layout::collect_child_env`]）；
 //! - 子进程不阻塞对话回合：spawn 之后不 wait（只在结束时才等它退出）。
 //!
 //! # 平台（0.4.0 rc.1）
@@ -24,6 +25,15 @@
 //!   + 独立进程组；Windows 用**一个子进程一个 Job Object**
 //!   （`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`，见 `crate::folder_job`），
 //!   父进程被硬杀也不会留孤儿。
+//! - **挂起启动再挂 Job（0.4.7 rc.2 / W5）**：Windows 子进程用 CREATE_SUSPENDED
+//!   创建，先把进程树拉进 Job 再 ResumeThread——0.4.6 以前是「spawn 之后才
+//!   AssignProcessToJobObject」，子进程在那段窗口里拉起的孙进程会逃出 Job。
+//! - **温和终止（0.4.7 rc.2 / W6）**：取消勾选 / 关停时先给顶层窗口 WM_CLOSE，
+//!   再给子进程独占的控制台进程组发 CTRL_BREAK_EVENT，宽限 2s 才
+//!   TerminateJobObject 动硬的；Linux 仍是 SIGTERM → 200ms → SIGKILL。
+//! - **失败人话（0.4.7 rc.2 / W21）**：Windows 的 NTSTATUS / Win32 错误码
+//!   （0xC0000135 缺 DLL、0xC000007B 位数不符、5 拒绝访问…）翻成可执行中文，
+//!   原始错误文本一律保留（见 [`spawn_failure_message`]）。
 //! - prctl / kill / kernel32 没有 std 封装，而本 crate 的顶层依赖已顶格
 //!   （18/18，执行单 §37）——所以两处都用**最小 FFI**（文件末尾 `sys` 模块 +
 //!   `folder_job`）。工作区 unsafe_code = deny，用文件级 allow 显式豁免。
@@ -92,9 +102,10 @@ impl TrackedProcess {
         Self { child }
     }
 
+    /// Windows：Job 与创建标志由 [`spawn_one`] 管（挂起创建 → attach → resume），
+    /// 这里只把两样装起来。
     #[cfg(windows)]
-    fn new(child: Child) -> Self {
-        let job = crate::folder_job::Job::attach(&child);
+    fn with_job(child: Child, job: Option<crate::folder_job::Job>) -> Self {
         Self { child, job }
     }
 }
@@ -186,6 +197,65 @@ impl Drop for FolderProcesses {
     }
 }
 
+/// Windows 子进程创建标志（0.4.7 rc.2 / W5 + W6）。
+///
+/// - `CREATE_SUSPENDED`（0x0000_0004）：创建后主线程挂起，Job 指派完成后才
+///   `ResumeThread`——0.4.6 以前是「spawn 之后才 assign」，子进程在那段窗口里
+///   拉起的孙进程不在 Job 里，父进程被硬杀时会逃逸（W5 竞态）。
+/// - `CREATE_NEW_PROCESS_GROUP`（0x0000_0200）：独占一个控制台进程组，取消
+///   勾选时先给这个组发 `CTRL_BREAK_EVENT` 温和终止（W6）。
+///
+/// 非 Windows 目标上没有消费者；Linux 单测钉住这两个位（防有人「顺手」删掉挂起）。
+#[cfg_attr(not(windows), allow(dead_code))]
+const CHILD_CREATION_FLAGS: u32 = 0x0000_0004 | 0x0000_0200;
+
+/// spawn 失败的一句可执行中文（0.4.7 rc.2 / W21）。
+///
+/// 只透传 OS 原文时，用户看到的是 `os error -1073741515` 这类天书。这里把
+/// Windows 最常见的几类失败翻成人话，但**原始错误一律保留**（诊断靠它）：
+/// - `0xC0000135`（STATUS_DLL_NOT_FOUND）：缺 DLL / 运行库；
+/// - `0xC000007B`（STATUS_INVALID_IMAGE_FORMAT）/ 193 / 216：位数或架构不符；
+/// - `5`（ERROR_ACCESS_DENIED）：杀软 / 安全策略拦截或权限不足。
+fn spawn_failure_message(err: std::io::Error) -> String {
+    let hint = spawn_error_hint(err.raw_os_error()).or_else(|| match err.kind() {
+        std::io::ErrorKind::PermissionDenied => Some("文件不可执行或权限不足"),
+        std::io::ErrorKind::NotFound => Some("程序不存在（路径变了或被删）"),
+        _ => None,
+    });
+    match (hint, err.raw_os_error()) {
+        (Some(hint), Some(raw)) => {
+            let status = raw as u32;
+            if status & 0x8000_0000 != 0 {
+                format!("启动失败：{hint}（NTSTATUS 0x{status:08x}；原始错误：{err}）")
+            } else {
+                format!("启动失败：{hint}（错误码 {raw}；原始错误：{err}）")
+            }
+        }
+        (Some(hint), None) => format!("启动失败：{hint}（原始错误：{err}）"),
+        (None, _) => format!("启动失败：{err}"),
+    }
+}
+
+/// Win32 / NTSTATUS 错误码 → 人话（只收最常见的几类，未命中的原样透传）。
+fn spawn_error_hint(raw: Option<i32>) -> Option<&'static str> {
+    Some(match raw? as u32 {
+        0xC000_0135 => {
+            "缺少 DLL 或运行库（STATUS_DLL_NOT_FOUND）：安装 Microsoft Visual C++ 运行库（x64），或换用带运行库的构建"
+        }
+        0xC000_007B => {
+            "镜像格式 / 位数不符（STATUS_INVALID_IMAGE_FORMAT）：换与系统架构一致的 64 位 .exe"
+        }
+        0xC000_0142 => "DLL 初始化失败（STATUS_DLL_INIT_FAILED）：运行库缺文件或被杀毒软件拦截",
+        5 => "拒绝访问（权限不足，或被杀毒软件 / 安全策略拦截）",
+        193 => "不是有效的 Win32 应用程序（位数 / 格式不符）",
+        216 => "程序与系统架构不符（ERROR_EXE_MACHINE_TYPE_MISMATCH）",
+        267 => "目录名无效（工作目录路径有问题）",
+        740 => "需要以管理员身份运行（ERROR_ELEVATION_REQUIRED）",
+        1260 => "被组策略禁止运行（ERROR_ACCESS_DISABLED_BY_POLICY）",
+        _ => return None,
+    })
+}
+
 /// 起一个子进程：cwd = Mod 目录，程序 = 规范化后的绝对路径。
 ///
 /// 不加参数（执行单 §23）、不 chmod（执行单 §24）、不传 .env / 密钥环境变量
@@ -219,39 +289,65 @@ fn spawn_one(spec: &DesiredSpawn) -> Result<TrackedProcess, String> {
             });
         }
     }
-    command
-        .spawn()
-        .map(TrackedProcess::new)
-        .map_err(|err| match err.kind() {
-            std::io::ErrorKind::PermissionDenied => format!("启动失败：文件不可执行（{err}）"),
-            std::io::ErrorKind::NotFound => format!("启动失败：程序不存在（{err}）"),
-            _ => format!("启动失败：{err}"),
-        })
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // W5/W6：挂起创建（attach 前不跑）+ 独占控制台进程组（CTRL_BREAK 目标）。
+        command.creation_flags(CHILD_CREATION_FLAGS);
+    }
+    let child = command.spawn().map_err(spawn_failure_message)?;
+    #[cfg(windows)]
+    {
+        // W5：先 attach（子进程仍挂起，拉不起孙进程）→ 再 resume。assign 失败时
+        // Job 为 None，退化到「显式结束兜底」（已知限制，见 folder_job）。
+        let job = crate::folder_job::Job::attach(&child);
+        if let Err(err) = crate::win32_proc::resume_primary_thread(&child) {
+            // 不能把子进程永远挂在 CREATE_SUSPENDED 里：结束 + 回收后如实报错。
+            let mut child = child;
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("启动失败：子进程无法恢复运行（{err}）"));
+        }
+        return Ok(TrackedProcess::with_job(child, job));
+    }
+    #[cfg(not(windows))]
+    Ok(TrackedProcess::new(child))
 }
 
-/// 结束一个自己记录过的子进程**组**：先 SIGTERM，宽限后 SIGKILL。
+/// 结束一个自己记录过的子进程**组**：先温和终止，宽限后才动硬的。
 ///
-/// 只对记录过的 pid 发信号（负 pid = 该组）；不按名字杀，所以用户另外启动的
-/// 同名程序不会被误伤。leader 先退出时仍会补一次整组 SIGKILL，避免它拉起的
-/// 孙进程留在组里。Windows 上先 `TerminateJobObject`（整棵进程树），再对
-/// leader 补一刀后 wait。
+/// 只对记录过的 pid 发信号（负 pid = 该组）/ 只对自己的 Job；不按名字杀，所以
+/// 用户另外启动的同名程序不会被误伤。leader 先退出时仍会补一次整组强杀，避免
+/// 它拉起的孙进程留在组里。
+///
+/// - Linux：SIGTERM → 200ms 宽限 → SIGKILL（0.3.13 语义不变）；
+/// - Windows（0.4.7 rc.2 / W6）：WM_CLOSE + CTRL_BREAK_EVENT → 2s 宽限 →
+///   TerminateJobObject（整棵进程树）+ leader 补一刀。
 fn stop_child(process: &mut TrackedProcess) {
+    // 先温和：Linux 整组 SIGTERM；Windows 顶层窗口 WM_CLOSE + 控制台组 CTRL_BREAK。
     #[cfg(unix)]
     sys::kill_group(process.child.id(), sys::SIGTERM);
     #[cfg(windows)]
-    if let Some(job) = &process.job {
-        job.terminate();
-    }
+    crate::win32_proc::request_graceful_stop(process.child.id());
 
-    let deadline = Instant::now() + Duration::from_millis(200);
+    // 宽限：Linux 保持 0.3.13 的 200ms；Windows 给 Mod 2s 落盘（WM_CLOSE /
+    // CTRL_BREAK 只是请求，不保证响应），超时才动硬的。
+    let grace_ms = if cfg!(windows) { 2_000 } else { 200 };
+    let deadline = Instant::now() + Duration::from_millis(grace_ms);
     while Instant::now() < deadline {
         if matches!(process.child.try_wait(), Ok(Some(_)) | Err(_)) {
             break;
         }
         std::thread::sleep(Duration::from_millis(10));
     }
+    // 硬的：Linux 整组 SIGKILL；Windows 先 TerminateJobObject（整棵进程树）再对
+    // leader 补一刀（Job 没建成的退化路径）。
     #[cfg(unix)]
     sys::kill_group(process.child.id(), sys::SIGKILL);
+    #[cfg(windows)]
+    if let Some(job) = &process.job {
+        job.terminate();
+    }
     #[cfg(not(unix))]
     let _ = process.child.kill();
     let _ = process.child.wait();
