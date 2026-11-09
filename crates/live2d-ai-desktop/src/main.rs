@@ -41,10 +41,16 @@ mod audio;
 #[cfg(windows)]
 mod browser;
 mod cli;
+/// 0.4.7 rc.1（W4）：配置目录锚点（XDG_CONFIG_HOME → HOME/.config → exe 目录 →
+/// APPDATA → LOCALAPPDATA，只读目录跳过；**永不返回相对路径**）。纯函数 + 单测。
+mod config_paths;
 /// 0.4.3 rc.2：桌宠 demo（`--desk-pet`）的分层窗。本模块平台无关（纯函数 + 单测）；
 /// 真正的 Win32 代码在 `desk_pet/window.rs` 与 `desk_pet/win32.rs`，只
 /// `#[cfg(windows)]` 编译。**真实窗口未验**。
 mod desk_pet;
+/// 0.4.7 rc.1（W8）：双击失败可见（Windows 失败退出补 MessageBoxW；非 Windows
+/// no-op）。对话框正文是纯函数，Linux 单测覆盖。
+mod failure_dialog;
 /// 0.4.0 rc.1：Windows 文件夹子进程的 Job Object（KILL_ON_JOB_CLOSE）。
 #[cfg(windows)]
 mod folder_job;
@@ -139,6 +145,9 @@ const EXIT_USAGE: u8 = 2;
 const EXIT_ENVIRONMENT: u8 = 3;
 
 fn main() -> ExitCode {
+    // 0.4.7 rc.1（W8）：Windows 双击崩溃时不要只剩黑窗一闪。panic hook 只装在
+    // 本进程上（测试二进制不经过 main）；非 Windows 是 no-op。
+    failure_dialog::install_panic_hook();
     // 日志：CLI 启动附带（任何模式：--chat/--web/--pet-mode 都落盘；
     // 不只开发者模式；W3 任务）。失败仅 warn，不退出码 1。
     if let Err(e) = logging::init_logging(None) {
@@ -179,7 +188,9 @@ fn main() -> ExitCode {
             // 浏览器（测试 / 库调用不 arm；Linux 仍由 `scripts/ignite.sh` 打开）。
             #[cfg(windows)]
             browser::arm();
-            ExitCode::from(web_api::cli_entry::run_web_mode(port, dev_mode))
+            let code = web_api::cli_entry::run_web_mode(port, dev_mode);
+            // 0.4.7 rc.1（W8）：失败且是交互双击才弹 MessageBoxW；其它平台 no-op。
+            ExitCode::from(failure_dialog::show_on_failure(code))
         }
         cli::Command::DeskPet { port, dev_mode } => {
             // 0.4.3 rc.2：`--desk-pet` 隐含 `--web`——服务照常起（监听失败就不开窗，
@@ -191,7 +202,8 @@ fn main() -> ExitCode {
             browser::arm();
             #[cfg(windows)]
             desk_pet::arm();
-            ExitCode::from(web_api::cli_entry::run_web_mode(port, dev_mode))
+            let code = web_api::cli_entry::run_web_mode(port, dev_mode);
+            ExitCode::from(failure_dialog::show_on_failure(code))
         }
     }
 }

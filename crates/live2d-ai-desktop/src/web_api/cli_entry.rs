@@ -389,6 +389,11 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
         Err(e) => {
             eprintln!("[environment] 启动 HTTP server 失败: {e}");
             eprintln!("[environment] 提示：检查端口 {port} 是否被占用 / 当前用户是否有监听权限。");
+            // 0.4.7 rc.1（W8）：双击时 stderr 随黑窗一起消失——把失败详情交给
+            // failure_dialog，退出前由 MessageBoxW 展示（仅 Windows 交互双击）。
+            crate::failure_dialog::record_failure(format!(
+                "启动 HTTP server 失败：{e}（端口 {port}）"
+            ));
             EXIT_ENVIRONMENT
         }
     }
@@ -640,20 +645,33 @@ pub(crate) fn build_web_supervisor(
 /// Mod 侧（如 memory，已随「一 Mod 一本地仓库」移出主仓）的存储路径解析会把
 /// 空目录过滤掉 → 存储路径 `None` → **Mod 显示「运行中」却一条也记不住**
 ///（`state.records=null`、`errors` 增长）。点火实测复现后统一绝对化。
+///
+/// # 0.4.7 rc.1（W4）：只读 HOME 的兜底已换成 config_paths 的绝对锚点
+///
+/// 旧实现没有 HOME 时回退**相对的** live2d-ai.toml：Windows 双击（进程环境没有
+/// HOME）且包里 toml 被删 / 移走时，mods.json 落到 cwd，cwd 只读 → 勾选写盘 409
+/// persist_failed。现在按 crate::config_paths 的优先级取**第一个可写绝对目录**
+/// （XDG_CONFIG_HOME → HOME/.config → exe 目录 → APPDATA → LOCALAPPDATA），只读
+/// 目录跳过；一个锚点都没有才退回系统临时目录（仍绝对）。**永不返回相对路径。**
 pub fn config_path_for_web() -> String {
     let cwd = std::env::current_dir().ok();
     let exe = std::env::current_exe().ok();
     if let Some(found) = crate::host_layout::existing_config_path(cwd.as_deref(), exe.as_deref()) {
         return anchor_config_path(&found);
     }
-    if let Some(home) = std::env::var_os("HOME") {
-        let mut p = std::path::PathBuf::from(home);
-        p.push(".config");
-        p.push("live2d-ai");
-        p.push("live2d-ai.toml");
-        return p.display().to_string();
+    match crate::config_paths::production_config_dir() {
+        Ok(dir) => dir.join("live2d-ai.toml").display().to_string(),
+        Err(err) => {
+            // 正常环境里 exe 目录 / HOME / APPDATA 总有一个绝对锚点；真全都没有时
+            // 退回系统临时目录（**仍然绝对**，绝不返回相对路径），并在日志里留痕。
+            tracing::warn!(error = %err, "配置目录锚点全部不可用，退回系统临时目录");
+            std::env::temp_dir()
+                .join("live2d-ai")
+                .join("live2d-ai.toml")
+                .display()
+                .to_string()
+        }
     }
-    anchor_config_path(std::path::Path::new("live2d-ai.toml"))
 }
 
 /// 把配置路径**绝对化**（canonicalize 失败就退回 `cwd + path`）。
