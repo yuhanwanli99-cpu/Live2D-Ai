@@ -43,7 +43,7 @@ use manifest::ManifestFile;
 
 pub use adapter::{AdapterSource, ParamAdapter};
 pub use bind_report::ParamBindReport;
-pub use param_bind::{BindConflict, ParamBinder};
+pub use param_bind::{BindConflict, ParamBinder, STANDARD_PARAM_IDS, canonical};
 
 /// 包加载错误。
 #[derive(Debug)]
