@@ -104,7 +104,9 @@ PACKAGE_README = """进入本目录后双击 live2d-ai-desktop.exe。它听 127.
 出厂只启用 external-input。local-tts-melo 没有 Windows 可执行文件，保持关闭。
 八个 Mod 已经编进 exe，不是旁边的 dll。
 cosyvoice3-tts 是 Windows 专属（不依赖 WSL2），出厂停用；用户自备 CosyVoice3 权重与
-参考音色后，按 tools/cosyvoice3/README.md 安装 sidecar，再在设置里启用。权重/参考音色不进本包。
+参考音色后，按 tools/cosyvoice3/README.md 装 sidecar，再在设置里启用。权重/参考音色不进本包。
+本包 [tts] 已指向 127.0.0.1:8011：先跑 tools/cosyvoice3/setup.ps1，再跑
+tools/cosyvoice3/start.cmd 起 sidecar；sidecar 没起时测试 TTS 会报 network_failed。
 """
 
 # 0.6.0 交付 zip 名（固定版本号；不跟 base sha）。
@@ -808,7 +810,11 @@ def main() -> int:
                 for base, _dirs, files in os.walk(dist_dir):
                     for name in sorted(files):
                         full = Path(base) / name
-                        zf.write(full, os.path.relpath(full, dist_dir.parent))
+                        # zip 内**不带 dist 目录名前缀**：解压出来就是包根
+                        #（README.txt / live2d-ai-desktop.exe / web/ / assets/ / tools/ …），
+                        # 与 v0.5.1 / v0.5.2 的包一致；zip 始终从刚落好的干净 stage 打，
+                        # 不含运行期 logs/ 与用户改过的 toml。
+                        zf.write(full, os.path.relpath(full, dist_dir))
             result["zip"] = str(zip_path)
             log("zip：" + str(zip_path))
         elif not args.no_zip:

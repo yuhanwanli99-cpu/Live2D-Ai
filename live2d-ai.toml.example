@@ -3,7 +3,8 @@
 # 用法：
 #   cp live2d-ai.toml.example live2d-ai.toml
 # 然后按需修改。所有段与字段都有默认值：出厂 [llm] 指 DeepSeek 官方、
-# [tts] 指仓库自带的 MeloTTS 垫片，照抄即可用——只差你自己的 API Key。
+# [tts] 指随包的 CosyVoice3 Windows sidecar（tools/cosyvoice3/，127.0.0.1:8011），
+# 照抄即可用——LLM 只差你自己的 API Key；TTS 先跑 tools/cosyvoice3/start.cmd。
 #
 # 安全边界：
 #   API Key 不写进本文件——在 api_key_env 写环境变量**名**，
@@ -45,29 +46,30 @@ api_key_env = "DEEPSEEK_API_KEY"
 # TTS **不是 Mod**，是核心链路（LLM → TTS → 口型）：这一段是出声端点的**唯一**
 # 权威来源。论证见 docs/architecture/tts-is-core.md。
 #
-# 出厂端点 = 仓库自带的 MeloTTS 中文垫片（crates/live2d-ai-mod-local-tts/melo）。
-# 缺省启用的 Mod `local-tts-melo` 会随应用把 melo/start.sh 拉起来，缺省监听
-# 127.0.0.1:8091；第一次启用时按 tag v0.1.2 建 melo/.venv 并装 MeloTTS。
-# 它**只拉起进程**——不写这一段、不探活、不改地址。
-# CosyVoice3 引擎已封存、未注册（crate 与 engine/ 仍在树上，未适配前不要挂回）。
+# 0.6.0 出厂端点 = 随包的 **CosyVoice3 Windows 原生 sidecar**（tools/cosyvoice3/，
+# 监听 127.0.0.1:8011，OpenAI 兼容 /v1/audio/speech）。Windows 包**不带** MeloTTS
+# 运行环境（8091 是死路径），所以这里直接指向 CosyVoice3。
+# 首次使用：先跑 tools/cosyvoice3/setup.ps1 建 venv/装依赖，再跑
+# tools/cosyvoice3/start.cmd 起 sidecar（幂等；冷启动 ~20-25s，warm 后 ready）。
+# **sidecar 没起时**「测试 TTS」会报 network_failed——先 start.cmd 再测。
+# 自备其它 OpenAI 兼容端点：把 base_url / voice / model 换成你的即可（mode 仍 local）。
 [tts]
-# 语音来源二选一（2026-10-09）：local = 仓库自带的 MeloTTS 垫片（缺省，这一组的
-# 字段由设置保存写死、普通层不给改端口）；cloud = 你自己填的 OpenAI 兼容端点
-# （地址 / 音色 / 模型名 / 密钥，本项目不预填厂商、不带 Key）。
+# 语音来源：local = 本机端点（出厂 = CosyVoice3 sidecar）；cloud = 你自己填的
+# OpenAI 兼容端点（地址 / 音色 / 模型名 / 密钥，本项目不预填厂商、不带 Key）。
 mode = "local"
-base_url = "http://127.0.0.1:8091/v1"
-# 音色 = melo/weights/config.json 里 spk2id 的键（这份 config 只有 ZH）
-voice = "ZH"
+base_url = "http://127.0.0.1:8011/v1"
+# 音色 = sidecar 的 voice 名（CosyVoice3 出厂音色 dafeiyu；原样进请求体 voice 字段）
+voice = "dafeiyu"
 # 响应格式。**必须与服务端实际返回一致**（填错会被 400 拒绝，或按错容器解析出杂音）：
-#   "pcm" = 裸 s16le 交错流（MeloTTS 垫片走这个）
+#   "pcm" = 裸 s16le 交错流（CosyVoice3 sidecar 出厂走这个：44.1k / 单声道）
 #   "wav" = RIFF 容器（服务端返回 WAV 时用；本项目会整段缓冲后再解析）
 response_format = "pcm"
-# MeloTTS 中文这份 config 的 sampling_rate = 44100
+# CosyVoice3 sidecar 把模型原生 24k 重采样到 44100 Hz、单声道
 sample_rate = 44100
 channels = 1
-# 本地垫片不鉴权：**不设 api_key_env**（出厂不带 TTS 密钥）。
-# 可选模型名（垫片忽略它）
-# model = "melotts-zh"
+# 可选模型名（sidecar 的 /v1/models 里叫 cosyvoice3-0.5b；填了会原样进请求体）
+model = "cosyvoice3-0.5b"
+# 本机 sidecar 不鉴权：**不设 api_key_env**（出厂不带 TTS 密钥）。
 
 [persona]
 # 固定注入每轮的 system 提示；空串或整段省略 = 不发 system 消息。
