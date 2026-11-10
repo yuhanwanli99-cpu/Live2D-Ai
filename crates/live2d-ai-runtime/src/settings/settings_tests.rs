@@ -114,8 +114,9 @@ fn unknown_field_is_rejected_not_silently_ignored() {
 fn missing_tts_section_is_allowed_but_bad_url_still_errors() {
     // 段整体缺省是合法 TOML（容器级 default 兜底）；非空非法 URL 仍然报错。
     // **2026-10-09（0.2.3-rc.1）**：出厂 `[tts]` 不再是「空」——缺段时用
-    // `TtsSettings::default()`，它指向仓库自带的 MeloTTS 垫片
-    // （8091 / ZH / pcm / 44100 / 单声道 / 无密钥），所以**开箱就有声**。
+    // `TtsSettings::default()`（平台缺省：非 Windows = MeloTTS 8091/ZH，
+    // Windows = CosyVoice3 8011/dafeiyu；pcm / 44100 / 单声道 / 无密钥），
+    // 所以**开箱就有声**。
     let no_tts = "[llm]\nbase_url = \"http://a/v1\"\nmodel = \"m\"\n";
     let resolved = AppSettings::from_toml_str(no_tts)
         .expect("段缺省可解析")
@@ -207,6 +208,45 @@ fn example_template_parses_and_resolves_without_env() {
         .resolve_with(|_| None)
         .expect("模板必须可无环境变量解析");
     assert!(!resolved.llm.base_url.is_empty());
+}
+
+/// 0.6.0：Windows 的「本地 TTS」缺省 = 随包 CosyVoice3 sidecar（8011 / dafeiyu）。
+///
+/// 必须与出厂模板 §[tts]§ 一致，否则用户在设置里保存「本地」会把地址打回
+/// MeloTTS 8091（Windows 上没有这个服务）。本断言只在 Windows 目标编译。
+#[cfg(windows)]
+#[test]
+fn windows_local_tts_defaults_point_at_cosyvoice3() {
+    use crate::settings::{
+        DEFAULT_TTS_BASE_URL, DEFAULT_TTS_VOICE, TtsMode, TtsSettings, apply_local_tts_defaults,
+    };
+    assert_eq!(DEFAULT_TTS_BASE_URL, "http://127.0.0.1:8011/v1");
+    assert_eq!(DEFAULT_TTS_VOICE, "dafeiyu");
+    let mut tts = TtsSettings::default();
+    apply_local_tts_defaults(&mut tts);
+    assert_eq!(tts.mode, TtsMode::Local);
+    assert_eq!(tts.base_url, "http://127.0.0.1:8011/v1");
+    assert_eq!(tts.voice, "dafeiyu");
+    assert_eq!(tts.response_format, "pcm");
+    assert_eq!(tts.sample_rate, 44_100);
+    assert_eq!(tts.channels, 1);
+    assert!(tts.model.is_none(), "local 冻结字段不含 model");
+    assert!(tts.api_key_env.is_none(), "本地不带密钥");
+}
+
+/// 0.6.0 的反面：非 Windows 继续走 MeloTTS 垫片（8091 / ZH），语义不动。
+#[cfg(not(windows))]
+#[test]
+fn non_windows_local_tts_defaults_stay_on_melotts() {
+    use crate::settings::{
+        DEFAULT_TTS_BASE_URL, DEFAULT_TTS_VOICE, TtsSettings, apply_local_tts_defaults,
+    };
+    assert_eq!(DEFAULT_TTS_BASE_URL, "http://127.0.0.1:8091/v1");
+    assert_eq!(DEFAULT_TTS_VOICE, "ZH");
+    let mut tts = TtsSettings::default();
+    apply_local_tts_defaults(&mut tts);
+    assert_eq!(tts.base_url, "http://127.0.0.1:8091/v1");
+    assert_eq!(tts.voice, "ZH");
 }
 
 // ------------------------------------------------- 展示思考总闸（2026-09-15）

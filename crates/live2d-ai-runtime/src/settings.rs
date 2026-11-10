@@ -233,8 +233,11 @@ impl LlmSettings {
 
 /// 语音来源二选一（`[tts].mode`，2026-10-09）。
 ///
-/// **缺省 `Local`**：出声走仓库自带的 MeloTTS 垫片（`127.0.0.1:8091`），
-/// 音色 / 格式 / 采样率 / 声道由设置保存写死（普通层不给改端口）。
+/// **缺省 `Local`**：出声走「本机 TTS 端点」——非 Windows 是仓库自带的
+/// MeloTTS 垫片（`127.0.0.1:8091` / 音色 `ZH`）；Windows 包不带 MeloTTS，
+/// 出厂端点是随包的 CosyVoice3 sidecar（`127.0.0.1:8011` / 音色 `dafeiyu`，见
+/// [`DEFAULT_TTS_BASE_URL`] 的平台分叉）。音色 / 格式 / 采样率 / 声道由设置保存
+/// 写死（普通层不给改端口）。
 /// `Cloud`：地址 / 音色 / 模型名 / 密钥由用户自己填，本项目**不预填厂商**、
 /// **不带 Key**。
 ///
@@ -269,18 +272,22 @@ impl TtsMode {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TtsSettings {
-    /// 语音来源（本地 / 云端）。缺省 `local`——出厂就是仓库自带的 MeloTTS 垫片。
+    /// 语音来源（本地 / 云端）。缺省 `local`——出厂是本机端点（平台分叉：非 Windows
+    /// 是仓库自带 MeloTTS 垫片，Windows 是随包 CosyVoice3 sidecar，见 [`DEFAULT_TTS_BASE_URL`]）。
     #[serde(default)]
     pub mode: TtsMode,
-    /// 服务基址。**出厂缺省 = 仓库自带的 MeloTTS 垫片**（见
-    /// [`DEFAULT_TTS_BASE_URL`]）：本地 TTS 不是 Mod，出声端点唯一权威仍是这一段。
+    /// 服务基址。**出厂缺省按平台分叉**（见 [`DEFAULT_TTS_BASE_URL`]）：
+    /// 非 Windows = 仓库自带 MeloTTS 垫片（8091）；Windows = 随包 CosyVoice3
+    /// sidecar（8011，Windows 包不带 MeloTTS 运行环境）。本地 TTS 不是 Mod，
+    /// 出声端点唯一权威仍是这一段。
     #[serde(default = "default_tts_base_url")]
     pub base_url: String,
     /// 可选模型名；省略时请求体不带 `model` 字段。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// 音色（请求体 `voice` 字段）。**出厂缺省 `ZH`** =
-    /// `melo/weights/config.json` 里 `spk2id` 的键。
+    /// 音色（请求体 `voice` 字段）。**出厂缺省按平台分叉**：非 Windows =
+    /// `ZH`（`melo/weights/config.json` 里 `spk2id` 的键）；Windows = `dafeiyu`
+    /// （CosyVoice3 sidecar 的 voice）。
     #[serde(default = "default_voice")]
     pub voice: String,
     /// 返回格式：`"pcm"`（出厂默认，裸 s16le 流式）或 `"wav"`（RIFF 容器，一次性解析）。
@@ -304,14 +311,29 @@ pub struct TtsSettings {
     pub channels: u16,
 }
 
-/// 出厂 TTS 服务地址（2026-10-09）：仓库自带的 MeloTTS 垫片。
+/// 出厂 TTS 服务地址：**平台条件**（2026-11-10，0.6.0）。
 ///
-/// 这是**开箱出声**的那一条：`local-tts-melo` Mod 随应用拉起 `melo/start.sh`
-/// （缺省监听 8091），这一段指向它。Mod **不写**这一段（`tts-is-core.md`）——
-/// 它只是恰好与缺省一致；用户改了地址或换了端点，链路照样跟着 `[tts]` 走。
+/// - **Windows**：`http://127.0.0.1:8011/v1` = 随包的 CosyVoice3 Windows 原生
+///   sidecar（`tools/cosyvoice3/`）。理由：Windows 包**不带** MeloTTS 运行环境，
+///   8091 在 Windows 上是死路径；出厂模板（`live2d-ai.toml.example`）与这里必须
+///   一致，否则用户在设置里保存「本地」TTS 会把地址打回 8091，开箱即用立刻坏。
+/// - **非 Windows**：`http://127.0.0.1:8091/v1` = 仓库自带的 MeloTTS 垫片
+///   （`local-tts-melo` 随应用拉起 `melo/start.sh`），语义保持 2026-10-09 口径不变。
+///
+/// Mod **不写**这一段（`tts-is-core.md`）：它只是与平台缺省一致；用户改了地址或
+/// 换了端点，链路照样跟着 `[tts]` 走。
+#[cfg(windows)]
+pub const DEFAULT_TTS_BASE_URL: &str = "http://127.0.0.1:8011/v1";
+#[cfg(not(windows))]
 pub const DEFAULT_TTS_BASE_URL: &str = "http://127.0.0.1:8091/v1";
 
-/// 出厂音色：`melo/weights/config.json` 里 `spk2id` 的键（本例只有 `ZH`）。
+/// 出厂音色：**平台条件**（2026-11-10，0.6.0）。
+///
+/// - **Windows**：`dafeiyu`（CosyVoice3 sidecar 的 voice，模板同值）；
+/// - **非 Windows**：`ZH`（`melo/weights/config.json` 里 `spk2id` 的键）。
+#[cfg(windows)]
+pub const DEFAULT_TTS_VOICE: &str = "dafeiyu";
+#[cfg(not(windows))]
 pub const DEFAULT_TTS_VOICE: &str = "ZH";
 
 /// 出厂 TTS 采样率 = `melo/weights/config.json` 的 `sampling_rate`。
@@ -340,11 +362,13 @@ fn default_channels() -> u16 {
     AudioSpec::DEFAULT_CHANNELS
 }
 
-/// 本地模式的**冻结字段**（2026-10-09）：切到「本地」时由设置保存写进 `[tts]`。
+/// 本地模式的**冻结字段**：切到「本地」时由设置保存写进 `[tts]`。
 ///
-/// 三条口径：端口固定 `127.0.0.1:8091`（普通层不给改）、音色 `ZH`、
-/// 裸 PCM / 44100 / 单声道、**无密钥**。这是核心链路（不是 Mod）——
-/// `local-tts-melo` 只负责把进程拉起来（`tts-is-core.md`）。
+/// **地址 / 音色按平台分叉**（2026-11-10，0.6.0；理由同 [`DEFAULT_TTS_BASE_URL`]）：
+/// Windows = `127.0.0.1:8011` / `dafeiyu`（CosyVoice3 sidecar；Windows 包不带
+/// MeloTTS，8091 是死路径）；非 Windows = `127.0.0.1:8091` / `ZH`（MeloTTS 垫片，
+/// 语义不动）。其余冻结：裸 PCM / 44100 / 单声道、**无密钥**、model 清空。
+/// 这是核心链路（不是 Mod）——本地 Mod 只负责把进程拉起来（`tts-is-core.md`）。
 ///
 /// **不**碰 [`AudioSpec::DEFAULT_SAMPLE_RATE`]（那是没配音频时的调度常量，
 /// 与「出厂 `[tts]` 那一行写什么」是两个口径）。

@@ -28,14 +28,15 @@ fn cloud_sample() -> AppSettings {
 
 // ───────────────────────── 语音来源二选一（2026-10-09）
 
-/// 缺省是**本地**：出货那份 `[tts]` 就是仓库自带的 MeloTTS 垫片。
+/// 缺省是**本地**：出货那份 `[tts]` 是平台缺省（非 Windows = MeloTTS 8091，
+/// Windows = CosyVoice3 8011；见 `DEFAULT_TTS_*` 的 cfg 分叉）。
 #[test]
 fn tts_mode_defaults_to_local() {
     let d = TtsSettings::default();
     assert_eq!(d.mode, TtsMode::Local);
     assert_eq!(d.mode.as_str(), "local");
-    assert_eq!(d.base_url, "http://127.0.0.1:8091/v1");
-    assert_eq!(d.voice, "ZH");
+    assert_eq!(d.base_url, crate::settings::DEFAULT_TTS_BASE_URL);
+    assert_eq!(d.voice, crate::settings::DEFAULT_TTS_VOICE);
     assert_eq!(d.sample_rate, 44_100);
     assert_eq!(d.channels, 1);
     assert!(d.api_key_env.is_none());
@@ -58,10 +59,11 @@ fn patch_tts_local_overwrites_port_and_spec() {
     assert_eq!(outcome, PatchOutcome::Updated);
     assert_eq!(next.tts.mode, TtsMode::Local);
     assert_eq!(
-        next.tts.base_url, "http://127.0.0.1:8091/v1",
-        "本地端口固定"
+        next.tts.base_url,
+        crate::settings::DEFAULT_TTS_BASE_URL,
+        "本地端口/地址固定为平台缺省"
     );
-    assert_eq!(next.tts.voice, "ZH");
+    assert_eq!(next.tts.voice, crate::settings::DEFAULT_TTS_VOICE);
     assert_eq!(next.tts.response_format, "pcm");
     assert_eq!(next.tts.sample_rate, 44_100);
     assert_eq!(next.tts.channels, 1);
@@ -82,7 +84,7 @@ fn patch_tts_cloud_without_address_is_rejected() {
     assert!(err.contains("服务地址"), "{err}");
     // 原设置一个字没动。
     assert_eq!(s.tts.mode, TtsMode::Local);
-    assert_eq!(s.tts.base_url, "http://127.0.0.1:8091/v1");
+    assert_eq!(s.tts.base_url, crate::settings::DEFAULT_TTS_BASE_URL);
 }
 
 /// 切到「云端」带地址与音色 → 用用户填的；密钥绑定也随同一次补丁写入。
