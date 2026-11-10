@@ -114,8 +114,14 @@ mod platform;
 /// 把对应 crate 加回 crates/live2d-ai-desktop/Cargo.toml 的 [dependencies]，
 /// 在这里加回 &...::FACTORY 一行，并在 cli_entry::default_mods_manifest 写
 /// 该 Mod 的一行 manifest——**缺省提交里不要加**（本表是防回归断言的对象，
-/// 见 mod_count_is_zero）。缺省核心（对话 / 导演 motion_bias / TTS / 前端）不受影响。
-pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &[];
+/// 见 mod_count_is_expected_for_target）。缺省核心（对话 / 导演 motion_bias / TTS / 前端）不受影响。
+pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &[
+    // 2026-11-10（win/cosyvoice3 本地挂载分支）：Windows 原生 CosyVoice3 sidecar 守护。
+    // 只有 Windows 目标注册（依赖在 [target.'cfg(windows)'.dependencies]）——
+    // Linux/CI 构建仍是「工厂 0」，本地挂载分支不会把 Linux 也绑到 sibling 仓库。
+    #[cfg(windows)]
+    &live2d_ai_mod_cosyvoice3::COSYVOICE3_FACTORY,
+];
 
 /// 0.3.12：工作目录 `mods/<目录名>/mod.toml` 的**只读清单预检**。
 ///
@@ -322,7 +328,8 @@ mod tests {
         assert_eq!(EXIT_ENVIRONMENT, 3);
     }
 
-    /// 防回归：**缺省恰好 0 个** Mod 工厂（2026-10-19「一 Mod 一本地仓库」）。
+    /// 工厂数断言（2026-11-10 win/cosyvoice3 本地挂载）：**Windows = 1** 个
+    /// （`cosyvoice3-tts`），其它目标 = 0。
     ///
     /// 历史（不删，逐条记录工厂数怎么走到 0 的）：
     /// 2026-09-12（rc.2）那个 director 已删除——它是动作序列的唯一驱动方，而动作在产品
@@ -339,20 +346,45 @@ mod tests {
     /// 2026-10-17（rc4）：**director Mod 退役**（按句清洗与 cue 收归核心第二路）→ 6 → 5。
     /// 2026-10-19：**七个 Mod 实现各自一个本地仓库**，主仓缺省不引用 → 5 → **0**。
     ///
-    /// 为什么是 0：主仓只留核心（对话 / 导演 motion_bias / TTS / 前端）。要挂某个
-    /// Mod，由维护者**手动**加回 Cargo 依赖 + 本表一行工厂 + 缺省 manifest 一行；
-    /// 缺省提交里不得夹带任何 Mod 实现（本断言就是拦它的）。
+    /// 为什么 Windows = 1：本分支只挂 `cosyvoice3-tts` 一个 Windows 原生 Mod
+    ///（依赖在 Windows target 段）；其它目标 / `main` 仍是 0——主仓只留核心
+    ///（对话 / 导演 motion_bias / TTS / 前端）。要再挂别的 Mod，由维护者手动
+    /// 加回依赖 + 本表一行，并同步本断言与 id 白名单。
     #[test]
-    fn mod_count_is_zero() {
+    fn mod_count_is_expected_for_target() {
+        #[cfg(windows)]
+        const EXPECTED: usize = 1;
+        #[cfg(not(windows))]
+        const EXPECTED: usize = 0;
         assert_eq!(
             super::AVAILABLE_MOD_FACTORIES.len(),
-            0,
-            "一 Mod 一本地仓库，缺省工厂 0；挂载由维护者手动加回依赖+工厂（本提交不得夹带 Mod 实现）"
+            EXPECTED,
+            "工厂数必须与平台一致：Windows = cosyvoice3-tts（1），其它目标 = 0"
         );
-        // 空表本身也钉死：防止有人把断言改成 `<=` 或删掉后偷偷挂回。
-        assert!(
-            super::AVAILABLE_MOD_FACTORIES.is_empty(),
-            "AVAILABLE_MOD_FACTORIES 必须为空表（缺省不挂任何 Mod）"
+        if EXPECTED == 0 {
+            // 空表本身也钉死：防止有人把断言改成 `<=` 或删掉后偷偷挂回。
+            assert!(
+                super::AVAILABLE_MOD_FACTORIES.is_empty(),
+                "非 Windows 目标 AVAILABLE_MOD_FACTORIES 必须为空表"
+            );
+        }
+    }
+
+    /// 工厂 id 白名单：Windows 只有 `cosyvoice3-tts`；其它目标空表。
+    #[test]
+    fn mod_factory_ids_match_expected() {
+        let mut ids: Vec<&str> = super::AVAILABLE_MOD_FACTORIES
+            .iter()
+            .map(|f| f.descriptor().id)
+            .collect();
+        ids.sort();
+        #[cfg(windows)]
+        let expected: Vec<&str> = vec!["cosyvoice3-tts"];
+        #[cfg(not(windows))]
+        let expected: Vec<&str> = Vec::new();
+        assert_eq!(
+            ids, expected,
+            "挂载分支的工厂 id 白名单：Windows 只有 cosyvoice3-tts"
         );
     }
 

@@ -31,6 +31,10 @@ members = [
 # checkout（Mod 合集目录）的 path 依赖上，主仓因此不 standalone（缺那个目录
 # cargo metadata 即失败）；2026-10-19 起该形态取消。
 [workspace.dependencies]
+# 2026-11-10（win/cosyvoice3 本地挂载分支）：Windows 原生 CosyVoice3 sidecar 守护
+# Mod（id `cosyvoice3-tts`）。**只在这个本地挂载分支挂**；`main` 保持
+# 「缺省不引用任何 Mod 实现」。sibling 本地仓库 path 依赖 ⇒ 本分支不 standalone。
+live2d-ai-mod-cosyvoice3 = { path = "../live2d-ai-mod-cosyvoice3" }
 
 # 第一批基础元数据，各成员可覆盖（如 crates/l2d 的 license 覆盖为 MIT OR Apache-2.0）
 [workspace.package]

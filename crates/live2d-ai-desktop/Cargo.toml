@@ -101,6 +101,13 @@ tungstenite = { version = "0.24" }
 # 用于检测 `live2d-ai.toml` 外部修改并触发 supervisor reload。
 notify = "8"
 
+# 2026-11-10（win/cosyvoice3 本地挂载分支）：CosyVoice3 sidecar 守护 Mod **只在
+# Windows 目标**编进桌面程序（sidecar 是 Windows 原生进程，Linux/CI 不引用它）。
+# 放 [target.'cfg(windows)'.dependencies] 而不是顶层 [dependencies]：顶层依赖预算
+# 仍是 18（code-stats 的 deps 门禁只数顶层），Linux 构建不受 sibling 仓库影响。
+[target.'cfg(windows)'.dependencies]
+live2d-ai-mod-cosyvoice3 = { workspace = true }
+
 [features]
 # 0.4.6（带 Mod 的 Windows 部署）：**打包临时树专用**的宿主接线开关。
 #

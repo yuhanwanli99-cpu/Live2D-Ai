@@ -1879,6 +1879,7 @@ dependencies = [
  "cpal",
  "l2d",
  "live2d-ai-core",
+ "live2d-ai-mod-cosyvoice3",
  "live2d-ai-mod-director",
  "live2d-ai-mod-system",
  "live2d-ai-runtime",
@@ -1894,6 +1895,14 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "tungstenite",
+]
+
+[[package]]
+name = "live2d-ai-mod-cosyvoice3"
+version = "0.1.0"
+dependencies = [
+ "live2d-ai-mod-system",
+ "serde_json",
 ]
 
 [[package]]
