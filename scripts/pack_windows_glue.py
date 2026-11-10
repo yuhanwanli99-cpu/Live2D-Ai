@@ -540,9 +540,13 @@ def main() -> int:
         # ------------------------------------------------ 兄弟仓库导出（固定完整提交）
         log("导出兄弟仓库（git archive <固定完整提交>；不克隆、不带 target/.git/权重）")
         for name in MOD_NAMES:
-            src = sibling_root / ("live2d-ai-mod-" + name)
+            # 仓库目录名 = INFO 里的 crate 名（workspace dep key），**不能**按
+            # "live2d-ai-mod-" + Mod id 猜：cosyvoice3-tts 的仓库目录是
+            # live2d-ai-mod-cosyvoice3（不带 -tts 后缀），猜出来的路径不存在。
+            repo_dir = INFO[name][0]
+            src = sibling_root / repo_dir
             sha = PINNED[name]
-            dest = tmp / ("live2d-ai-mod-" + name)
+            dest = tmp / repo_dir
             export_repo_commit(src, sha, dest)
             chained.append(name)
             note("[chain] " + name + " ← " + str(src) + "（固定提交 " + sha + "）")
