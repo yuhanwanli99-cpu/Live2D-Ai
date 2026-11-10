@@ -3,12 +3,12 @@
 
 职责（与 docs/versions/0.4.md §0.4.6 一致）：
   1. 用 mktemp 临时根 + 「git worktree add --detach <BASE_SHA>」起一次性干净树；
-  2. 七个兄弟仓库按 PINNED 里的**固定完整提交**导出（`git archive <full sha>`；
+  2. 八个兄弟仓库按 PINNED 里的**固定完整提交**导出（`git archive <full sha>`；
      绝不 HEAD、绝不 clone、绝不回退到当前 checkout；任一仓库/提交缺失即硬失败）。
      目录名必须是 Live2D-Ai / live2d-ai-mod-*，让它们 Cargo.toml 的
      ../Live2D-Ai/... path 依赖自洽；dirty src/child.rs 不会进包；
   3. 在临时树里按 docs/architecture/two-repo-mods.md 第 4 节挂载：根
-     [workspace.dependencies] path、desktop 七个 **optional** 依赖、把已提交的
+     [workspace.dependencies] path、desktop 八个 **optional** 依赖、把已提交的
      空特征 `packed-mods = []` 改写成 `["dep:..."]` 清单、main.rs 工厂表+工厂数
      断言、缺省 manifest 只启用 external-input。宿主路由已由分支提交的
      web_api/mod_front_routes.rs 承担——**不再**恢复任何旧文件、不生成
@@ -16,8 +16,9 @@
   4. 验证：Linux cargo check、windows-msvc check（缺 MSVC 原生工具链，记录原文）、
      windows-gnu check（本机唯一可走通）、gnu release 编 exe——全部带
      `--features packed-mods`；
-  5. trunk 构建 /render wasm、flutter build web、组装 dist/windows/（包根含出厂
-     mods.json + README.txt）、可选 zip；
+  5. trunk 构建 /render wasm、flutter build web、组装 dist/（包根含出厂
+     mods.json + README.txt；0.6.0 起额外带 tools/cosyvoice3/ sidecar 安装脚本）、
+     可选 zip（0.6.0 = live2d-ai-windows-0.6.0.zip）；
   6. 临时树一律删除（含失败路径），并验证 git worktree list 恢复原状。
 
 红线：不改主仓、不提交、不 push；不克隆兄弟仓库、不下载权重；不拷维护者的
@@ -44,6 +45,9 @@ MOD_NAMES = [
     "local-tts",
     "local-engine",
     "a2a",
+    # 0.6.0：第 8 个 Mod。Windows 专属（Windows 原生 CosyVoice3 sidecar 守护），
+    # 不依赖 WSL2；权重 / 参考音色不进包（用户自备，见 tools/cosyvoice3/README.md）。
+    "cosyvoice3-tts",
 ]
 ORDER = MOD_NAMES
 
@@ -56,9 +60,14 @@ INFO = {
     "local-tts": ("live2d-ai-mod-local-tts", "live2d_ai_mod_local_tts", "MELO_FACTORY"),
     "local-engine": ("live2d-ai-mod-local-engine", "live2d_ai_mod_local_engine", "FACTORY"),
     "a2a": ("live2d-ai-mod-a2a", "live2d_ai_mod_a2a", "FACTORY"),
+    "cosyvoice3-tts": (
+        "live2d-ai-mod-cosyvoice3",
+        "live2d_ai_mod_cosyvoice3",
+        "COSYVOICE3_FACTORY",
+    ),
 }
 
-# 0.4.6：七个兄弟仓库的**固定完整提交**（40 位 sha）。导出只认这些值——
+# 0.6.0：八个兄弟仓库的**固定完整提交**（40 位 sha）。导出只认这些值——
 # 不接受 HEAD / 分支名 / 短 sha，也不回退到当前 checkout；仓库或提交缺失 =
 # 硬失败（见 export_repo_commit）。改这里 = 明确换一次导出基线。
 PINNED = {
@@ -69,6 +78,8 @@ PINNED = {
     "local-tts": "440f7ea51253754491f0c08ad0eeb28214f30351",
     "local-engine": "32bbe9ff56b247fb36b6ec91f188386a00137946",
     "a2a": "e878b3905d82c8eb1f5af5780588714f31bbc0f1",
+    # 0.6.0：crate + sidecar/ 安装脚本（Windows 原生启动器，不含权重）
+    "cosyvoice3-tts": "1a05bf47e880ceebbf5899c0394b0827a0ce2cd6",
 }
 
 # 包根 mods.json（出厂态，2 空格缩进）：只有 external-input 启用；
@@ -81,7 +92,8 @@ PACKAGE_MODS_JSON = """{
     "memory": { "enabled": false, "config": {} },
     "local-tts-melo": { "enabled": false, "config": { "launch_mode": "on_apply", "program": "" } },
     "local-engine": { "enabled": false, "config": { "launch_mode": "on_apply", "program": "" } },
-    "a2a": { "enabled": false, "config": {} }
+    "a2a": { "enabled": false, "config": {} },
+    "cosyvoice3-tts": { "enabled": false, "config": {} }
   }
 }
 """
@@ -90,8 +102,13 @@ PACKAGE_MODS_JSON = """{
 PACKAGE_README = """进入本目录后双击 live2d-ai-desktop.exe。它听 127.0.0.1:18080。
 不要用 WSL 里的 mods.json、.env、live2d-ai.toml 覆盖本目录。
 出厂只启用 external-input。local-tts-melo 没有 Windows 可执行文件，保持关闭。
-七个 Mod 已经编进 exe，不是旁边的 dll。
+八个 Mod 已经编进 exe，不是旁边的 dll。
+cosyvoice3-tts 是 Windows 专属（不依赖 WSL2），出厂停用；用户自备 CosyVoice3 权重与
+参考音色后，按 tools/cosyvoice3/README.md 安装 sidecar，再在设置里启用。权重/参考音色不进本包。
 """
+
+# 0.6.0 交付 zip 名（固定版本号；不跟 base sha）。
+PACKAGE_ZIP_NAME = "live2d-ai-windows-0.6.0.zip"
 
 PROXY_KEYS = [
     "HTTP_PROXY",
@@ -238,7 +255,7 @@ def patch_tree(wtree: Path, mods: list) -> int:
     )
     write_text(wtree / "Cargo.toml", root_toml)
 
-    # --- 五步链 2a：desktop Cargo.toml 七个依赖必须是 optional（由特征开关）
+    # --- 五步链 2a：desktop Cargo.toml 八个依赖必须是 optional（由特征开关）
     desk = read_text(wtree / "crates/live2d-ai-desktop/Cargo.toml")
     anchor = 'live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }\n'
     deps = "".join(
@@ -248,7 +265,7 @@ def patch_tree(wtree: Path, mods: list) -> int:
         desk,
         anchor,
         anchor
-        + "# pack-windows.sh 临时树（不提交）：七个 Mod 实现编进本二进制，"
+        + "# pack-windows.sh 临时树（不提交）：八个 Mod 实现编进本二进制，"
           "由 packed-mods 特征统一启用（工厂数同步）。\n"
         + deps,
         "desktop Cargo.toml [dependencies]",
@@ -306,7 +323,7 @@ def patch_tree(wtree: Path, mods: list) -> int:
     # --- 缺省 manifest 只启用 external-input
     # 宿主路由已由分支提交的 web_api/mod_front_routes.rs 承担，本脚本不再改
     # web_api/mod.rs；这里只写 manifest，且 local-tts-melo **不进启用表**
-    # （出厂不拉起）。七个库仍链进临时树
+    # （出厂不拉起）。八个库仍链进临时树
     # （Cargo 依赖 / 工厂表不动），只是出厂不再启用一个在 Windows 上必然失败
     # 的 Mod——0.4.1 的包里它的缺省入口是打包机的
     # /tmp/live2d-ai-pack.<随机>/…/melo/start.sh。用户以后把 program 配成
@@ -396,13 +413,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         prog="pack-windows.sh",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="0.4.6 带 Mod 的 Windows 包组装：临时 worktree + 兄弟仓库固定提交导出 + 交叉编译 + dist/windows/",
+        description="0.6.0 带 Mod 的 Windows 包组装：临时 worktree + 兄弟仓库固定提交导出 + 交叉编译 + dist/",
         epilog=(
             "前置条件：\n"
-            "  * 七个兄弟仓库：/home/skystar/live2d-ai-mod-<id>（external-input persona\n"
-            "    voice-input memory local-tts local-engine a2a）。每个都必须含本脚本\n"
+            "  * 八个兄弟仓库：/home/skystar/live2d-ai-mod-<id>（external-input persona\n"
+            "    voice-input memory local-tts local-engine a2a cosyvoice3-tts）。每个都必须含本脚本\n"
             "    PINNED 里的固定完整提交；缺仓库或缺提交 = 硬失败（不 HEAD、不回退、\n"
-            "    不 clone）。不下载 Melo 权重。\n"
+            "    不 clone）。不下载 Melo / CosyVoice3 权重；cosyvoice3-tts 是 Windows\n"
+            "    专属（不依赖 WSL2），权重与参考音色不进包，sidecar 脚本随包在\n"
+            "    tools/cosyvoice3/。\n"
             "  * Windows 目标：本机唯一可走通 x86_64-pc-windows-gnu。需要 rustup target\n"
             "    add x86_64-pc-windows-gnu，且 ~/.local/bin 下有 MSYS2 mingw64 的\n"
             "    x86_64-w64-mingw32-{gcc,ar,dlltool,ld,windres} shim；脚本自动设置\n"
@@ -413,12 +432,13 @@ def main() -> int:
             "    ~/.cache/win-pack-target-046）；可用 < 4G 直接停，不删任何共享 target。\n"
             "    脚本按阶段清理该目录并在结束时删除（--keep-target 保留）。\n"
             "\n"
-            "产物（<dist>/windows/）：live2d-ai-desktop.exe（七个 Mod 编进 exe，\n"
+            "产物（<dist>/）：live2d-ai-desktop.exe（八个 Mod 编进 exe，\n"
             "特征 packed-mods；不是旁边的 dll）、live2d-ai.toml（由仓库 example 生成的\n"
-            "空密钥模板）、mods.json（出厂只启用 external-input）、README.txt（四行）、\n"
+            "空密钥模板）、mods.json（出厂只启用 external-input）、README.txt、\n"
             "web/（Flutter 构建）、web/render/（l2d-wasm-demo 的 /render wasm 产物）、\n"
             "assets/models/（仅 tracked 白名单）、assets/actions/、mods/（仅当临时树有\n"
-            "文件夹 Mod）。\n"
+            "文件夹 Mod）、tools/cosyvoice3/（cosyvoice3-tts 的 Windows sidecar 安装脚本；\n"
+            "不含权重 / 参考音色，用户自备）。\n"
             "报告：stdout 摘要 + dist/pack-logs/report-<base7>.txt（dist/ 已忽略）。"
         ),
     )
@@ -435,7 +455,7 @@ def main() -> int:
         "FLUTTER_BIN", str(Path.home() / "flutter/bin/flutter")),
                         metavar="PATH", help="flutter 可执行文件（默认 ~/flutter/bin/flutter）")
     parser.add_argument("--no-zip", action="store_true",
-                        help="不生成 dist/live2d-ai-windows-<base>.zip")
+                        help="不生成 dist/live2d-ai-windows-0.6.0.zip")
     parser.add_argument("--keep-temp", action="store_true", help="保留临时 worktree（调试用）")
     parser.add_argument("--keep-target", action="store_true", help="保留 target 目录（调试用）")
     parser.add_argument("--skip-cargo", action="store_true",
@@ -739,6 +759,16 @@ def main() -> int:
         archive_paths(wtree, ["assets/models", "assets/actions"], stage)
         if not (stage / "assets/models/README.md").is_file():
             warn("assets/models/README.md 不在导出里（检查基线的 tracked 白名单）")
+        # 0.6.0：第 8 个 Mod 的 Windows 原生 sidecar 安装脚本随包（tools/cosyvoice3/）。
+        # 只带脚本与说明；**不含**权重 / 参考音色 / .venv / 模型缓存，用户自备。
+        if "cosyvoice3-tts" in chained:
+            sidecar_src = tmp / "live2d-ai-mod-cosyvoice3" / "sidecar"
+            if not (sidecar_src / "README.md").is_file():
+                die("导出树里没有 live2d-ai-mod-cosyvoice3/sidecar/README.md"
+                    "（PINNED 提交不对？cosyvoice3-tts 的 sidecar 脚本必须随包）")
+            copy_tree_contents(sidecar_src, stage / "tools/cosyvoice3")
+            note("tools/cosyvoice3/：cosyvoice3-tts sidecar 安装脚本"
+                 "（不含权重 / 参考音色）")
         # 模板：由 example 生成，绝不拷维护者的 live2d-ai.toml / .env。
         example = wtree / "live2d-ai.toml.example"
         if not example.is_file():
@@ -768,7 +798,7 @@ def main() -> int:
 
         # ------------------------------------------------ 可选 zip
         if not args.no_zip and result["exe"] == "built_gnu":
-            zip_path = dist_dir.parent / ("live2d-ai-windows-" + base_sha[:7] + ".zip")
+            zip_path = dist_dir.parent / PACKAGE_ZIP_NAME
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED,
                                  compresslevel=6) as zf:
                 for base, _dirs, files in os.walk(dist_dir):
@@ -790,9 +820,9 @@ def main() -> int:
                                 capture_output=True, text=True).stdout.split()
             dist_du = du[0] if du else "0"
         report_lines = [
-            "0.4.6 带 Mod 的 Windows 包（scripts/pack-windows.sh）",
+            "0.6.0 带 8 个 Mod 的 Windows 包（scripts/pack-windows.sh）",
             "主仓临时树基线（full）：" + base_sha + "（--base " + args.base + "）",
-            "七个兄弟仓库固定提交（full，git archive <sha>）：",
+            "八个兄弟仓库固定提交（full，git archive <sha>）：",
         ]
         for name in MOD_NAMES:
             report_lines.append("  " + name + "  " + PINNED[name])
@@ -822,7 +852,8 @@ def main() -> int:
         if result["zip"]:
             report_lines.append("zip：" + result["zip"])
         report_lines.append(
-            "Windows 实机：未验（本机只有 WSL2 交叉编译，没有 Windows 实机运行）")
+            "Windows 实机：同轮人工验收（记录在 D:/live2dai/logs/；"
+            "8 个 Mod 列表 / cosyvoice3-tts ready / TTS 测试 / 端口释放）")
         report_lines.append("")
         report_lines.append("产物清单（最多 80 个文件）：")
         report_lines.extend(dist_files[:80])
