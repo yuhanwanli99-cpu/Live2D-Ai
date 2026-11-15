@@ -31,7 +31,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use live2d_ai_runtime::hotmem::{
     FactKind, HotCard, HotMemory, HotMemorySnapshot, Recollection, compose_card_from,
-    compose_system_text, render_pinned, system_sentence,
+    compose_system_text_with_summary, render_pinned, system_sentence,
 };
 
 /// 「查」的最长等待（毫秒）。超时按空热卡开口，不追改已经送去 TTS 的句子。
@@ -66,6 +66,8 @@ pub struct SpokenBlocks {
     pub pinned: String,
     /// 热卡渲染后的正文（空 = 没有）。
     pub hot_card: String,
+    /// 滚动摘要正文（空 = 没有；来自「记」把掉出窗口的轮次折叠的结果）。
+    pub summary: String,
     /// 拼好的 system 文本。
     pub system: String,
 }
@@ -127,11 +129,18 @@ impl HotSlot {
         let pinned = render_pinned(&items, &spoken);
         let card = inner.mem.card(session);
         let hot_card = live2d_ai_runtime::hotmem::render_hot_card(card);
-        let system = compose_system_text(&sentence, &pinned, card.filter(|c| !c.is_empty()));
+        let summary = inner.mem.summary(session).to_string();
+        let system = compose_system_text_with_summary(
+            &sentence,
+            &pinned,
+            card.filter(|c| !c.is_empty()),
+            &summary,
+        );
         SpokenBlocks {
             sentence,
             pinned,
             hot_card,
+            summary,
             system,
         }
     }

@@ -50,6 +50,8 @@ mod recall_tests;
 mod render;
 mod store;
 #[cfg(test)]
+mod summary_tests;
+#[cfg(test)]
 mod tests;
 
 pub use budget::{estimate_tokens, fit_lines, trim_to_tokens};
@@ -65,8 +67,8 @@ pub use recall::{
     recall_user_message,
 };
 pub use render::{
-    HOT_CARD_BUDGET_TOKENS, HOT_CARD_HEADING, PINNED_HEADING, PromptBudget, SYSTEM_PROMPT_FACTORY,
-    compose_system_text, system_sentence,
+    HOT_CARD_BUDGET_TOKENS, HOT_CARD_HEADING, PINNED_HEADING, PromptBudget, SUMMARY_HEADING,
+    SYSTEM_PROMPT_FACTORY, compose_system_text, compose_system_text_with_summary, system_sentence,
 };
 pub use store::{HotMemory, HotMemorySnapshot, NO_SESSION, Recollection, StoredFact};
 

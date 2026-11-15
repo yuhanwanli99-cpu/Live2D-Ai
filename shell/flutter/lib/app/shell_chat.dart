@@ -40,6 +40,8 @@ extension _ShellChatWiring on _ShellRootState {
     if (text.trim().isEmpty) return;
     if (_chat.streaming) return;
     _input.clear();
+    // 这一轮的热卡已经用掉：草稿计时器停掉，别在发送之后再换热卡。
+    _draftProbe?.reset();
     _ui.markTurnAccepted();
     await _chat.send(text);
     // **本地失败必须回落相位**（2026-10-01，审计 F-0007-1）。网络异常 / 非 2xx

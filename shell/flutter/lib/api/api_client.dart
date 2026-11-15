@@ -88,8 +88,9 @@ class ApiClient {
   /// 发送一条文本消息。200 返回受理结果；400/429/503 抛 [ApiException]。
   ///
   /// [sessionId] 是 **L1 会话绑定**的入口：带上它之后，本轮 LLM 请求的
-  /// system_prompt 取该会话的覆盖（persona 的人设 / memory 的记忆块按会话写），
-  /// 没有覆盖则回落全局 `persona.system_prompt`。
+  /// system 文本按**该会话**组装（系统句 + 钉住的事 + 最近对话 + 热卡）。
+  /// 注意 `persona` / `memory` 两条 Mod 来源槽**已退休**（2026-11-16）：
+  /// 它们写会话槽也不进说话请求，见 `hotmem` 模块头注。
   ///
   /// 服务端对 id 做归一化（`sanitize_session_id`）：非法值按「不带会话」处理，
   /// **不会**因此报错——前端不该因为一个本地生成的 id 形状异常就发不出消息。
@@ -121,6 +122,39 @@ class ApiClient {
       );
     }
     throw _errorFrom(response);
+  }
+
+  /// `POST /api/v1/chat/draft`（2026-11-16 热槽记忆 M3）：草稿换热卡。
+  ///
+  /// 语义是**检索**，不是命令：服务端不创建一轮、不调 TTS、不写配置，
+  /// 唯一副作用是把该会话的热卡整块换成「由这段草稿检索出来的那一张」。
+  /// 热卡只影响**下一次发送**的 system 文本（钉住的事 / 本轮相关）。
+  ///
+  /// 调用方（`chat/draft_probe.dart`）按 400 ms 停顿发一次；服务端不防抖。
+  /// 空串 = 清掉该会话的热卡（没有检索依据，不拿旧卡顶着）。
+  ///
+  /// **失败一律静默**：草稿是尽力而为的辅助，转圈或弹错都只会干扰打字。
+  /// 返回 200 时回该卡的行数（诊断 / 测试用），失败回 null。
+  Future<int?> sendDraft(String text, {String? sessionId}) async {
+    try {
+      final Map<String, String> payload = <String, String>{'text': text};
+      if (sessionId != null && sessionId.isNotEmpty) {
+        payload['session_id'] = sessionId;
+      }
+      final response = await _client.post(
+        _uri('/api/v1/chat/draft'),
+        headers: const <String, String>{
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(payload),
+      );
+      if (response.statusCode != 200) return null;
+      final data = _decodeObject(response.body);
+      final lines = data['lines'];
+      return lines is num ? lines.toInt() : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// `POST /api/v1/chat/session`（L1 会话绑定）：把**当前活动会话**告诉服务端。

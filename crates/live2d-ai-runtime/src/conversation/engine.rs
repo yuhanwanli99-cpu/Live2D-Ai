@@ -48,6 +48,8 @@ pub struct ConversationEngine {
     ///
     /// 热重载会整体重建引擎 → 覆盖槽随之回到 `None`（下一轮再 set）。
     pub(super) system_prompt_override: Option<String>,
+    /// 因超出 `max_history_pairs` 被挤出窗口的轮次（宿主折摘要用；取走即清）。
+    evicted: Vec<(String, String)>,
     /// **表演层运行时**（2026-09-22；rc4 起只保留 segments / speak）。
     ///
     /// - `None`（缺省）= 关闸：主链走「边流边切句 + 按句二路清洗 + 按句规则表
@@ -83,6 +85,7 @@ impl ConversationEngine {
             config,
             history: VecDeque::new(),
             system_prompt_override: None,
+            evicted: Vec::new(),
             performance: None,
             cleaner: None,
         }
@@ -203,12 +206,27 @@ impl ConversationEngine {
     /// turn_terminal 单次触发即天然防重）。
     pub fn commit_completed_turn(&mut self, user_text: &str, assistant_text: &str) {
         if self.config.max_history_pairs == 0 {
+            // 不保留历史 = 这一轮**全部**掉出窗口（摘要折叠要它）。
+            self.evicted
+                .push((user_text.to_string(), assistant_text.to_string()));
             return;
         }
         self.history
             .push_back((user_text.to_string(), assistant_text.to_string()));
         while self.history.len() > self.config.max_history_pairs {
-            self.history.pop_front();
+            if let Some(pair) = self.history.pop_front() {
+                // **不要在这里丢内容**：宿主要把被挤出的轮次折成滚动摘要
+                // （见 `live2d_ai_runtime::hotmem::fold_summary`）。
+                self.evicted.push(pair);
+            }
         }
+    }
+
+    /// 取走「因超出 `max_history_pairs` 而被挤出窗口」的轮次（FIFO，取走后清空）。
+    ///
+    /// 宿主在每轮收口后调一次，把结果折成 ≤300 字的滚动摘要。返回空表 = 这一轮
+    /// 没有轮次掉出窗口，摘要不用动。
+    pub fn take_evicted_turns(&mut self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.evicted)
     }
 }

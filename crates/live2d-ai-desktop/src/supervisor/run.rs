@@ -260,15 +260,30 @@ pub(super) async fn run_forever(
                         let assistant_text = close.assistant_text.clone();
                         let session_for_recall = session.clone();
                         let turn_id = next_turn_id;
+                        // **M4 摘要**：这一轮生效之后，「掉出历史窗口」的轮次折进
+                        // 该会话的滚动摘要（替换上一条，≤300 字）。
+                        //
+                        // 为什么在这里折而不是在后台任务里：`histories` 与引擎都归
+                        // supervisor 线程独有，后台任务拿不到；而折叠本身是纯函数
+                        // （`hotmem::fold_summary`），微秒级，不构成「拖住说话」。
+                        let dropped = engine.take_evicted_turns();
+                        if !dropped.is_empty() {
+                            let previous = hot_slot.summary(session.as_deref());
+                            let folded =
+                                live2d_ai_runtime::hotmem::fold_summary(&previous, &dropped);
+                            hot_slot.set_summary(session.as_deref(), &folded);
+                        }
                         tokio::spawn(async move {
                             let recalled =
                                 crate::hot_recall::recall_once(&client, &user_text, &assistant_text)
                                     .await;
                             let written = match recalled {
                                 crate::hot_recall::Recalled::Items(items) => {
-                                    let n = slot.record(items);
-                                    slot.record_fallback_episode(&user_text);
-                                    n
+                                    // 抽成功就**只**记抽出的事实：计划 §3 的兜底
+                                    // episode 是「抽失败时」的替代路径，不是附加项。
+                                    // 成功路径再塞一条用户原话，会让每轮都多一条
+                                    // 新鲜 episode 挤进热卡候选（复核指出）。
+                                    slot.record(items)
                                 }
                                 crate::hot_recall::Recalled::Failed(reason) => {
                                     // 计划 §3：抽失败就只把这一轮原文记成 episode，

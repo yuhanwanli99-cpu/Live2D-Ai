@@ -22,9 +22,10 @@ use super::render::HOT_CARD_BUDGET_TOKENS;
 
 /// 资料切块的最大字符数（一块 = 一个候选）。
 ///
-/// 取值理由：热卡一行就是一条，太长的行既进不了预算也不好读；300 字足够一段
-/// 知识，又保证「特征句」几乎一定落在一块里（测试就是按这个前提断言的）。
-pub const MATERIAL_CHUNK_CHARS: usize = 300;
+/// 取值理由：**单块必须能独自进得去 200 token 的热卡**（一整行收，不截半行），
+/// 所以上限取 120 —— 120 个 CJK 字符 + `- [资料] ` 前缀仍远低于 200。
+/// 300 字的块看着更像「一段知识」，但它单独就超预算，会让整卡为空。
+pub const MATERIAL_CHUNK_CHARS: usize = 120;
 
 /// 一次最多取多少块候选（防止 5000 字文件产出几十条把热卡挤满）。
 pub const MATERIAL_MAX_CHUNKS: usize = 6;

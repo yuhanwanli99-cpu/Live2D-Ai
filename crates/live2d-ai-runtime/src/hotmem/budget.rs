@@ -70,32 +70,29 @@ pub fn trim_to_tokens(text: &str, budget_tokens: usize) -> &str {
     text
 }
 
-/// 按行铺满预算：**整行**收，直到下一行放不下为止。
+/// 按行铺满预算：**整行收，整行丢**（绝不截半行）。
 ///
-/// 边界：
-/// - 第一行自己就超预算时不返回空表（那会让「有命中却像没命中」），而是把
-///   这一行截到预算内——**只有第一行**享受这个待遇，后面一律整行收；
+/// 语义只有一条：从头开始收，收到放不下就停。
+/// - 第一行自己就超预算 → 返回空表（不是「截一段」）——半行的事实/资料比没有更坏，
+///   而调用方（热卡 / 钉住块）的候选单条都受各自长度上限约束，正常不会触发；
 /// - `budget_tokens == 0` → 空表（0 预算就是不要）。
+///
+/// 为什么不做「首行截断」：热卡要把渲染串反查回结构化行，截断后匹配不上，
+/// 表现是「有命中却像没命中」；钉住块直接 join，截断后是半句。两处口径必须相同，
+/// 所以这里只保留一种行为。
 pub fn fit_lines(lines: &[String], budget_tokens: usize) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     if budget_tokens == 0 {
         return out;
     }
     let mut used = 0usize;
-    for (i, line) in lines.iter().enumerate() {
+    for line in lines {
         let cost = estimate_tokens(line);
-        if used + cost <= budget_tokens {
-            used += cost;
-            out.push(line.clone());
-            continue;
+        if used + cost > budget_tokens {
+            break;
         }
-        if i == 0 {
-            let cut = trim_to_tokens(line, budget_tokens);
-            if !cut.is_empty() {
-                out.push(cut.to_string());
-            }
-        }
-        break;
+        used += cost;
+        out.push(line.clone());
     }
     out
 }

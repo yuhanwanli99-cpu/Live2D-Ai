@@ -49,6 +49,9 @@ pub const PINNED_HEADING: &str = "【钉住的事】";
 /// 热卡的标题行。
 pub const HOT_CARD_HEADING: &str = "【本轮相关】";
 
+/// 滚动摘要的标题行（空摘要不写）。
+pub const SUMMARY_HEADING: &str = "【之前聊过】";
+
 /// 说话请求的 system 文本 = 系统句 + 钉住块 + 热卡（空块连同标题一起略过）。
 ///
 /// 参数：
@@ -60,7 +63,20 @@ pub fn compose_system_text(
     pinned: &str,
     hot_card: Option<&HotCard>,
 ) -> String {
-    let mut blocks: Vec<String> = Vec::with_capacity(3);
+    compose_system_text_with_summary(system_sentence, pinned, hot_card, "")
+}
+
+/// 带**滚动摘要**的四块拼接（2026-11-16 热槽记忆 M4）。
+///
+/// 摘要块排在「最近对话」与「热卡」之间：它描述的正是**已经掉出历史窗口**的那几轮，
+/// 读起来应当紧挨着历史之前、热卡之后。空摘要 = 不写这一块（连同标题）。
+pub fn compose_system_text_with_summary(
+    system_sentence: &str,
+    pinned: &str,
+    hot_card: Option<&HotCard>,
+    summary: &str,
+) -> String {
+    let mut blocks: Vec<String> = Vec::with_capacity(4);
     let sentence = system_sentence.trim();
     if !sentence.is_empty() {
         blocks.push(sentence.to_string());
@@ -72,6 +88,10 @@ pub fn compose_system_text(
     let card = render_hot_card(hot_card);
     if !card.is_empty() {
         blocks.push(format!("{HOT_CARD_HEADING}\n{card}"));
+    }
+    let summary = summary.trim();
+    if !summary.is_empty() {
+        blocks.push(format!("{SUMMARY_HEADING}\n{summary}"));
     }
     blocks.join("\n\n")
 }

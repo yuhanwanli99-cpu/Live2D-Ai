@@ -2,6 +2,7 @@ part of 'package:live2d_ai_shell/main.dart';
 
 extension _ShellLifecycleWiring on _ShellRootState {
   void _initShell() {
+    _initDraftProbe();
     // 会话 baseline 的第 ① 路交付（D28）：host 随 chat/stop 响应体回。
     // 值不进任何字段——回调里解析成一次性下发清单，立即应用后即丢。
     _api = ApiClient(onSessionBaseline: _onSessionBaselineDelivered);
@@ -249,6 +250,7 @@ extension _ShellLifecycleWiring on _ShellRootState {
   }
 
   void _disposeShell() {
+    _disposeDraftProbe();
     unawaited(_levelSubscription?.cancel());
     unawaited(_statusSubscription?.cancel());
     unawaited(_eventSubscription?.cancel());
