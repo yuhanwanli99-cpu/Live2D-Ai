@@ -42,6 +42,7 @@
 mod budget;
 mod card;
 mod fact;
+mod material;
 mod pin;
 mod recall;
 #[cfg(test)]
@@ -54,6 +55,10 @@ mod tests;
 pub use budget::{estimate_tokens, fit_lines, trim_to_tokens};
 pub use card::{CardLine, CardTier, HotCard, render_hot_card};
 pub use fact::{FactKind, HotFact, retention, strengthen};
+pub use material::{
+    CARD_BUDGET_TOKENS, MATERIAL_CHUNK_CHARS, MATERIAL_MAX_CHUNKS, compose_card, compose_card_from,
+    split_material,
+};
 pub use pin::{PINNED_BUDGET_TOKENS, PinnedItem, pinned_tokens, render_pinned};
 pub use recall::{
     MAX_RECALL_ITEMS, MAX_RECALL_TEXT_CHARS, RECALL_SYSTEM_PROMPT, fold_summary, parse_recalled,

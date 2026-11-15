@@ -30,8 +30,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use live2d_ai_runtime::hotmem::{
-    CardLine, HotCard, HotMemory, HotMemorySnapshot, PinnedItem, Recollection, compose_system_text,
-    render_pinned, system_sentence,
+    HotCard, HotMemory, HotMemorySnapshot, PinnedItem, Recollection, compose_card_from,
+    compose_system_text, render_pinned, system_sentence,
 };
 
 /// 「查」的最长等待（毫秒）。超时按空热卡开口，不追改已经送去 TTS 的句子。
@@ -149,32 +149,40 @@ impl HotSlot {
         self.guard().mem.note_spoken(session, ids);
     }
 
-    /// **查**：把草稿的命中整块写成本轮热卡（**替换**，不是追加）。
+    /// **查**（带外挂资料，M5）：事实 + 资料一起整块装成本轮热卡。
     ///
-    /// 最小实现（M3）：候选 = 库里的钉住 + 未过期事实，按保留率分档、按 200 token
-    /// 裁剪，与最近几轮原文重复的行丢掉。**没有向量**——向量检索在 M3 之后接
-    /// embedding trait；这里先给出「无向量时热卡为空 / 有事实时按保留率成卡」的
-    /// 确定行为，测试据此断言。
+    /// `material` 是**已切好的块**（见 `hotmem::split_material`）：调用方负责
+    /// 读文件，本模块不做 IO（与 M1 的边界一致）。资料与保留率无关，只受热卡
+    /// 剩余预算限制——见 `hotmem::compose_card_from`。
+    ///
+    /// 候选的排序与裁剪口径：事实按保留率分档（清楚 → 模糊），资料排在它们
+    /// 之后吃剩余预算；与最近几轮原文逐字重复的行丢掉；整行收，不截半行。
     ///
     /// 返回写好的热卡（空卡 = 清掉了该会话的热卡）。
-    pub fn retrieve(&self, session: Option<&str>, draft: &str, recent: &[String]) -> HotCard {
+    pub fn retrieve_with_material(
+        &self,
+        session: Option<&str>,
+        draft: &str,
+        material: &[String],
+        recent: &[String],
+    ) -> HotCard {
         let mut inner = self.guard();
         inner.mem.advance_to(clock_hours());
-        let facts = inner.mem.candidates();
         let draft = draft.trim();
         // 草稿为空 = 没有检索依据 → 空热卡（**不拿旧卡顶着**）。
         let card = if draft.is_empty() {
             HotCard::empty()
         } else {
-            let mut candidates: Vec<CardLine> = facts
-                .iter()
-                .filter_map(|f| f.tier().map(|t| CardLine::new(t, f.text.clone())))
-                .collect();
-            candidates.sort_by_key(|line| line.tier);
-            HotCard::from_lines(candidates, recent)
+            let facts = inner.mem.candidates();
+            compose_card_from(&facts, material, recent)
         };
         inner.mem.set_card(session, card.clone());
         card
+    }
+
+    /// **查**（无外挂资料）：等价于 `retrieve_with_material(.., &[], ..)`。
+    pub fn retrieve(&self, session: Option<&str>, draft: &str, recent: &[String]) -> HotCard {
+        self.retrieve_with_material(session, draft, &[], recent)
     }
 
     /// 丢掉某会话的热卡（草稿话题变了 / 含 `[资料]` 的卡整块作废）。

@@ -61,13 +61,25 @@ pub struct DraftAccepted {
     pub tokens: usize,
     /// 热卡正文（`- [清楚] …` 三行制；空 = 没有命中）。
     pub card: String,
+    /// 本张卡里 `[资料]` 行的条数（0 = 本轮没有外挂资料进出）。
+    pub material_lines: usize,
 }
 
 /// 处理 `POST /api/v1/chat/draft`。
 ///
 /// 返回 `None` = 路径不匹配（交还 dispatch）；其余一律是完整响应。
+///
+/// 外挂资料（M5）在这里读：`material` 由调用方从 `[hotmem].material_path` 读出
+/// （空 = 不查资料）。读盘失败不报错，按「没有资料」处理。
+///
+/// 参数多（8 个）是**刻意**的：这条 handler 与 `handle_chat_session` 同款，
+/// 把 method / path / body / origin / content-type / security 逐个显式传入，
+/// 而不是收一个上下文对象——测试要能逐项构造，且「这一层不许自己去读文件之外的
+/// 任何东西」在签名上就看得见。放行 `too_many_arguments` 而不是塞一个 struct。
+#[allow(clippy::too_many_arguments)]
 pub fn handle_chat_draft(
     hot_slot: Option<&HotSlot>,
+    material: &[String],
     method: &Method,
     path: &str,
     body: &str,
@@ -120,7 +132,7 @@ pub fn handle_chat_draft(
     // 草稿是尽力而为的辅助，不该让前端多一条只在特定装配下才出现的失败路径。
     let session_id = session.clone();
     let card = match hot_slot {
-        Some(slot) => slot.retrieve(session_id.as_deref(), &text, &[]),
+        Some(slot) => slot.retrieve_with_material(session_id.as_deref(), &text, material, &[]),
         None => live2d_ai_runtime::hotmem::HotCard::empty(),
     };
     let rendered = live2d_ai_runtime::hotmem::render_hot_card(Some(&card));
@@ -130,6 +142,11 @@ pub fn handle_chat_draft(
         lines: card.lines().len(),
         tokens: card.tokens(),
         card: rendered,
+        material_lines: card
+            .lines()
+            .iter()
+            .filter(|line| line.tier == live2d_ai_runtime::hotmem::CardTier::Material)
+            .count(),
     };
     Some(json_response(
         StatusCode(200),

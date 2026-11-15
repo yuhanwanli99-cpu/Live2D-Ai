@@ -5,8 +5,8 @@
 //! 2. 抽失败 → 记 episode 原文（截断 200 字），**不调用第二次**；
 //! 3. 近期超过 `max_history_pairs` 的部分折成 ≤300 字摘要，替换上一条。
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 use live2d_ai_runtime::hotmem::{FactKind, Recollection};
 

@@ -27,6 +27,7 @@ fn post_draft(
 ) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
     handle_chat_draft(
         Some(handle.hot_slot()),
+        &[],
         &Method::Post,
         CHAT_DRAFT_PATH,
         body,
@@ -177,6 +178,7 @@ fn draft_enforces_the_same_mutating_contract_as_chat() {
 
     let bad_ct = handle_chat_draft(
         Some(slot),
+        &[],
         &Method::Post,
         CHAT_DRAFT_PATH,
         r#"{"text":"x"}"#,
@@ -189,6 +191,7 @@ fn draft_enforces_the_same_mutating_contract_as_chat() {
 
     let bad_origin = handle_chat_draft(
         Some(slot),
+        &[],
         &Method::Post,
         CHAT_DRAFT_PATH,
         r#"{"text":"x"}"#,
@@ -201,6 +204,7 @@ fn draft_enforces_the_same_mutating_contract_as_chat() {
 
     let no_origin = handle_chat_draft(
         Some(slot),
+        &[],
         &Method::Post,
         CHAT_DRAFT_PATH,
         r#"{"text":"x"}"#,
@@ -213,6 +217,7 @@ fn draft_enforces_the_same_mutating_contract_as_chat() {
 
     let get = handle_chat_draft(
         Some(slot),
+        &[],
         &Method::Get,
         CHAT_DRAFT_PATH,
         "",
@@ -226,6 +231,7 @@ fn draft_enforces_the_same_mutating_contract_as_chat() {
     assert!(
         handle_chat_draft(
             Some(slot),
+            &[],
             &Method::Post,
             "/api/v1/chat",
             "",

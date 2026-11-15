@@ -131,6 +131,13 @@ pub struct AppSettings {
     pub persona: PersonaSettings,
     /// 动作幅度段（`[action]`，2026-09-16 用户可调）：头 / 身 / 表情三条独立倍率。
     pub action: ActionSettings,
+    /// 主链热槽段（`[hotmem]`，2026-11-16）：外挂资料路径。
+    ///
+    /// **缺省整段可省、且缺省时不写回**：不写 = 不查资料（与「没有这个能力」
+    /// 逐字一致）。`skip_serializing_if` 保证旧的 toml 逐字 round-trip——
+    /// 这是本仓对 `merge_into_toml` 的一贯纪律（不得凭空长出整段默认值）。
+    #[serde(default, skip_serializing_if = "HotmemSettings::is_default")]
+    pub hotmem: HotmemSettings,
     /// 表演层段（`[performance]`，2026-09-22）：主模型之外的「导演/大脑」。
     /// **缺省关**（`enabled=false`）——关掉时主链行为与没有本段时逐字一致。
     pub performance: PerformanceSettings,
@@ -395,6 +402,36 @@ impl Default for TtsSettings {
             sample_rate: default_sample_rate(),
             channels: default_channels(),
         }
+    }
+}
+
+/// `[hotmem]` 段：主链热槽的外部资料（2026-11-16 热槽记忆 M5）。
+///
+/// # 为什么只有路径一项
+///
+/// 热槽本身就是内存里的四块拼接，没有可调的旋钮；这个段存在的唯一理由是
+/// **外挂资料要有一个「在哪里」的答案**。路径为空 = 不查资料。
+///
+/// # 只读文本，不是 Mod
+///
+/// 计划 §4：外挂知识库是配置目录里的文本文件，**不是 Mod**；查可以读块，写进
+/// 热卡时每条压成一行 `[资料]`，原文留在文件里。资料条目没有强度 `S`，不参与
+/// 遗忘——它每次都是现读现用。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HotmemSettings {
+    /// 外挂资料的文本文件路径（UTF-8）。空串 = 不查资料（缺省）。
+    ///
+    /// 相对路径按**配置文件所在目录**解析（与 `mods.json` 同一条锚点纪律，
+    /// 避免「cwd 不同就读不到」——那类缺陷在本仓已经出现过一次）。
+    #[serde(default)]
+    pub material_path: String,
+}
+
+impl HotmemSettings {
+    /// 是否是出厂状态（整段省略）。
+    pub fn is_default(&self) -> bool {
+        self.material_path.trim().is_empty()
     }
 }
 
