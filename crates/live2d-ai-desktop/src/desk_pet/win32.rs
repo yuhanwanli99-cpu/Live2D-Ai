@@ -8,9 +8,15 @@
 //! 本机在 `/mnt/c/msys64/mingw64/include`），64 位 `sizeof` 实测：
 //! `WNDCLASSEXW`=80、`MSG`=48、`POINT`=8、`SIZE`=8、
 //! `BLENDFUNCTION`=4、`BITMAPINFOHEADER`=40、`BITMAPINFO`=44。
-//! 声明面另用 `rustc --target x86_64-pc-windows-gnu --emit=metadata` 编过。
 //!
-//! **真实窗口未验**：这里只有编译期证据，没有在 Windows 上运行过。
+//! 0.4.3 之后新增两组声明（命中/拖动与 DPI）：`WM_NCHITTEST` 系列消息、
+//! `HTTRANSPARENT`/`HTCLIENT`、`SetCapture`/`ReleaseCapture`/`GetCursorPos`/
+//! `SetWindowPos`，以及 `SetProcessDpiAwarenessContext` / `SetThreadDpiAwarenessContext`
+//! / `SetProcessDPIAware` / `GetDpiForSystem`。符号可链接性用
+//! `x86_64-w64-mingw32-gcc` 实测过（四个 DPI 符号都在 user32 的导入库里）。
+//!
+//! 真机证据：`D:\live2dai\plan\VERIFY-desk-pet-win.md`（H1 基线 / H3 命中拖动 /
+//! H4 DPI 的截图与日志原文）。
 #![allow(unsafe_code)]
 
 use std::ffi::c_void;
@@ -48,7 +54,27 @@ pub(super) const SW_SHOWNOACTIVATE: i32 = 4;
 pub(super) const SM_CXSCREEN: i32 = 0;
 pub(super) const SM_CYSCREEN: i32 = 1;
 
-// ── 结构体（字段顺序与头文件一致；构造在 window.rs，所以字段 pub(super)） ──
+// ── 命中测试 / 鼠标 / 拖动（0.4.3 之后） ──
+pub(super) const WM_NCHITTEST: u32 = 0x0084;
+pub(super) const WM_MOUSEMOVE: u32 = 0x0200;
+pub(super) const WM_LBUTTONDOWN: u32 = 0x0201;
+pub(super) const WM_LBUTTONUP: u32 = 0x0202;
+pub(super) const WM_CAPTURECHANGED: u32 = 0x0215;
+/// `WM_NCHITTEST` 答复：这个点不属于我，交给下面的窗。
+pub(super) const HTTRANSPARENT: Lresult = -1;
+/// `WM_NCHITTEST` 答复：客户区（本窗吃这个点）。
+pub(super) const HTCLIENT: Lresult = 1;
+pub(super) const SWP_NOSIZE: u32 = 0x0001;
+pub(super) const SWP_NOZORDER: u32 = 0x0004;
+pub(super) const SWP_NOACTIVATE: u32 = 0x0010;
+/// `SetWindowPos` 的 `hWndInsertAfter` 占位（配合 `SWP_NOZORDER` 时 z 序不变）。
+pub(super) const HWND_TOPMOST: Hwnd = -1_isize as Hwnd;
+
+// ── DPI（建窗前设进程感知；失败退线程级，再失败就用系统虚拟化坐标） ──
+/// `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2`（值 -4）。
+pub(super) const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: Handle = -4_isize as Handle;
+
+// ── 结构体（字段顺序与头文件一致；构造在 window.rs / hit.rs，所以字段 pub(super)） ──
 #[repr(C)]
 pub(super) struct WndClassExW {
     pub(super) cb_size: u32,
@@ -173,6 +199,24 @@ unsafe extern "system" {
         blend: *const BlendFunction,
         flags: u32,
     ) -> Bool;
+    // 命中 / 拖动（0.4.3 之后）
+    pub(super) fn SetCapture(hwnd: Hwnd) -> Hwnd;
+    pub(super) fn ReleaseCapture() -> Bool;
+    pub(super) fn GetCursorPos(point: *mut Point) -> Bool;
+    pub(super) fn SetWindowPos(
+        hwnd: Hwnd,
+        insert_after: Hwnd,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        flags: u32,
+    ) -> Bool;
+    // DPI（0.4.3 之后；Win10 1703+ / Vista+）
+    pub(super) fn SetProcessDpiAwarenessContext(context: Handle) -> Bool;
+    pub(super) fn SetThreadDpiAwarenessContext(context: Handle) -> Handle;
+    pub(super) fn SetProcessDPIAware() -> Bool;
+    pub(super) fn GetDpiForSystem() -> u32;
 }
 
 #[link(name = "gdi32")]

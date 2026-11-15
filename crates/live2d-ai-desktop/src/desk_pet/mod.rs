@@ -3,41 +3,60 @@
 //! 双击（无参数）与 `--web` 行为**一字不变**：听端口、开启动器、不开宠物窗。
 //! 只有 `--desk-pet` 会 arm 本模块；`web_api::start_server` 在 **bind 成功且
 //! 已打印「已监听」之后**调 start_if_armed，于是 HTTP 服务照常跑、旁边多一扇
-//! 无边框置顶、点击穿透的分层窗，只画皮套。
+//! 无边框置顶、只显示皮套的分层窗。
+//!
+//! # 0.4.3 之后这一版（桌宠窗增强）改了什么
+//!
+//! - **命中**（`hit`）：缺省 `opaque`——alpha ≥ 16 的像素吃鼠标，其余穿透到桌面；
+//!   `through` 恢复 0.4.3 的整窗穿透，`window` 整矩形吃鼠标（调试用）。
+//! - **拖动**：在命中的像素上按住左键可拖动窗，松手留下新位置（本进程内记住，不写盘）。
+//! - **配置**：`hit` / `opacity` / `always_on_top` / `height_ratio`，解析在 `config.rs`
+//!   （纯函数）；本文件只消费 `PetConfig`，缺省值即 0.4.3 的构图。
+//! - **DPI**：建窗前把进程设为 Per-Monitor V2，高分屏不再被系统放大糊掉（`window.rs`）。
 //!
 //! # 为什么本文件平台无关
 //!
-//! Win32 全在 `window.rs`（`#[cfg(windows)] mod window;`）：**非 Windows 不编译
-//! 窗口模块**，也不链接 user32/gdi32。留在本文件的是两件可纯函数化的事——
-//! 窗口几何 window_rect 与预乘 fill_premultiplied_bgra——它们的单测在 Linux 上
-//! 也真跑（窗口本体在真机之前没有任何自动化覆盖，所以能把这两块钉住就别放过）。
+//! Win32 全在 `window.rs`（`#[cfg(windows)] mod window;`）与 `hit.rs` 的 Windows 段：
+//! **非 Windows 不编译窗口模块**，也不链接 user32/gdi32。留在本文件的是可纯函数化的
+//! 三件事——窗口几何 window_rect、预乘 fill_premultiplied_bgra、配置解析（`config`）
+//! 与 alpha 采样判定（`hit`）——它们的单测在 Linux 上也真跑。
 //!
 //! # 失败语义（硬约束）
 //!
-//! 宠物窗是**旁路**：无桌面 / 无 GPU / 皮套包缺失 / Windows 调用失败，一律只
+//! 宠物窗是**旁路**：无桌面 / 无 GPU / 皮套包缺失 / Win32 调用失败，一律只
 //! `tracing::error!(target: "desk_pet", …)`，**HTTP 服务继续、进程退出码不变**。
 //! 窗口线程带 `catch_unwind` 兜底，且从不 unwrap 到服务线程上。
 //!
-//! **真实窗口未验**：本模块与 `window.rs` 只做过 Linux 单测 +
-//! `cargo check --target x86_64-pc-windows-gnu`；没有在 Windows 上运行过，
-//! 没有人看过像素。
+//! 真机证据（Windows 2560×1600 / 150% / RTX 5060）：H1 基线与 H3 命中拖动、H4 DPI
+//! 的截图与日志原文见 `D:\live2dai\plan\VERIFY-desk-pet-win.md`。
 
 // 非 Windows：纯函数只被单测使用（窗口模块根本不编译）。
 #![cfg_attr(not(windows), allow(dead_code))]
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use l2d::renderer::RgbaFrame;
 
+/// 配置解析（纯函数，`hit` / `opacity` / `always_on_top` / `height_ratio`）。
+mod config;
+/// 命中与拖动（`hit = opaque` 时按 alpha 采样；纯采样部分 Linux 单测）。
+mod hit;
+
 /// Win32 裸绑定（类型 / 常量 / 结构体 / extern；只在 Windows 目标编译）。
 #[cfg(windows)]
 mod win32;
-/// Win32 窗口策略（窗口类、DIB、UpdateLayeredWindow、帧循环；仅 Windows）。
+/// Win32 窗口策略（窗口类、DIB、UpdateLayeredWindow、命中/拖动、帧循环；仅 Windows）。
 #[cfg(windows)]
 mod window;
 
-/// 窗高 = 屏高 3/4（0.4.3 rc.2 的构图策略；真机嫌小就调这一个常量）。
-pub const WINDOW_SCREEN_HEIGHT_RATIO: f32 = 0.75;
+/// 窗高比例的历史常量名（0.4.3 rc.2 的构图旋钮）。
+///
+/// 现在由配置键 `height_ratio` 覆盖（钳位在 0.25..=0.9，见 `config`）；本常量只是
+/// 缺省值的别名，保留旧名是为了 `docs/versions/0.4.md` 的记述仍能对上号。
+// 旧名只为对得上 `docs/versions/0.4.md` 的记述；生产路径按 `PetConfig` 走。
+#[allow(dead_code)]
+pub const WINDOW_SCREEN_HEIGHT_RATIO: f32 = config::HEIGHT_RATIO_DEFAULT;
 /// bai 画布 4000×6000 ⇒ 宽:高 = 2:3（与 `aspect_fit_transform` 配合，像素不拉伸）。
 pub const CANVAS_ASPECT_W_OVER_H: f32 = 2.0 / 3.0;
 /// 右下角留边的最小值（像素）。
@@ -49,8 +68,22 @@ const MIN_SIDE_PX: i32 = 16;
 /// 同一纪律——测试与库调用不 arm，否则跑测试也会去开窗）。
 static ARMED: AtomicBool = AtomicBool::new(false);
 
+/// arm 时一并存下的配置快照；`start_if_armed` 取走后清空（一扇窗只开一次）。
+static ARMED_CONFIG: Mutex<Option<config::PetConfig>> = Mutex::new(None);
+
 /// 打开「监听成功后开宠物窗」（只在 `main` 的 `Command::DeskPet` 分支调一次）。
+///
+/// 等价于 `arm_with(PetConfig::default())`：命令行路径只认缺省配置（读
+/// `mods.json` 是配对 WSL 计划 rc.2 的事，它改用 `arm_with` 交进解析结果）。
 pub fn arm() {
+    arm_with(config::PetConfig::default());
+}
+
+/// 带配置地 arm（同一进程只生效一次；后一次覆盖前一次的快照）。
+pub fn arm_with(pet_config: config::PetConfig) {
+    if let Ok(mut slot) = ARMED_CONFIG.lock() {
+        *slot = Some(pet_config);
+    }
     ARMED.store(true, Ordering::SeqCst);
 }
 
@@ -68,7 +101,12 @@ pub fn start_if_armed() {
     if !ARMED.swap(false, Ordering::SeqCst) {
         return;
     }
-    spawn_pet_thread();
+    let pet_config = ARMED_CONFIG
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take())
+        .unwrap_or_default();
+    spawn_pet_thread(pet_config);
 }
 
 /// 起 `desk-pet` 线程（Windows）；非 Windows 是空实现——`--desk-pet` 在解析期
@@ -76,14 +114,16 @@ pub fn start_if_armed() {
 ///
 /// 抽成单独函数是为了让「只在 Windows 有事做」这件事对 clippy 也成立：
 /// 非 Windows 的 `start_if_armed` 末尾不留下一个孤零零的 `return`。
-fn spawn_pet_thread() {
+fn spawn_pet_thread(pet_config: config::PetConfig) {
     #[cfg(windows)]
     {
         let spawned = std::thread::Builder::new()
             .name("desk-pet".to_string())
-            .spawn(|| {
+            .spawn(move || {
                 let outcome =
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(window::run_once));
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        window::run_once(pet_config)
+                    }));
                 match outcome {
                     Ok(Ok(())) => {
                         tracing::info!(target: "desk_pet", "宠物窗已关闭；HTTP 服务继续");
@@ -102,25 +142,33 @@ fn spawn_pet_thread() {
     }
     #[cfg(not(windows))]
     {
+        let _ = pet_config;
         tracing::debug!(target: "desk_pet", "非 Windows：没有宠物窗可开（--desk-pet 已在解析期被拒）");
     }
 }
 
 /// 窗口矩形 `(x, y, width, height)`（屏幕像素，左上角原点）。
 ///
-/// 策略：窗高 = 屏高 3/4（WINDOW_SCREEN_HEIGHT_RATIO）；宽 = 高 × 2/3
-/// （CANVAS_ASPECT_W_OVER_H，bai 画布 4000×6000）；贴**右下角**，留边
-/// `max(24, 屏高/40)`；屏幕太小时整体等比缩到可用区域，**不越界、不出现
+/// 策略：窗高 = 屏高 × `height_ratio`（缺省 0.75，配置键钳在 0.25..=0.9）；
+/// 宽 = 高 × 2/3（CANVAS_ASPECT_W_OVER_H，bai 画布 4000×6000）；贴**右下角**，
+/// 留边 `max(24, 屏高/40)`；屏幕太小时整体等比缩到可用区域，**不越界、不出现
 /// 负坐标或 0 尺寸**。
 ///
 /// 纯函数（不读真实屏幕）：Windows 上由 `window::run_once` 用
-/// `GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN)` 的结果喂进来。
-pub fn window_rect(screen_w: i32, screen_h: i32) -> (i32, i32, i32, i32) {
+/// `GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN)` 的结果与配置里的比例喂进来。
+pub fn window_rect(screen_w: i32, screen_h: i32, height_ratio: f32) -> (i32, i32, i32, i32) {
     let sw = screen_w.max(1);
     let sh = screen_h.max(1);
     let margin = (sh / 40).max(MARGIN_MIN_PX);
-    // 目标尺寸：屏高 3/4，宽按画布 2:3。
-    let mut height = (sh as f32 * WINDOW_SCREEN_HEIGHT_RATIO).round() as i32;
+    // 比例再做一次防御性钳位（配置层已钳过；window_rect 是 pub，别让调用方
+    // 传 NaN / 0 把窗缩没了）。
+    let ratio = if height_ratio.is_finite() {
+        height_ratio.clamp(config::HEIGHT_RATIO_MIN, config::HEIGHT_RATIO_MAX)
+    } else {
+        config::HEIGHT_RATIO_DEFAULT
+    };
+    // 目标尺寸：屏高 × 比例，宽按画布 2:3。
+    let mut height = (sh as f32 * ratio).round() as i32;
     let mut width = (height as f32 * CANVAS_ASPECT_W_OVER_H).round() as i32;
     // 缩到「屏幕减两侧留边」以内（小屏/异常值也不越界），比例优先保宽。
     let max_w = (sw - 2 * margin).max(MIN_SIDE_PX);
@@ -176,19 +224,40 @@ pub fn fill_premultiplied_bgra(frame: &RgbaFrame, out: &mut [u8]) {
 mod tests {
     use super::*;
 
-    /// 1080p：窗 540×810，右下留边 27（= max(24, 1080/40)）。
+    /// 1080p 缺省比例：窗 540×810，右下留边 27（= max(24, 1080/40)）。
     #[test]
     fn window_rect_is_three_quarters_height_twothirds_width_at_bottom_right() {
-        assert_eq!(window_rect(1920, 1080), (1353, 243, 540, 810));
+        assert_eq!(
+            window_rect(1920, 1080, WINDOW_SCREEN_HEIGHT_RATIO),
+            (1353, 243, 540, 810)
+        );
         // 4K：1620 = 2160*3/4；宽 1080 = 1620*2/3；留边 54。
-        assert_eq!(window_rect(3840, 2160), (2706, 486, 1080, 1620));
+        assert_eq!(
+            window_rect(3840, 2160, WINDOW_SCREEN_HEIGHT_RATIO),
+            (2706, 486, 1080, 1620)
+        );
+    }
+
+    /// 配置里的 height_ratio 直接改窗高；宽仍按 2:3 跟。
+    #[test]
+    fn window_rect_follows_configured_height_ratio() {
+        // 1080 屏：0.4 ⇒ 高 432、宽 288；留边 27。
+        assert_eq!(window_rect(1920, 1080, 0.4), (1605, 621, 288, 432));
+        // 0.9 ⇒ 高 972、宽 648。
+        assert_eq!(window_rect(1920, 1080, 0.9), (1245, 81, 648, 972));
+        // 越界/NaN 走防御性钳位（配置层已钳过，这里钉住 window_rect 自身）。
+        assert_eq!(window_rect(1920, 1080, 5.0), window_rect(1920, 1080, 0.9));
+        assert_eq!(
+            window_rect(1920, 1080, f32::NAN),
+            window_rect(1920, 1080, WINDOW_SCREEN_HEIGHT_RATIO)
+        );
     }
 
     /// 小屏不能越界：尺寸缩进可用区域，坐标不为负，且整扇窗仍在屏幕内。
     #[test]
     fn window_rect_never_goes_negative_or_off_screen() {
         for (sw, sh) in [(800, 600), (320, 240), (100, 100), (1, 1), (0, 0)] {
-            let (x, y, w, h) = window_rect(sw, sh);
+            let (x, y, w, h) = window_rect(sw, sh, WINDOW_SCREEN_HEIGHT_RATIO);
             assert!(w >= 1 && h >= 1, "尺寸必须为正: {sw}x{sh} → {w}x{h}");
             assert!(x >= 0 && y >= 0, "坐标必须非负: {sw}x{sh} → ({x},{y})");
             assert!(
@@ -247,7 +316,7 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn start_if_armed_is_a_noop_off_windows() {
-        arm();
+        arm_with(config::PetConfig::default());
         start_if_armed();
         start_if_armed(); // swap 语义：第二次无需再做事
     }
