@@ -190,8 +190,11 @@ pub(super) async fn run_forever(
                     //
                     // 表里没有该会话 → None → 引擎回落配置里的全局
                     // `persona.system_prompt`（降级语义，见 session_scope 头注）。
+                    // **2026-11-16（热槽记忆 M2）**：读点是 `speak_prompt_for` 而不是
+                    // `prompt_for`——已退休的 persona / memory 槽不再进说话请求，
+                    // 其余 owner 行为不变（计划 §6 M2）。
                     engine.set_system_prompt_override(
-                        session_scopes.prompt_for(session.as_deref()),
+                        session_scopes.speak_prompt_for(session.as_deref()),
                     );
                     // 对话历史按会话换桶（前为进程一份，换会话会串上一会话轮次）。
                     histories.install(&mut engine, session.as_deref());

@@ -67,6 +67,12 @@ fn build_messages_includes_system_history_and_current_input() {
     assert_eq!(engine.history_len(), 1);
 }
 
+/// **空 system 仍然不上 wire**（wire 层不变量，2026-11-16 起仍成立）。
+///
+/// 注意它与 [`factory_sentence_replaces_the_empty_default`] 不是同一件事：
+/// 出厂的「没写人设」现在由 [`ConversationConfig::new`] 换成出厂系统句；
+/// 而**真的**构造出一个空 system 的配置（`Default` / 显式空串字段）时，
+/// 请求体里依然不该出现一条空 system 消息。
 #[test]
 fn empty_system_prompt_is_omitted_from_wire_messages() {
     let client = OpenAiClient::new(
@@ -74,9 +80,44 @@ fn empty_system_prompt_is_omitted_from_wire_messages() {
         TtsConfig::new("http://b/v1", "v"),
     )
     .expect("client");
-    let engine = ConversationEngine::new(client, ConversationConfig::new(""));
+    let engine = ConversationEngine::new(
+        client,
+        ConversationConfig {
+            system_prompt: String::new(),
+            ..ConversationConfig::default()
+        },
+    );
     let messages = engine.build_messages("hi");
     assert_eq!(messages, vec![crate::llm::ChatMessage::user("hi")]);
+}
+
+/// **出厂系统句**（2026-11-16 热槽记忆 M2）：`ConversationConfig::new("")`
+/// 不再产出「没有 system」的一轮，而是带上逐字固定的出厂句；用户存过的
+/// **非空**句子原样使用，不被它覆盖。
+#[test]
+fn factory_sentence_replaces_the_empty_default() {
+    let client = OpenAiClient::new(
+        LlmConfig::new("http://a/v1", "m"),
+        TtsConfig::new("http://b/v1", "v"),
+    )
+    .expect("client");
+    let engine = ConversationEngine::new(client, ConversationConfig::new(""));
+    let messages = engine.build_messages("hi");
+    assert_eq!(
+        messages[0],
+        crate::llm::ChatMessage::system(crate::hotmem::SYSTEM_PROMPT_FACTORY),
+        "出厂句必须逐字等于 hotmem::SYSTEM_PROMPT_FACTORY"
+    );
+    assert_eq!(messages.last(), Some(&crate::llm::ChatMessage::user("hi")));
+
+    // 用户存过的非空句原样使用（不拼接、不覆盖）。
+    let client = OpenAiClient::new(
+        LlmConfig::new("http://a/v1", "m"),
+        TtsConfig::new("http://b/v1", "v"),
+    )
+    .expect("client");
+    let engine = ConversationEngine::new(client, ConversationConfig::new("你是猫娘。"));
+    assert_eq!(engine.effective_system_prompt(), "你是猫娘。");
 }
 
 /// **弹幕解说**（2026-10-14 执行单 §3）：只有 `弹幕消息：` 开头的本轮才多
@@ -92,13 +133,39 @@ fn danmaku_preface_only_for_prefixed_turn_and_keeps_user_content() {
     )
     .expect("client");
     let engine = ConversationEngine::new(client, ConversationConfig::new(""));
+    // 2026-11-16（M2）起「出厂」= 出厂系统句，解说接在它**后面**（规则不变）。
+    assert_eq!(
+        engine.build_messages("弹幕消息：你好"),
+        vec![
+            crate::llm::ChatMessage::system(format!(
+                "{}\n{}",
+                crate::hotmem::SYSTEM_PROMPT_FACTORY,
+                super::engine::DANMAKU_PREFACE
+            )),
+            crate::llm::ChatMessage::user("弹幕消息：你好"),
+        ],
+        "出厂句 + 弹幕解说，正文原样"
+    );
+    // 真正「没有任何 system」的配置下，这一轮只有解说这一句。
+    let client = OpenAiClient::new(
+        LlmConfig::new("http://a/v1", "m"),
+        TtsConfig::new("http://b/v1", "v"),
+    )
+    .expect("client");
+    let engine = ConversationEngine::new(
+        client,
+        ConversationConfig {
+            system_prompt: String::new(),
+            ..ConversationConfig::default()
+        },
+    );
     assert_eq!(
         engine.build_messages("弹幕消息：你好"),
         vec![
             crate::llm::ChatMessage::system(super::engine::DANMAKU_PREFACE),
             crate::llm::ChatMessage::user("弹幕消息：你好"),
         ],
-        "出厂空人设：这一轮只有弹幕解说这一句 system，正文原样"
+        "空 system：这一轮只有弹幕解说这一句 system，正文原样"
     );
 
     let client = OpenAiClient::new(
@@ -129,7 +196,13 @@ fn danmaku_preface_only_for_prefixed_turn_and_keeps_user_content() {
         TtsConfig::new("http://b/v1", "v"),
     )
     .expect("client");
-    let engine = ConversationEngine::new(client, ConversationConfig::new(""));
+    let engine = ConversationEngine::new(
+        client,
+        ConversationConfig {
+            system_prompt: String::new(),
+            ..ConversationConfig::default()
+        },
+    );
     assert_eq!(
         engine.build_messages("你好，弹幕消息：不是开头"),
         vec![crate::llm::ChatMessage::user("你好，弹幕消息：不是开头")],

@@ -109,18 +109,26 @@ fn closed_loop_two_turns_commit_history_via_drain_path() {
 /// **记忆同轮生效**（2026-09-15）：Mod 在 `TurnPrompt` 里写进会话注入槽的东西，
 /// 必须出现在**本轮**发给 LLM 的请求体里，而不是下一轮。
 ///
-/// 这个测试同时钉住三件事：
+/// 2026-11-16（热槽记忆 M2）改写：`memory` 这条来源槽**已退休**——它对系统
+/// 提示词的写入被说话路径忽略（见 `SessionScopeStore::speak_prompt_for`）。
+/// 本测试因此换成守三件仍然成立的事：
 /// 1. 时序：`TurnPrompt` 投递**先于** supervisor 决议本轮 system_prompt
-///    （旧实现反了 → 本轮请求体只有旧快照，注入要等下一轮）；
-/// 2. 会话绑定：A 会话的 MEMORY 槽不进 B 会话的请求体；
-/// 3. 无会话注入时的降级：回落配置里的全局 `persona.system_prompt`。
+///    （用**未退休**的 owner 观察，这里是匿名槽）；
+/// 2. 会话绑定：A 会话的注入不进 B 会话的请求体；
+/// 3. **退休槽不生效**：`memory` / `persona` 槽写了也不进请求体，
+///    无注入时回落配置里的全局系统句。
+///
+/// 原「memory 块同轮生效」的行为**按计划退休**，不再是契约。
 ///
 /// 注意：这里用的是**同步** sink（测试线程直接写表），它模拟的是生产 sink 的
 /// 可观察结果——生产侧由 `mod_event_sink` 用 `dispatch_event_and_flush` 保证
 /// 「写完了才读」（回执语义见 `mod_registry::tests`）。
 #[test]
 fn memory_written_on_turn_prompt_lands_in_the_same_turn_request() {
-    use live2d_ai_mod_system::{SESSION_PROMPT_OWNER_MEMORY, SessionPromptSink as _};
+    use live2d_ai_mod_system::{
+        SESSION_PROMPT_OWNER_DEFAULT, SESSION_PROMPT_OWNER_MEMORY, SESSION_PROMPT_OWNER_PERSONA,
+        SessionPromptSink as _,
+    };
 
     let llm_bodies: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
     let sse = concat!(
@@ -156,11 +164,19 @@ fn memory_written_on_turn_prompt_lands_in_the_same_turn_request() {
                 }
                 let guard = scopes_for_sink.lock().expect("poison");
                 if let Some(store) = guard.as_ref() {
+                    // ① 未退休的匿名槽：同轮生效（时序判据）。
                     store.set_owned(
-                        SESSION_PROMPT_OWNER_MEMORY,
+                        SESSION_PROMPT_OWNER_DEFAULT,
                         "session-a",
                         &format!("<!-- memory -->\n- 暗号是薄荷（本轮输入：{p}）"),
                     );
+                    // ② 已退休的两条来源槽：写了也**不得**进请求体。
+                    store.set_owned(
+                        SESSION_PROMPT_OWNER_MEMORY,
+                        "session-a",
+                        "已退休的 memory 块",
+                    );
+                    store.set_owned(SESSION_PROMPT_OWNER_PERSONA, "session-a", "已退休的角色卡");
                 }
             })),
         },
@@ -204,12 +220,16 @@ fn memory_written_on_turn_prompt_lands_in_the_same_turn_request() {
         a.contains("本轮输入：A 的暗号：薄荷"),
         "本轮 TurnPrompt 的正文必须已参与检索（不是上一轮的残留）: {a:?}"
     );
+    assert!(
+        !a.contains("已退休的 memory 块") && !a.contains("已退休的角色卡"),
+        "memory / persona 槽已退休：写了也不得进说话请求体，实际 system={a:?}"
+    );
     let b = system_of(1);
     assert!(
         !b.contains("暗号是薄荷"),
-        "会话 A 的记忆不得进会话 B: {b:?}"
+        "会话 A 的注入不得进会话 B: {b:?}"
     );
-    assert_eq!(b, "人设", "本会话无注入 → 回落全局 persona.system_prompt");
+    assert_eq!(b, "人设", "本会话无注入 → 回落配置里的全局系统句");
 
     handle.quit();
     handle.join();

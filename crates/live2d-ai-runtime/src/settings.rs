@@ -805,7 +805,9 @@ impl AppSettings {
             },
             conversation: ConversationConfig {
                 // rc.4 M5：主链只发 `system_prompt` 原文，不再拼角色卡 name/description。
-                system_prompt: self.persona.system_prompt.clone(),
+                // 2026-11-16（热槽记忆 M2）：空串 → **出厂系统句**（用户存过的非空句原样用）。
+                system_prompt: crate::hotmem::system_sentence(&self.persona.system_prompt)
+                    .to_string(),
                 max_history_pairs: self.persona.max_history_pairs,
                 ..ConversationConfig::default()
             },

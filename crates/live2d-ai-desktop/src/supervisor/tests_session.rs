@@ -124,3 +124,100 @@ fn scoped_session_prompt_overrides_global_and_never_leaks_across_sessions() {
         "不带会话 → 回落全局 persona.system_prompt（降级语义）"
     );
 }
+
+/// **M2 交付判据**（计划 §8）：一轮说话请求的系统文本里——
+///
+/// - 含**出厂系统句**（工厂为空、没配 `[persona].system_prompt` 时）；
+/// - **不含** `memory-v0` 那种 marker；
+/// - **不含**角色卡 JSON；
+/// - persona / memory 两条退休槽即便写了内容也进不来。
+///
+/// 断言的是**真实发给 LLM 的请求体**（mock server 抓包），不是中间变量。
+#[test]
+fn spoken_request_carries_the_factory_sentence_and_no_retired_markers() {
+    use live2d_ai_mod_system::{
+        SESSION_PROMPT_OWNER_MEMORY, SESSION_PROMPT_OWNER_PERSONA, SessionPromptSink as _,
+    };
+
+    let llm_bodies: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let sse = concat!(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"嗯。\"}}]}\n\n",
+        "data:"
+    )
+    .to_owned();
+    let llm_base = spawn_llm_mock(llm_bodies.clone(), sse);
+    let tts_base = spawn_tts_mock();
+    let client = live2d_ai_runtime::OpenAiClient::new(
+        live2d_ai_runtime::LlmConfig::new(llm_base.clone(), "test-model"),
+        live2d_ai_runtime::TtsConfig::new(tts_base.clone(), "alloy"),
+    )
+    .expect("client");
+
+    let collector: Collector = Arc::new(Mutex::new(Vec::new()));
+    let emit_collector = collector.clone();
+    // 工厂为空 + 没有 [persona].system_prompt：出厂句生效的那条路径。
+    let handle = spawn_supervisor(
+        SupervisorConfig {
+            client,
+            conversation: live2d_ai_runtime::ConversationConfig::new(""),
+            capabilities: live2d_ai_core::ModelCapabilities::all(),
+            audio: None,
+            config_path: None,
+            mod_events: None,
+        },
+        move |ev| emit_collector.lock().expect("poison").push(ev),
+    );
+
+    // 两条**已退休**的来源槽写满内容——它们一条都不许进请求体。
+    handle
+        .session_scopes()
+        .set_owned(SESSION_PROMPT_OWNER_PERSONA, "s1", "{\"name\":\"酒馆卡\"}");
+    handle
+        .session_scopes()
+        .set_owned(SESSION_PROMPT_OWNER_MEMORY, "s1", "旧记忆块正文");
+
+    let gen_finished = |c: &Collector| {
+        c.lock()
+            .expect("poison")
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    crate::app_event::AppEvent::RootAudit(
+                        crate::app_event::RootFact::GenerationFinished { .. }
+                    )
+                )
+            })
+            .count()
+    };
+    assert!(handle.say_scoped("你好", Some("s1".into())));
+    assert!(
+        wait_for(Duration::from_secs(3), || gen_finished(&collector) >= 1),
+        "一轮应在超时前收口"
+    );
+    handle.quit();
+    handle.join();
+
+    let bodies = llm_bodies.lock().expect("poison");
+    assert_eq!(bodies.len(), 1, "恰好一次 LLM 请求: {bodies:?}");
+    let system = bodies[0]["messages"][0]["content"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        system.contains(live2d_ai_runtime::hotmem::SYSTEM_PROMPT_FACTORY),
+        "出厂系统句必须在请求里，实际 system={system:?}"
+    );
+    assert!(
+        !system.contains("memory-v0"),
+        "请求体不得带记忆 marker，实际 system={system:?}"
+    );
+    assert!(
+        !system.contains("酒馆卡"),
+        "请求体不得带角色卡 JSON，实际 system={system:?}"
+    );
+    assert!(
+        !system.contains("旧记忆块正文"),
+        "退休的 memory 槽不得进请求体，实际 system={system:?}"
+    );
+}

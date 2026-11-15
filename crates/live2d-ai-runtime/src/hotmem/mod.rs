@@ -54,7 +54,7 @@ pub use fact::{FactKind, HotFact, retention, strengthen};
 pub use pin::{PINNED_BUDGET_TOKENS, PinnedItem, pinned_tokens, render_pinned};
 pub use render::{
     HOT_CARD_BUDGET_TOKENS, HOT_CARD_HEADING, PINNED_HEADING, PromptBudget, SYSTEM_PROMPT_FACTORY,
-    compose_system_text,
+    compose_system_text, system_sentence,
 };
 pub use store::{HotMemory, HotMemorySnapshot, NO_SESSION, Recollection, StoredFact};
 

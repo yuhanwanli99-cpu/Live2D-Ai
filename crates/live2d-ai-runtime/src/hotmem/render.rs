@@ -30,6 +30,19 @@ pub const HOT_CARD_BUDGET_TOKENS: usize = 200;
 pub const SYSTEM_PROMPT_FACTORY: &str = "你是长期陪伴的对方。只根据钉住的事、本轮热卡和最近几轮说话。\
 清楚的可以自然提起；模糊的用不确定的说法，对方否认就放下。没有写在这两处的旧事不要编。";
 
+/// 本轮实际生效的系统句：用户存过非空句就用它，否则用出厂句。
+///
+/// 这是 **`[persona].system_prompt` 空串 → 出厂句** 这条规则**唯一**的实现：
+/// [crate::conversation::ConversationConfig::new] 与
+/// `AppSettings::resolve` 都调这里，别在调用点各写一遍 if。
+pub fn system_sentence(user_prompt: &str) -> &str {
+    if user_prompt.trim().is_empty() {
+        SYSTEM_PROMPT_FACTORY
+    } else {
+        user_prompt
+    }
+}
+
 /// 钉住块的标题行。
 pub const PINNED_HEADING: &str = "【钉住的事】";
 
