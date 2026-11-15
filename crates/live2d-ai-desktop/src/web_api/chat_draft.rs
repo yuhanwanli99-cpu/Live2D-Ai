@@ -30,6 +30,10 @@ use tiny_http::{Method, Response, StatusCode};
 use crate::hot_slot::HotSlot;
 
 /// 客户端建议的停顿时长（毫秒）。服务端**不**据此防抖，只回给前端做默认值。
+///
+/// 生产代码不读它（防抖在 Flutter 侧）；它在这里是**契约数字**：计划 §6 M3
+/// 写「客户端停顿 400 ms 再发」，测试按这个常量断言，前端改值时两边一起改。
+#[allow(dead_code)]
 pub const DRAFT_DEBOUNCE_MS: u64 = 400;
 
 /// 草稿端点路径。

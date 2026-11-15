@@ -19,7 +19,7 @@
 
 use live2d_ai_runtime::OpenAiClient;
 use live2d_ai_runtime::hotmem::{
-    RECALL_SYSTEM_PROMPT, Recollection, fold_summary, parse_recalled, recall_user_message,
+    RECALL_SYSTEM_PROMPT, Recollection, parse_recalled, recall_user_message,
 };
 use live2d_ai_runtime::{ChatMessage, collect_chat_text};
 
@@ -73,11 +73,6 @@ pub async fn recall_once(client: &OpenAiClient, user: &str, assistant: &str) -> 
         ));
     }
     Recalled::Items(items)
-}
-
-/// 摘要折叠（纯函数转调；保留这个名字是为了让调用点读起来是「摘要」）。
-pub fn fold(previous: &str, dropped: &[(String, String)]) -> String {
-    fold_summary(previous, dropped)
 }
 
 fn first_chars(text: &str, n: usize) -> String {

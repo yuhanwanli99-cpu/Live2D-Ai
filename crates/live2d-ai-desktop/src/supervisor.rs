@@ -314,6 +314,7 @@ impl SupervisorHandle {
     }
 
     /// 轮后「记」是否已开启（测试 / 状态面）。
+    #[cfg(test)]
     pub fn hot_recall_enabled(&self) -> bool {
         self.hot_recall.load(std::sync::atomic::Ordering::Acquire)
     }

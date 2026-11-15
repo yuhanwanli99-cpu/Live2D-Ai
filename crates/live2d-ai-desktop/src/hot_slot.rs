@@ -30,11 +30,17 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use live2d_ai_runtime::hotmem::{
-    HotCard, HotMemory, HotMemorySnapshot, PinnedItem, Recollection, compose_card_from,
+    FactKind, HotCard, HotMemory, HotMemorySnapshot, Recollection, compose_card_from,
     compose_system_text, render_pinned, system_sentence,
 };
 
 /// 「查」的最长等待（毫秒）。超时按空热卡开口，不追改已经送去 TTS 的句子。
+///
+/// **当前没有调用点**：M3 的「查」是同步完成的（候选集来自内存事实库，没有
+/// 向量网络往返），所以这条等待今天不需要。一旦接上 embedding 检索，说话路径
+/// 就要 `timeout(RETRIEVE_WAIT_MS, retrieve())`——常量留在这里，别在调用点写
+/// 一个新的数字（计划 §3 写死 1500）。测试也按这个常量断言。
+#[allow(dead_code)]
 pub const RETRIEVE_WAIT_MS: u64 = 1_500;
 
 /// 「记」的抽取结果上限（条）。一次一轮不该抽出几十条事实。
@@ -72,11 +78,6 @@ pub struct HotSlot {
 
 struct SlotInner {
     mem: HotMemory,
-    /// 空热卡口径：`true` = 查还没就绪 / 失败时**按空热卡开口**。
-    ///
-    /// 这不是开关，而是产品语义的落点：写在这里让「空热卡」有一个可断言的
-    /// 位置，而不是散落在调用点的 `unwrap_or_default()`。
-    empty_on_miss: bool,
 }
 
 impl Default for HotSlot {
@@ -85,16 +86,20 @@ impl Default for HotSlot {
     }
 }
 
+/// 说明：下面有几个方法在**当前**生产装配里没有调用点（`tick` / `retrieve` /
+/// `clear_card` / `set_card` / `pinned_items` / `card_text`），它们是热槽的
+/// 完整能力面——`retrieve` 被 `retrieve_with_material` 取代、`tick` 由
+/// compose/retrieve 内部的 `advance_to` 承担，其余留给状态面与将来的向量检索。
+/// 保留它们而不是删掉：删了就没法在不改签名的情况下接上那条路径，
+/// 而删掉再长回来是同一个东西第二次写。测试逐条覆盖它们的行为。
+#[allow(dead_code)]
 impl HotSlot {
     /// 空热槽（时钟 = 现在）。
     pub fn new() -> Self {
         let mut mem = HotMemory::new();
         mem.advance_to(clock_hours());
         Self {
-            inner: Arc::new(Mutex::new(SlotInner {
-                mem,
-                empty_on_miss: true,
-            })),
+            inner: Arc::new(Mutex::new(SlotInner { mem })),
         }
     }
 
@@ -220,8 +225,13 @@ impl HotSlot {
     }
 
     /// 记一条**兜底 episode**（抽取失败时把这一轮原文记成 episode）。
+    ///
+    /// 截断长度 = [FALLBACK_EPISODE_CHARS]（200 字）。这里**显式**用这个常量而不是
+    /// 依赖 runtime 侧的默认值：计划 §3 把「原文截断到 200 字」写成了产品口径，
+    /// 两侧各钉一次常量，任何一边改都会在测试里立刻暴露。
     pub fn record_fallback_episode(&self, text: &str) -> usize {
-        self.record(vec![Recollection::fallback_episode(text)])
+        let clipped: String = text.trim().chars().take(FALLBACK_EPISODE_CHARS).collect();
+        self.record(vec![Recollection::new(clipped, FactKind::Episode)])
     }
 
     /// 某会话的滚动摘要（替换语义；没有 = 空串）。
@@ -235,17 +245,20 @@ impl HotSlot {
     }
 
     /// 某会话**有没有**热卡（诊断 / 测试；不暴露内部类型）。
+    #[cfg(test)]
     pub fn card_is_some(&self, session: Option<&str>) -> bool {
         self.guard().mem.card(session).is_some()
     }
 
     /// 某会话热卡的渲染正文（空串 = 没有热卡）。
+    #[cfg(test)]
     pub fn card_text(&self, session: Option<&str>) -> String {
         let inner = self.guard();
         live2d_ai_runtime::hotmem::render_hot_card(inner.mem.card(session))
     }
 
     /// 库里的全部事实（测试 / 诊断；只读投影，年龄已算好）。
+    #[cfg(test)]
     pub fn facts_for_test(&self) -> Vec<live2d_ai_runtime::hotmem::HotFact> {
         self.guard().mem.facts()
     }
@@ -256,7 +269,8 @@ impl HotSlot {
     }
 
     /// 库里的钉住候选（状态面 / 测试）。
-    pub fn pinned_items(&self) -> Vec<PinnedItem> {
+    #[cfg(test)]
+    pub fn pinned_items(&self) -> Vec<live2d_ai_runtime::hotmem::PinnedItem> {
         self.guard().mem.pinned_items()
     }
 }

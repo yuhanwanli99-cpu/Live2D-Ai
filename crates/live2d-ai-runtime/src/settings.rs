@@ -75,7 +75,6 @@ mod settings_tests;
 mod settings_tests_roundtrip;
 pub use llm_mode::LlmMode;
 pub mod view;
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};

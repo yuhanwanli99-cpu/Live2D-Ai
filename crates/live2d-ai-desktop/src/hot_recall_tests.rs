@@ -195,7 +195,7 @@ fn summary_is_replaced_and_bounded() {
         let dropped: Vec<(String, String)> =
             vec![(format!("第{round}轮用户"), format!("第{round}轮助手"))];
         let previous = slot.summary(Some("s1"));
-        let folded = crate::hot_recall::fold(&previous, &dropped);
+        let folded = live2d_ai_runtime::hotmem::fold_summary(&previous, &dropped);
         slot.set_summary(Some("s1"), &folded);
     }
     let summary = slot.summary(Some("s1"));
