@@ -44,6 +44,8 @@ pub(super) async fn run_forever(
     turn_in_flight: Arc<std::sync::atomic::AtomicBool>,
     // 2026-11-16（热槽记忆 M2/M3）：主链热槽（与 handle 共用同一个句柄）。
     hot_slot: crate::hot_slot::HotSlot,
+    // 2026-11-16（M4）：轮后「记」开关（缺省关，生产装配打开）。
+    hot_recall: Arc<std::sync::atomic::AtomicBool>,
 ) {
     let SupervisorConfig {
         client,
@@ -76,6 +78,9 @@ pub(super) async fn run_forever(
     // 装配。测试 / 手工装配用 `LlmConfig::new` → clean_tts=false → 这里 `None`，
     // 引擎走确定性清洗 + 规则表。
     let cleaner = build_sentence_cleaner(&client, &motion_bias, motion_rate);
+    // 2026-11-16（热槽记忆 M4）：「记」要发一次抽取请求，用**同一个** client
+    // （它的 clone 只是 Arc 化的连接池）。必须在 client 移进引擎之前取。
+    let recall_client = client.clone();
     let mut engine = ConversationEngine::new(client, conversation);
     engine.set_cleaner(cleaner);
     // ---- 整段表演层装配（T8，2026-10-07；2026-10-08 起显式 opt-in）----
@@ -238,16 +243,43 @@ pub(super) async fn run_forever(
                     // **2026-11-16（热槽记忆 M2/M4）**：本轮说了哪些钉住条目 →
                     // 记为「已说」（下一轮渲染跳过，条目不删）。
                     hot_slot.note_spoken(session.as_deref(), pinned_ids);
-                    // M4：轮后「记」= **后台任务**（说的 HTTP 响应不等它；失败只记
-                    // 日志，不让这一轮失败）。这里先同步落一条 episode 兜底，抽取
-                    // 事实在 `hot_slot::record_turn` 里做（见 hot_slot.rs）。
-                    if !close.interrupted {
-                        let recorded = hot_slot.record_fallback_episode(&user_text_for_memory);
-                        tracing::debug!(
-                            turn = next_turn_id,
-                            recorded,
-                            "hotmem episode recorded after turn"
-                        );
+                    // **M4：轮后「记」= 后台任务**（计划 §3「说的 HTTP 响应不等它」）。
+                    //
+                    // 这里**只派生**、不 await：抽取发一次短 JSON 请求，成功写事实、
+                    // 失败记 episode 原文（不重试）。后台任务失败只打日志，绝不让
+                    // 这一轮失败——它连 `AppEvent` 都不碰。
+                    //
+                    // 只在「正常收口」时记：被打断 / stop 的轮次不进记忆。
+                    if hot_recall.load(Ordering::Acquire)
+                        && !close.interrupted
+                        && !close.assistant_text.trim().is_empty()
+                    {
+                        let slot = hot_slot.clone();
+                        let client = recall_client.clone();
+                        let user_text = user_text_for_memory.clone();
+                        let assistant_text = close.assistant_text.clone();
+                        let session_for_recall = session.clone();
+                        let turn_id = next_turn_id;
+                        tokio::spawn(async move {
+                            let recalled =
+                                crate::hot_recall::recall_once(&client, &user_text, &assistant_text)
+                                    .await;
+                            let written = match recalled {
+                                crate::hot_recall::Recalled::Items(items) => {
+                                    let n = slot.record(items);
+                                    slot.record_fallback_episode(&user_text);
+                                    n
+                                }
+                                crate::hot_recall::Recalled::Failed(reason) => {
+                                    // 计划 §3：抽失败就只把这一轮原文记成 episode，
+                                    // **不再调用第二次**。
+                                    tracing::debug!(turn = turn_id, %reason, "hotmem recall failed");
+                                    slot.record_fallback_episode(&user_text)
+                                }
+                            };
+                            tracing::debug!(turn = turn_id, written, "hotmem recorded after turn");
+                            let _ = session_for_recall;
+                        });
                     }
                     // **Wave 3（2026-09-21）**：助手侧正文 → AssistantReplied。
                     //

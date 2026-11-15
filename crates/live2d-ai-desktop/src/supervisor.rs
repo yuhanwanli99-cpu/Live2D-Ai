@@ -224,6 +224,15 @@ pub struct SupervisorHandle {
     /// 没有热卡，行为等于「四块里只有系统句」）。这样一个可选参数不会在
     /// 四十个装配点上各写一遍，也不会出现「忘了传 → 热槽静默失效」。
     hot_slot: crate::hot_slot::HotSlot,
+    /// 轮后「记」是否开启（2026-11-16 M4）。
+    ///
+    /// **缺省 false，由生产装配显式打开**（`cli_entry` 调
+    /// `enable_hot_recall`）。理由：记 = 每轮**多一次 LLM 请求**（短 JSON 抽取），
+    /// 而「每轮恰好 N 次请求」是主链多条回归的判据（tests_loop / tests_session /
+    /// tests_performance …）。让测试装配默认带上第二条请求，只会逼着那八处断言
+    /// 一起改大——它们守的是**说话路径**的请求次数，不该被记忆的抽取污染。
+    /// 显式打开也让这条成本在装配点可见。
+    hot_recall: Arc<std::sync::atomic::AtomicBool>,
     /// 表演层计数槽（2026-09-22）：`GET /api/v1/app/status` 的
     /// `performance` 块从这里读「成功几轮 / 回退几轮 / 最近原因码」。
     performance_stats: PerformanceStatsSlot,
@@ -293,6 +302,20 @@ impl SupervisorHandle {
     /// `POST /api/v1/chat/draft` 用它写热卡；状态面读它出诊断数字。
     pub fn hot_slot(&self) -> &crate::hot_slot::HotSlot {
         &self.hot_slot
+    }
+
+    /// 打开轮后「记」（每轮多一次短 JSON 抽取）。生产装配调用一次。
+    ///
+    /// 为什么是运行期开关而不是 `SupervisorConfig` 的字段：见 `hot_recall`
+    /// 字段注释——四十个装配点不该为一个可选能力各写一遍。
+    pub fn enable_hot_recall(&self) {
+        self.hot_recall
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    /// 轮后「记」是否已开启（测试 / 状态面）。
+    pub fn hot_recall_enabled(&self) -> bool {
+        self.hot_recall.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// 请求停止当前轮（非阻塞；幂等）。

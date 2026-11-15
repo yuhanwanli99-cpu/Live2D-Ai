@@ -43,6 +43,9 @@ mod budget;
 mod card;
 mod fact;
 mod pin;
+mod recall;
+#[cfg(test)]
+mod recall_tests;
 mod render;
 mod store;
 #[cfg(test)]
@@ -52,6 +55,10 @@ pub use budget::{estimate_tokens, fit_lines, trim_to_tokens};
 pub use card::{CardLine, CardTier, HotCard, render_hot_card};
 pub use fact::{FactKind, HotFact, retention, strengthen};
 pub use pin::{PINNED_BUDGET_TOKENS, PinnedItem, pinned_tokens, render_pinned};
+pub use recall::{
+    MAX_RECALL_ITEMS, MAX_RECALL_TEXT_CHARS, RECALL_SYSTEM_PROMPT, fold_summary, parse_recalled,
+    recall_user_message,
+};
 pub use render::{
     HOT_CARD_BUDGET_TOKENS, HOT_CARD_HEADING, PINNED_HEADING, PromptBudget, SYSTEM_PROMPT_FACTORY,
     compose_system_text, system_sentence,

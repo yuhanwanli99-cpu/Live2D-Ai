@@ -630,6 +630,11 @@ pub(crate) fn build_web_supervisor(
         }
     });
 
+    // 2026-11-16（热槽记忆 M4）：生产装配**打开**轮后「记」。
+    // 缺省关是为了不污染「每轮恰好 N 次 LLM 请求」那组回归（见 supervisor.rs 的
+    // `hot_recall` 字段注释）；这里打开才是产品行为。
+    handle.enable_hot_recall();
+
     Ok(handle)
 }
 

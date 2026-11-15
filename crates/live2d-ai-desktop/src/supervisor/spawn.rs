@@ -131,6 +131,9 @@ fn spawn_supervisor_impl(
     // （与 `session_scopes` 同款：HTTP 侧写、supervisor 每轮读）。
     let hot_slot = crate::hot_slot::HotSlot::new();
     let hot_slot_for_thread = hot_slot.clone();
+    // 2026-11-16（热槽记忆 M4）：轮后「记」缺省**关**，生产装配显式打开。
+    let hot_recall = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hot_recall_for_thread = Arc::clone(&hot_recall);
     let reload_pending_for_thread = Arc::clone(&reload_pending);
     let current_epoch_for_thread = Arc::clone(&current_epoch);
     let join = std::thread::Builder::new()
@@ -157,6 +160,7 @@ fn spawn_supervisor_impl(
                 reload_ack_for_thread,
                 turn_in_flight_for_thread,
                 hot_slot_for_thread,
+                hot_recall_for_thread,
             ));
         })
         .expect("启动 supervisor 线程");
@@ -173,5 +177,6 @@ fn spawn_supervisor_impl(
         reload_ack,
         turn_in_flight,
         hot_slot,
+        hot_recall,
     }
 }

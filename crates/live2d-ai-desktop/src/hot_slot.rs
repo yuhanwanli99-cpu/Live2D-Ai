@@ -237,6 +237,11 @@ impl HotSlot {
         live2d_ai_runtime::hotmem::render_hot_card(inner.mem.card(session))
     }
 
+    /// 库里的全部事实（测试 / 诊断；只读投影，年龄已算好）。
+    pub fn facts_for_test(&self) -> Vec<live2d_ai_runtime::hotmem::HotFact> {
+        self.guard().mem.facts()
+    }
+
     /// 状态面快照。
     pub fn snapshot(&self) -> HotMemorySnapshot {
         self.guard().mem.snapshot()
