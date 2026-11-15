@@ -1,16 +1,17 @@
 /// 草稿防抖探针的单测（2026-11-16 热槽记忆 M3 前端半边）。
 ///
-/// 守三件事：
+/// 守四件事：
 /// 1. **连打不发请求**：多次输入只换计时器，只有停顿之后才发**一次**；
-/// 2. **最后一次为准**：停顿发出去的是最后那段文本，不是最早那段；
-/// 3. **切会话不补发**：`cancel()` 之后旧会话的草稿不会落到新会话上。
+/// 2. **最后一次为准**：停顿发出去的是最后那段文本；
+/// 3. **切会话不补发**：cancel 之后旧会话的草稿不会落到新会话上；
+/// 4. **会话跟随**：请求里带的是当时的活动会话 id。
 library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:live2d_ai_shell/api/api_client.dart';
 import 'package:live2d_ai_shell/chat/draft_probe.dart';
 
-/// 记下每次 `sendDraft` 的正文与会话，不碰网络。
+/// 记下每次 sendDraft 的正文与会话，不碰网络。
 class _RecordingApi extends ApiClient {
   _RecordingApi() : super(base: 'http://127.0.0.1:1');
 
@@ -27,8 +28,8 @@ class _RecordingApi extends ApiClient {
 
 void main() {
   test('连打不逐字发请求：停顿后只发一次，且是最后那段文本', () async {
-    final api = _RecordingApi();
-    final probe = DraftProbe(
+    final _RecordingApi api = _RecordingApi();
+    final DraftProbe probe = DraftProbe(
       api: api,
       debounce: const Duration(milliseconds: 20),
     );
@@ -43,8 +44,8 @@ void main() {
   });
 
   test('会话跟着探针走：请求带上当前会话 id', () async {
-    final api = _RecordingApi();
-    final probe = DraftProbe(
+    final _RecordingApi api = _RecordingApi();
+    final DraftProbe probe = DraftProbe(
       api: api,
       debounce: Duration.zero,
       sessionId: 's1',
@@ -56,21 +57,23 @@ void main() {
   });
 
   test('cancel 之后不再发：切会话不把旧草稿落到新会话上', () async {
-    final api = _RecordingApi();
-    final probe = DraftProbe(
+    final _RecordingApi api = _RecordingApi();
+    final DraftProbe probe = DraftProbe(
       api: api,
       debounce: const Duration(milliseconds: 30),
     );
     probe.onChanged('旧会话的草稿');
+    // 这就是 _onChatSessionMaybeChanged 在会话切换时做的事：先取消、再换 id。
     probe.cancel();
+    probe.sessionId = 'b';
     await Future<void>.delayed(const Duration(milliseconds: 80));
     expect(api.sent, isEmpty, reason: '取消后不得补发');
     probe.dispose();
   });
 
   test('reset 之后计时器停掉且不记 lastSent', () async {
-    final api = _RecordingApi();
-    final probe = DraftProbe(
+    final _RecordingApi api = _RecordingApi();
+    final DraftProbe probe = DraftProbe(
       api: api,
       debounce: const Duration(milliseconds: 30),
     );

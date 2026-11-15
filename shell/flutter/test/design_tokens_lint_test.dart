@@ -74,6 +74,11 @@ const Map<String, int> kTimingExemptPrefixCaps = <String, int>{
   // 时序策略，不是 UI 过渡时长：AppDurations 那 4 档是给 hover / 内容切换
   // 这类交互过渡定的，套在这里没有语义。
   'lib/voice/voice_listen_controller': 3,
+  // 草稿防抖（1 处，2026-11-16 热槽记忆 M3）：400 ms 是**客户端与服务端约定的
+  // 停顿时长**（`POST /api/v1/chat/draft` 的触发时机，服务端常量
+  // `chat_draft::DRAFT_DEBOUNCE_MS` 同一个数），不是 UI 过渡时长——
+  // 套 `AppDurations` 那 4 档只会让协议参数看起来像动效。
+  'lib/chat/draft_probe': 1,
 };
 
 /// 一条扫描规则。
@@ -464,9 +469,14 @@ if (w >= 1280) return _wide();
         );
       }
       // 豁免面只许变小：总量写死在这里，改动就要先解释为什么。
+      //
+      // 4 → 5（2026-11-16，热槽记忆 M3）：新增 `lib/chat/draft_probe` 一处
+      // 400 ms 草稿防抖。它**是协议参数**（客户端与服务端约定的触发停顿，与
+      // `chat_draft::DRAFT_DEBOUNCE_MS` 同一个数），不是 UI 过渡时长——
+      // 所以按本表的历史口径（时序而非动效）单列一条，而不是塞进 AppDurations。
       expect(
         kTimingExemptPrefixCaps.values.fold<int>(0, (int a, int b) => a + b),
-        4,
+        5,
       );
     });
 

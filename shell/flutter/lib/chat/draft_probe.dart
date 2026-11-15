@@ -25,6 +25,11 @@ import '../api/api_client.dart';
 
 /// 缺省停顿（毫秒）。与服务端 `chat_draft::DRAFT_DEBOUNCE_MS` 同一个数字：
 /// 前端停下 400 ms 才发，服务端不再等第二次。
+/// 这个 400 ms 是**协议参数**（客户端与服务端约定的停顿时长，服务端常量
+/// `chat_draft::DRAFT_DEBOUNCE_MS` 同一个数），**不是 UI 动效时长**——所以它
+/// 刻意不取 `AppDurations` 的 4 档（那 4 档是为 hover / 内容切换这类交互过渡
+/// 定的）。本文件挂在 `lib/chat/`，因此 `design_tokens_lint_test.dart` 需要
+/// 一条路径前缀豁免：见 `kTimingExemptPrefixCaps` 里的 `lib/chat/draft_probe`。
 const int kDraftDebounceMs = 400;
 
 /// 草稿探针：输入 → 防抖 → 换热卡。
