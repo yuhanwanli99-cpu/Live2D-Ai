@@ -127,6 +127,10 @@ fn spawn_supervisor_impl(
         }
     });
     let mod_events_for_thread = config.mod_events.clone();
+    // 2026-11-16（热槽记忆 M2/M3）：热槽在这里创建，线程与 handle 共用同一句柄
+    // （与 `session_scopes` 同款：HTTP 侧写、supervisor 每轮读）。
+    let hot_slot = crate::hot_slot::HotSlot::new();
+    let hot_slot_for_thread = hot_slot.clone();
     let reload_pending_for_thread = Arc::clone(&reload_pending);
     let current_epoch_for_thread = Arc::clone(&current_epoch);
     let join = std::thread::Builder::new()
@@ -152,6 +156,7 @@ fn spawn_supervisor_impl(
                 performance_stats_for_thread,
                 reload_ack_for_thread,
                 turn_in_flight_for_thread,
+                hot_slot_for_thread,
             ));
         })
         .expect("启动 supervisor 线程");
@@ -167,5 +172,6 @@ fn spawn_supervisor_impl(
         performance_stats,
         reload_ack,
         turn_in_flight,
+        hot_slot,
     }
 }

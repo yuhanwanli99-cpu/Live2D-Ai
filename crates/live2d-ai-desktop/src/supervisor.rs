@@ -217,6 +217,13 @@ pub struct SupervisorHandle {
     ///
     /// 与 supervisor 线程**共享同一张表**：HTTP/mod 侧写入，supervisor 每轮读。
     session_scopes: SessionScopeStore,
+    /// 主链热槽（2026-11-16 M2）：`POST /api/v1/chat/draft` 写、supervisor 每轮读，
+    /// 因此与 supervisor 线程**共享同一个句柄**（同 `session_scopes` 的处理）。
+    ///
+    /// **不进 `SupervisorConfig`**——热槽总是存在（空槽 = 没有事实、
+    /// 没有热卡，行为等于「四块里只有系统句」）。这样一个可选参数不会在
+    /// 四十个装配点上各写一遍，也不会出现「忘了传 → 热槽静默失效」。
+    hot_slot: crate::hot_slot::HotSlot,
     /// 表演层计数槽（2026-09-22）：`GET /api/v1/app/status` 的
     /// `performance` 块从这里读「成功几轮 / 回退几轮 / 最近原因码」。
     performance_stats: PerformanceStatsSlot,
@@ -279,6 +286,13 @@ impl SupervisorHandle {
     /// 会话作用域表的句柄（面板状态 / Mod 注入 / 测试断言用）。
     pub fn session_scopes(&self) -> &SessionScopeStore {
         &self.session_scopes
+    }
+
+    /// 主链热槽句柄。
+    ///
+    /// `POST /api/v1/chat/draft` 用它写热卡；状态面读它出诊断数字。
+    pub fn hot_slot(&self) -> &crate::hot_slot::HotSlot {
+        &self.hot_slot
     }
 
     /// 请求停止当前轮（非阻塞；幂等）。

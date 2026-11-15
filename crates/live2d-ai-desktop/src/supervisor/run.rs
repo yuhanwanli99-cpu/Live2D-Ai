@@ -42,6 +42,8 @@ pub(super) async fn run_forever(
     reload_ack: Arc<std::sync::Mutex<Option<ReloadAck>>>,
     // 3.0 队首第一片（2026-10-17）：一轮在飞标志（外部文本忙时合并用）。
     turn_in_flight: Arc<std::sync::atomic::AtomicBool>,
+    // 2026-11-16（热槽记忆 M2/M3）：主链热槽（与 handle 共用同一个句柄）。
+    hot_slot: crate::hot_slot::HotSlot,
 ) {
     let SupervisorConfig {
         client,
@@ -190,12 +192,27 @@ pub(super) async fn run_forever(
                     //
                     // 表里没有该会话 → None → 引擎回落配置里的全局
                     // `persona.system_prompt`（降级语义，见 session_scope 头注）。
-                    // **2026-11-16（热槽记忆 M2）**：读点是 `speak_prompt_for` 而不是
-                    // `prompt_for`——已退休的 persona / memory 槽不再进说话请求，
-                    // 其余 owner 行为不变（计划 §6 M2）。
-                    engine.set_system_prompt_override(
-                        session_scopes.speak_prompt_for(session.as_deref()),
-                    );
+                    // **2026-11-16（热槽记忆 M2）**：说话用的 system 文本 = 四块
+                    // （系统句 + 钉住的事 + 最近对话 + 热卡）。最近对话走历史，
+                    // 另外三块在这里拼：
+                    // - 系统句来自 `[persona].system_prompt`（空 → 出厂句）；
+                    // - 钉住 / 热卡来自热槽（`POST /api/v1/chat/draft` 写）；
+                    // - 会话槽只贡献**未退休** owner 的文本（`speak_prompt_for`）。
+                    // 四块只进这一轮请求：不写 toml、不写会话槽、不打 marker。
+                    let user_text_for_memory = text.clone();
+                    let base_prompt = engine.config().system_prompt.clone();
+                    let blocks = hot_slot.compose(&base_prompt, session.as_deref());
+                    let spoken = session_scopes.speak_prompt_for(session.as_deref());
+                    let system_text = match spoken {
+                        Some(extra) if !extra.trim().is_empty() => {
+                            format!("{}\n\n{extra}", blocks.system)
+                        }
+                        _ => blocks.system.clone(),
+                    };
+                    engine.set_system_prompt_override(Some(system_text));
+                    // 本轮钉住条目的 id：这一轮说完之后记为「已说」，下一轮跳过
+                    // （条目仍在库里，只是渲染时不再重复）。
+                    let pinned_ids = hot_slot.pinned_ids_now(session.as_deref());
                     // 对话历史按会话换桶（前为进程一份，换会话会串上一会话轮次）。
                     histories.install(&mut engine, session.as_deref());
                     // P1WS-1：开轮前镜像 epoch。Stop 事务推进 epoch 后会再次
@@ -218,6 +235,20 @@ pub(super) async fn run_forever(
                     // AssistantReplied 之前置位，因为那些是「轮末准备下一轮」）。
                     // 消费者已随 `external-input` Mod 移出主仓，见上方置位处注释。
                     turn_in_flight.store(false, Ordering::Release);
+                    // **2026-11-16（热槽记忆 M2/M4）**：本轮说了哪些钉住条目 →
+                    // 记为「已说」（下一轮渲染跳过，条目不删）。
+                    hot_slot.note_spoken(session.as_deref(), pinned_ids);
+                    // M4：轮后「记」= **后台任务**（说的 HTTP 响应不等它；失败只记
+                    // 日志，不让这一轮失败）。这里先同步落一条 episode 兜底，抽取
+                    // 事实在 `hot_slot::record_turn` 里做（见 hot_slot.rs）。
+                    if !close.interrupted {
+                        let recorded = hot_slot.record_fallback_episode(&user_text_for_memory);
+                        tracing::debug!(
+                            turn = next_turn_id,
+                            recorded,
+                            "hotmem episode recorded after turn"
+                        );
+                    }
                     // **Wave 3（2026-09-21）**：助手侧正文 → AssistantReplied。
                     //
                     // 这是「记忆摘要含助手侧」的唯一入口（见 topics.rs 该主题头注）：

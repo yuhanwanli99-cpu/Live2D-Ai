@@ -62,6 +62,9 @@ use crate::web_api::app_routes::{CapabilitiesContext, StatusContext};
 pub mod a2a_gate;
 /// Web API 子模块。
 pub mod app_routes;
+pub mod chat_draft;
+#[cfg(test)]
+mod chat_draft_tests;
 pub mod chat_routes;
 pub mod cli_entry;
 /// HTTP 派发（method+path → RouteId → handler；D-P0B 安全校验 + D-P0C
@@ -671,6 +674,21 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
         // L1 基座（2026-09-15）：会话 id 宿主能力
         // （GET|POST /api/v1/chat/session）。前置于 dispatch，自身完成
         // loopback + json 校验（详见 chat_routes 头注）。
+        // 2026-11-16（热槽记忆 M3）：草稿端点——客户端停顿后发，换热卡。
+        // 前置于 dispatch：它像 chat/session 一样自带 Origin/CT 校验，且路径
+        // 以 /api/v1/chat/ 开头（不走 `/api/v1/*` 的 501 兜底）。
+        if let Some(resp) = crate::web_api::chat_draft::handle_chat_draft(
+            ctx.try_get_supervisor().as_deref().map(|h| h.hot_slot()),
+            &method,
+            &path,
+            &body_str,
+            origin.as_deref(),
+            content_type.as_deref(),
+            &ctx.security,
+        ) {
+            respond_and_log(request, &method, &path, "chat.draft", resp);
+            continue;
+        }
         if let Some(resp) = crate::web_api::chat_routes::handle_chat_session(
             &ctx,
             &method,

@@ -450,4 +450,4 @@ mod tests_basic;
 mod tests_session;
 #[cfg(test)]
 #[path = "chat_routes_tests_support.rs"]
-mod tests_support;
+pub(super) mod tests_support;

@@ -116,12 +116,22 @@ fn scoped_session_prompt_overrides_global_and_never_leaks_across_sessions() {
             .unwrap_or_default()
             .to_string()
     };
-    assert_eq!(system_of(0), "A 的人设", "会话 A 必须用 A 的卡");
-    assert_eq!(system_of(1), "B 的人设", "会话 B 必须用 B 的卡（不串卡）");
+    // 2026-11-16（热槽记忆 M2）：说话 system 文本 = 四块拼接。这里没有事实、
+    // 没有热卡，所以每条都是「系统句 +（未退休的）会话槽文本」。
+    assert_eq!(
+        system_of(0),
+        "全局人设\n\nA 的人设",
+        "会话 A：全局系统句（用户存过的非空句原样用）+ A 的槽（不串卡）"
+    );
+    assert_eq!(
+        system_of(1),
+        "全局人设\n\nB 的人设",
+        "会话 B：全局系统句 + B 的槽（不串卡）"
+    );
     assert_eq!(
         system_of(2),
         "全局人设",
-        "不带会话 → 回落全局 persona.system_prompt（降级语义）"
+        "不带会话 → 只有全局系统句（无会话槽可拼）"
     );
 }
 
