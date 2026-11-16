@@ -198,8 +198,10 @@ extension _ShellCueVoiceWiring on _ShellRootState {
   /// 一条语音正文**唯一**的落点：写进输入框（不排队、不静默丢弃）。
   ///
   /// - **产品听写的定稿**（成功与失败都走它；空串 = 没听清 → 什么都不做，
-  ///   控制器已经写了「没听清，再点一次说」）；
-  /// - 主链忙时把识别到的正文交回输入框，让用户改字重发。
+  ///   控制器已经写了「没听清，再点一次说」）。
+  ///
+  /// 2026-11-16：识别只出文本、**不自动发送**（端点不调 `say`），所以这里也
+  /// 只剩「写进输入框」一件事——不再有「主链忙 → 正文交回输入框」那条支路。
   ///
   /// 输入框里已有文字时**接在后面**（中间补一个空格），光标落到末尾；
   /// 不 `setState`——`TextEditingController` 自己会通知输入框重建。
@@ -214,42 +216,6 @@ extension _ShellCueVoiceWiring on _ShellRootState {
     );
   }
 
-  /// [VoiceListenController] 的两条结果回调（busy / 听写定稿）共用它。
+  /// [VoiceListenController] 的听写定稿回调（成功与失败共用它）。
   void _onVoiceResult(String text) => _writeVoiceTextToInput(text);
-
-  /// voice-input Mod 是否启用（「听」按钮预检；读失败 → `true` 不误拦）。
-  ///
-  /// 缓存命中直接返回；首次（或用户在设置里改过启停后清缓存）走一次
-  /// `GET /api/v1/mods`。**读不到不拦**——真发出去时服务端仍会如实回 403。
-  Future<bool> _voiceInputModEnabled() async {
-    final bool? cached = _voiceInputEnabled;
-    if (cached != null) return cached;
-    try {
-      final List<ModInfo> mods = await _modsApi.list();
-      if (mounted) {
-        _mods = mods;
-        _voiceInputEnabled = _enabledOf(mods, 'voice-input');
-        _refresh();
-      }
-      return _enabledOf(mods, 'voice-input');
-    } catch (_) {
-      return true;
-    }
-  }
-
-  /// 读当前生效的唤醒词：voice-input Mod 的 `config.wake_phrase`。
-  ///
-  /// 键缺失 / Mod 不在册 / 读失败 → 产品缺省「小可爱」（与 Rust 侧
-  /// `gate::DEFAULT_WAKE_PHRASE` 逐字一致）。**显式空**（键存在且为空）
-  /// 也回落缺省：服务端此时会拒一切转写，按钮仍能把这条错误如实显示出来；
-  /// 本地不需要复刻「空 = 总闸关」的第二套判定。
-  Future<String> _loadWakePhrase() async {
-    final List<ModInfo> mods = await _modsApi.list();
-    for (final ModInfo m in mods) {
-      if (m.id != 'voice-input') continue;
-      final Object? raw = m.config['wake_phrase'];
-      if (raw is String && raw.trim().isNotEmpty) return raw.trim();
-    }
-    return kDefaultWakePhrase;
-  }
 }

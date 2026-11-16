@@ -154,11 +154,14 @@ void main() {
       isTrue,
       reason: 'dropPendingAudio 的实体 = AudioPlayer.interrupt（清待播 + 口型归零）',
     );
-    // 「新消息」还有语音注入这条入口（它不走 _send）。
+    // 2026-11-16：语音**听写**不再注入一轮对话——它只把识别文本写进输入框
+    // （端点不调 `say`，用户自己按发送）。所以组合根里**不该**再有
+    // `_cancelStageForTurnBoundary('voice')`：有它反而说明又接回了「识别即
+    // 发送」那条已退休的路径。
     expect(
       main.contains("_cancelStageForTurnBoundary('voice')"),
-      isTrue,
-      reason: '语音注入也是新消息，必须先取消',
+      isFalse,
+      reason: '听写只写输入框，不再注入一轮对话（不得残留语音取消入口）',
     );
   });
 

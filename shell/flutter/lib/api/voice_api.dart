@@ -1,42 +1,33 @@
-/// 语音转写注入端点（`POST /api/v1/voice/transcript`）的**极小客户端**。
+/// 语音**识别**端点（`POST /api/v1/voice/asr`）的极小客户端。
 ///
-/// 契约真源：`crates/live2d-ai-desktop/src/web_api/voice_routes.rs` +
-/// `docs/voice-input.md`。这里只做一件事：把一段转写文本交给主链。
+/// 契约真源：`crates/live2d-ai-desktop/src/web_api/voice_asr.rs`。
 ///
-/// # 为什么 POST 的是**含唤醒词的原文**
+/// # 与旧 `/api/v1/voice/transcript` 的区别（2026-11-16）
 ///
-/// 端点侧的总闸要求文本里**包含**唤醒词（命中后才剥词）——真源是
-/// `live2d_ai_mod_voice_input::gate::evaluate`（纯函数，四态）。前端本地剥词
-/// 只用来判断「这句话是不是在叫角色、后面有没有正文」，**不**取代服务端判定：
-/// 所以这里送原文，服务端回 `text` = 剥词 + 归一化后的正文（响应里可核对）。
+/// 那条路已经**退休**（`410 voice_retired`）。旧接口 POST 的是**一段文本**
+/// （浏览器认出来的字），由服务端清洗 + `say` 开一轮；新接口 POST 的是
+/// **整段音频字节**，拿回文本，**不带任何对话副作用**。
 ///
-/// 这是刻意的「一份真相」：唤醒词匹配规则（忽略空白 / 大小写）只有 Rust 一份。
+/// 所以这里的返回类型只有「一段文本」或「一个异常」——没有 `ok:false` 的
+/// 「主链忙」：识别与主链是否忙无关。
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
 import 'api_client.dart';
 
-/// 转写注入结果。
-class VoiceTranscriptResult {
-  const VoiceTranscriptResult({
-    required this.ok,
-    this.text = '',
-    this.code,
-    this.message,
-  });
+/// 识别结果。
+class VoiceAsrResult {
+  const VoiceAsrResult({required this.text, this.durationMs});
 
-  /// 服务端是否受理（`200 ok:true`）。
-  final bool ok;
-
-  /// 服务端剥掉唤醒词 / 归一化后的正文（含唤醒词的原文不回显）。
+  /// 上游文本**去掉首尾空白**（中间一个字不改）。
   final String text;
 
-  /// 未受理时的错误码（如 `busy`）——**不猜**，原样透传。
-  final String? code;
-  final String? message;
+  /// 上游报的时长；没给就是 `null`（**不是 0**——那是两件事）。
+  final int? durationMs;
 }
 
 class VoiceApi {
@@ -49,28 +40,23 @@ class VoiceApi {
 
   Uri _uri(String path) => Uri.parse('$_base$path');
 
-  /// 注入一段转写。非 200 → [ApiException]（带服务端的错误码）。
-  ///
-  /// `200` 且 `ok:false`（主链忙）**不抛异常**：那是可退避的正常结果，
-  /// 面板/按钮旁要如实显示它，而不是当成链路故障。
-  /// `ptt`：按住说话（P0-4）——服务端闸门对该请求**跳过唤醒匹配**；
-  /// 其余（手动闸 / 总闸 / 清洗 / 归一化 / 长度 / token）完全不变。
-  Future<VoiceTranscriptResult> sendTranscript(
-    String text, {
-    bool ptt = false,
+  /// 送一整段 WAV（或 Ogg）去识别。非 200 → [ApiException]（带服务端错误码）。
+  Future<VoiceAsrResult> transcribe(
+    List<int> audio, {
+    String contentType = 'audio/wav',
   }) async {
     final http.Response response = await _guard(
       () => _client.post(
-        _uri('/api/v1/voice/transcript'),
-        headers: const <String, String>{'Content-Type': 'application/json'},
-        body: jsonEncode(<String, Object?>{'text': text, 'ptt': ptt}),
+        _uri('/api/v1/voice/asr'),
+        headers: <String, String>{'Content-Type': contentType},
+        body: audio is Uint8List ? audio : Uint8List.fromList(audio),
       ),
     );
     final Map<String, Object?> body = _decode(response.body);
-    final Map<String, Object?> error = body['error'] is Map
-        ? _stringKeys(body['error']! as Map<Object?, Object?>)
-        : const <String, Object?>{};
     if (response.statusCode != 200) {
+      final Map<String, Object?> error = body['error'] is Map
+          ? _stringKeys(body['error']! as Map<Object?, Object?>)
+          : const <String, Object?>{};
       final String code = _str(error['code']);
       throw ApiException(
         code.isEmpty ? 'http_${response.statusCode}' : code,
@@ -78,14 +64,11 @@ class VoiceApi {
         status: response.statusCode,
       );
     }
-    if (body['ok'] == false) {
-      return VoiceTranscriptResult(
-        ok: false,
-        code: _str(error['code']),
-        message: _str(error['message']),
-      );
-    }
-    return VoiceTranscriptResult(ok: true, text: _str(body['text']));
+    final Object? duration = body['duration_ms'];
+    return VoiceAsrResult(
+      text: _str(body['text']),
+      durationMs: duration is int ? duration : null,
+    );
   }
 
   void dispose() => _client.close();

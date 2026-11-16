@@ -58,22 +58,6 @@ extension _ShellAdminWiring on _ShellRootState {
     _refresh();
   }
 
-  /// 取一次 voice-input 的启停（启动时 + Mod 列表刷新后）。
-  ///
-  /// 失败静默：保持 `null`，**不误报**红字；端点自己的 403 `mod_disabled`
-  /// 仍是兜底真源。
-  Future<void> _refreshVoiceModState() async {
-    try {
-      final List<ModInfo> mods = await _modsApi.list();
-      if (!mounted) return;
-      _mods = mods;
-      _voiceInputEnabled = _enabledOf(mods, 'voice-input');
-      _refresh();
-    } catch (_) {
-      // 见上：读不到不拦。
-    }
-  }
-
   Future<void> _loadAdmin() async {
     _adminLoading = true;
     _adminError = null;
@@ -98,8 +82,6 @@ extension _ShellAdminWiring on _ShellRootState {
       final Object? activeModel = status['active_model_id'];
       _models = models;
       _mods = mods;
-      // 设置里启停 Mod 后，「听」按钮的红字要跟着变（同一份真源）。
-      _voiceInputEnabled = _enabledOf(mods, 'voice-input');
       _status = status;
       if (activeModel is String) _modelName = activeModel;
       // 与 id 同源：activate 之后 / 刷新之后舞台都靠它恢复。
