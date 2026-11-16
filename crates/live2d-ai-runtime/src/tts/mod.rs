@@ -20,6 +20,11 @@
 
 pub mod deepseek;
 
+/// 两档的 wire / 失败语义回归（本机假 HTTP，不连真的 `api.deepseek.com`）。
+#[cfg(test)]
+#[path = "tests_wire.rs"]
+mod tests_wire;
+
 use std::pin::Pin;
 
 use futures_util::Stream;

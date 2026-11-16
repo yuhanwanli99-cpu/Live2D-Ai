@@ -31,7 +31,7 @@
 use std::pin::Pin;
 
 use futures_util::Stream;
-use futures_util::stream::{self, try_unfold};
+use futures_util::stream;
 
 use crate::config::TtsConfig;
 use crate::error::{Error, Result};
@@ -180,18 +180,26 @@ pub(crate) async fn synthesize(
         return Err(Error::status(status, &text));
     }
 
-    // V1：逐块转发（与 `openai` 档同一条传输语义）——第一块到了就往下游送。
-    // 整句缓冲的语义是 V2 的事（见 `tts::mod` 的模块头表）。
-    Ok(Box::pin(stream::try_unfold(
-        response,
-        |mut response| async move {
-            match response.chunk().await {
-                Ok(Some(chunk)) => Ok(Some((chunk.to_vec(), response))),
-                Ok(None) => Ok(None),
-                Err(e) => Err(Error::Http(e)),
+    // 整句缓冲：**中途断开不交出任何字节**——这里 `Err` 返回，已经收到的块
+    // 一个都不往下游推（半句 PCM 会让口型跟着抖半句）。
+    let mut collected: Vec<u8> = Vec::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                if collected.len() + chunk.len() > MAX_RESPONSE_BYTES {
+                    return Err(Error::InvalidAudioConfig {
+                        message: format!(
+                            "DeepSeek TTS 响应超过 {MAX_RESPONSE_BYTES} 字节上限（整句丢弃）"
+                        ),
+                    });
+                }
+                collected.extend_from_slice(&chunk);
             }
-        },
-    )))
+            Ok(None) => break,
+            Err(e) => return Err(Error::Http(e)),
+        }
+    }
+    Ok(Box::pin(stream::once(async move { Ok(collected) })))
 }
 
 /// DeepSeek 档回给播放侧的 PCM 规格：**固定** 24 000 Hz / 单声道。
