@@ -145,8 +145,14 @@ mod tests_ws_acks;
 /// 单独承载：`tests_ws.rs` 已贴测试文件行数上限，修复不再让它增长。
 #[cfg(test)]
 mod tests_ws_client;
-/// 语音转写注入端点（**未挂载存根**，2026-10-19）：`POST /api/v1/voice/transcript`
-/// 未挂载时 404 `mod_disabled`（实现随 `voice-input` Mod 移出主仓）。
+/// 语音**识别**端点（2026-11-16）：`POST /api/v1/voice/asr` → DeepSeek
+/// `/v1/tools/asr` 的一次转发（核心链路，不是 Mod）。
+///
+/// 这是**二进制正文**端点，因而在 `run_request_loop` 里**先于** `read_body_from_request`
+/// 接手（那条通道是 1 MiB + UTF-8 字符串）。
+pub mod voice_asr;
+/// 语音转写注入端点（**未挂载存根 → 2026-11-16 起明确退休**）：
+/// `POST /api/v1/voice/transcript` 回 410 `voice_retired`，指向 `/api/v1/voice/asr`。
 /// 静态前置路由（与 [`external_routes`] 同款）。
 pub mod voice_routes;
 /// Web 静态资产：/models/* 模型资产 + /render* WASM 渲染页（节点 E E2）。
@@ -649,6 +655,24 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             .iter()
             .find(|h| h.field.equiv("Authorization"))
             .map(|h| h.value.as_str().to_string());
+        // 0.4.6 / 2026-11-16：语音**识别**端点是二进制正文（≤8 MiB），必须在这里
+        // 就接手——下面那条 `read_body_from_request` 是 1 MiB + UTF-8 字符串，
+        // 会把一段 WAV 截断并丢字节。判据只看路径与方法，不匹配的照旧走后面。
+        if crate::web_api::voice_asr::is_asr_path(&path) {
+            let body = crate::web_api::voice_asr::read_audio_body(&mut request);
+            let resp = crate::web_api::voice_asr::handle_voice_asr(
+                &ctx,
+                &method,
+                &path,
+                body,
+                origin.as_deref(),
+                content_type.as_deref(),
+            );
+            if let Some(resp) = resp {
+                respond_and_log(request, &method, &path, "voice.asr", resp);
+            }
+            continue;
+        }
         let body_str = read_body_from_request(&mut request);
         // 0.4.6：A2A 前置路由经 `mod_front_routes` 编译期分派——缺省树是未挂载
         // 存根（两条路径都 404 `mod_disabled`，同步 respond）；打包树是真实宿主门

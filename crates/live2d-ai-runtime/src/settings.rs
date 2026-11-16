@@ -148,6 +148,16 @@ pub struct AppSettings {
     /// 表演层段（`[performance]`，2026-09-22）：主模型之外的「导演/大脑」。
     /// **缺省关**（`enabled=false`）——关掉时主链行为与没有本段时逐字一致。
     pub performance: PerformanceSettings,
+    /// 语音识别段（`[asr]`，2026-11-16）：核心转发的 DeepSeek ASR。
+    ///
+    /// **整段可省略**：不写 = 没配钥匙，`POST /api/v1/voice/asr` 回
+    /// `503 asr_unconfigured`。这一段的钥匙**不借用** `[llm]`——录音送到
+    /// 另一个账号的代价太高，宁可让用户显式绑一次。
+    ///
+    /// **未配置时整段不落盘**（与 `[llm] mode` 同一条纪律）：旧 toml 里没有
+    /// 这一段，读一次再写回时不能凭空长出一行空的 `[asr]`。
+    #[serde(default, skip_serializing_if = "AsrSettings::is_unconfigured")]
+    pub asr: AsrSettings,
     /// 开发者模式开关（默认 false）：打开后 `/api/v1/logs*` 端点放行
     /// （见 W3 任务约定）。可在 `live2d-ai.toml` 顶层显式写 `dev_mode = true`，
     /// 或由 CLI `--dev-mode` 覆盖，或在设置面板（egui）勾选后 PATCH 落盘。
@@ -532,6 +542,44 @@ impl PerformanceSettings {
     }
 }
 
+/// `[asr]` 段：核心转发的 DeepSeek 语音识别（2026-11-16）。
+///
+/// **只有一项**：密钥的环境变量名。地址是固定的（`asr::deepseek::ASR_URL`），
+/// 容器 / 时长 / 大小上限是上游契约常量——都不做成配置项，免得「改了也不生效」
+/// 或「改出上游不认的组合」。
+///
+/// 缺省 = 没有变量名 = 未配置（`503 asr_unconfigured`）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AsrSettings {
+    /// 存放 DeepSeek ASR 密钥的环境变量名；省略 = 未配置。
+    ///
+    /// **不借用 `[llm].api_key_env`**：缺省是空的，用户必须显式绑一次，
+    /// 这样「录音送给了哪个账号」永远是可解释的。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_env: Option<String>,
+}
+
+impl AsrSettings {
+    /// 这一段是否配了钥匙变量名（**只判声明**，不读环境）。
+    ///
+    /// 「声明了但变量为空」由调用方经 `secrets::lookup` 判——与 llm/tts 同一条
+    /// 两段式口径（`declared_key_envs` 与 `resolve` 都用它）。
+    #[must_use]
+    pub fn declares_key(&self) -> bool {
+        self.api_key_env.as_deref().is_some_and(|n| !n.is_empty())
+    }
+
+    /// 是否**没配钥匙**（`skip_serializing_if` 用：未配置时整段不落盘，
+    /// 旧 toml 因此逐字 round-trip）。
+    ///
+    /// 收 `&self`：serde 的 `skip_serializing_if` 传的是字段引用。
+    #[must_use]
+    pub fn is_unconfigured(&self) -> bool {
+        !self.declares_key()
+    }
+}
+
 /// 解析产物：可直接交给引擎/客户端使用的配置视图。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedSettings {
@@ -543,6 +591,10 @@ pub struct ResolvedSettings {
     pub conversation: ConversationConfig,
     /// 表演层配置（**原样**交给 desktop 装配；客户端在 host 侧构造）。
     pub performance: PerformanceSettings,
+    /// ASR 的密钥（`None` = 未配置 → 路由回 `503 asr_unconfigured`）。
+    ///
+    /// 只在这里暴露**值**：`AppSettings` 本身只持变量名。
+    pub asr_key: Option<ApiSecret>,
 }
 
 impl AppSettings {
@@ -606,6 +658,16 @@ impl AppSettings {
             }
             None => None,
         };
+        // ASR 的钥匙**独立**：不借用 llm / tts 的变量名（录音送错账号的代价高）。
+        // 变量名为空串 = 没声明，与 llm/tts 同一条口径。
+        let asr_key = match self.asr.api_key_env.as_deref().filter(|n| !n.is_empty()) {
+            Some(name) => {
+                validate_env_name("asr", name)?;
+                lookup(name).map(ApiSecret::new)
+            }
+            None => None,
+        };
+
         validate_base_url("llm", &self.llm.base_url)?;
         // **TTS 选型待定（2026-09-10）**：`base_url` 为空 = 明确「未配置」，
         // 不报错；引擎走空句路径（见 `conversation::worker`）。
@@ -684,6 +746,7 @@ impl AppSettings {
                 ..ConversationConfig::default()
             },
             performance: self.performance.clone(),
+            asr_key,
         })
     }
 
@@ -711,6 +774,7 @@ impl AppSettings {
             ("llm", self.llm.api_key_env.as_deref()),
             ("tts", self.tts.api_key_env.as_deref()),
             ("performance", self.performance.api_key_env.as_deref()),
+            ("asr", self.asr.api_key_env.as_deref()),
         ]
         .into_iter()
         .filter_map(|(section, name)| {

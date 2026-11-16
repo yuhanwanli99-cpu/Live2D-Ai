@@ -11,6 +11,7 @@ use super::*;
 
 pub(super) fn sample() -> AppSettings {
     AppSettings {
+        asr: Default::default(),
         // 2026-09-16：action 段默认（幅度倍率）。
         action: Default::default(),
         // 2026-09-22：表演层默认关（[performance] 段，客户端在 host 侧构造）。
@@ -552,6 +553,7 @@ fn e2e_max_tokens_tri_state_through_http_patch() {
 
     // 3) 缺省字段 = 不动（已有值保持）。
     let capped = AppSettings {
+        asr: Default::default(),
         // 2026-09-16：action 段默认（幅度倍率）。
         action: Default::default(),
         llm: live2d_ai_runtime::settings::LlmSettings {

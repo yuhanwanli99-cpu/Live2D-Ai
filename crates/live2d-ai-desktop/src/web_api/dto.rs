@@ -319,6 +319,7 @@ mod tests {
 
     fn sample() -> AppSettings {
         AppSettings {
+            asr: Default::default(),
             // 2026-09-16：action 段默认（幅度倍率）。
             action: Default::default(),
             // 2026-09-22：表演层默认关（[performance] 段，客户端在 host 侧构造）。
