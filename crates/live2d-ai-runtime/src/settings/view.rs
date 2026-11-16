@@ -83,6 +83,9 @@ pub struct LlmView {
 pub struct TtsView {
     /// 语音来源（`"local"` / `"cloud"`，2026-10-09）。前端据此选中二选一。
     pub mode: String,
+    /// 出声分档（`"openai"` / `"deepseek"`，2026-11-16）。缺省 `openai`。
+    /// 前端据此决定画哪一档的字段（DeepSeek 时隐藏 base_url、音色变两项下拉）。
+    pub provider: String,
     pub base_url: String,
     pub model: Option<String>,
     pub voice: String,
@@ -169,6 +172,7 @@ impl From<&TtsSettings> for TtsView {
     fn from(s: &TtsSettings) -> Self {
         Self {
             mode: s.mode.as_str().to_string(),
+            provider: s.provider.as_str().to_string(),
             base_url: s.base_url.clone(),
             model: s.model.clone(),
             voice: s.voice.clone(),

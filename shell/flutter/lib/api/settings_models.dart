@@ -182,6 +182,18 @@ class LlmSettingsView {
 }
 
 /// 语音来源的稳定值（与 Rust `TtsMode::as_str` 逐字一致）。
+/// 出声分档（`[tts] provider`，2026-11-16）：OpenAI 兼容 `/audio/speech`。
+const String kTtsProviderOpenAi = 'openai';
+
+/// 出声分档：DeepSeek `/v1/tools/tts`（固定端点、24 kHz 单声道、两项音色）。
+const String kTtsProviderDeepSeek = 'deepseek';
+
+/// DeepSeek 档允许的音色（与 Rust `tts::deepseek::DEEPSEEK_VOICES` 逐字一致）。
+const List<String> kDeepSeekVoices = <String>['stella', 'tide'];
+
+/// DeepSeek 档的出厂音色（与 Rust `tts::deepseek::DEFAULT_VOICE` 一致）。
+const String kDeepSeekDefaultVoice = 'stella';
+
 const String kTtsModeLocal = 'local';
 
 /// 见 [kTtsModeLocal]。
@@ -206,11 +218,18 @@ class TtsSettingsView {
     required this.sampleRate,
     required this.channels,
     this.mode = kTtsModeLocal,
+    this.provider = kTtsProviderOpenAi,
   });
 
   /// 语音来源（`"local"` / `"cloud"`，2026-10-09）。缺省按**本地**理解：
   /// 老服务端 / 字段缺失时不能把界面拨到云端（那是另一套配置）。
   final String mode;
+
+  /// 出声分档（`"openai"` / `"deepseek"`，2026-11-16）。缺省 `openai`。
+  ///
+  /// 老服务端 / 字段缺失时按 **openai** 理解：那是今天的行为，不能把界面
+  /// 拨到一个用户没选过的档上。
+  final String provider;
 
   final String baseUrl;
 
@@ -226,8 +245,10 @@ class TtsSettingsView {
   factory TtsSettingsView.fromJson(Map<String, Object?>? json) {
     final Map<String, Object?> j = json ?? const <String, Object?>{};
     final String rawMode = _str(j['mode']);
+    final String rawProvider = _str(j['provider']);
     return TtsSettingsView(
       mode: rawMode.isEmpty ? kTtsModeLocal : rawMode,
+      provider: rawProvider.isEmpty ? kTtsProviderOpenAi : rawProvider,
       baseUrl: _str(j['base_url']),
       model: j['model'] is String ? j['model']! as String : null,
       voice: _str(j['voice']),

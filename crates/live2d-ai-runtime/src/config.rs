@@ -3,6 +3,8 @@
 //! 两者都是纯数据结构：本地（Ollama/vLLM 等）与云端服务同构，仅 `base_url` 不同。
 //! 可选 API key 用 [`ApiSecret`] 包装，Debug 打印自动脱敏。
 
+use serde::{Deserialize, Serialize};
+
 use crate::audio::AudioSpec;
 use crate::secret::ApiSecret;
 
@@ -61,7 +63,49 @@ impl LlmConfig {
     }
 }
 
-/// TTS 配置（OpenAI-compatible `/audio/speech`）。
+/// 出声的两档（`[tts] provider`，2026-11-16）。
+///
+/// **缺省 `OpenAi`**：旧 toml 根本不写这个键，所以行为与今天一字不变
+/// （`<base_url>/audio/speech`，逐块转发）。
+///
+/// 两档不是「每家一个客户端」：本地各大引擎只要提供 OpenAI 兼容的
+/// `POST {base_url}/audio/speech` 且能回 16 位小端 PCM，都走 `OpenAi` 这一档。
+/// DeepSeek 的路径与字段都不同（`/v1/tools/tts`，`voice_id`），单独一档。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TtsProvider {
+    /// OpenAI 兼容 `/audio/speech`（缺省；本地引擎也走这条）。
+    #[default]
+    OpenAi,
+    /// DeepSeek `/v1/tools/tts`（固定端点、固定 24 kHz 单声道）。
+    DeepSeek,
+}
+
+impl TtsProvider {
+    /// 稳定值（写进 `[tts].provider`，也是 HTTP patch 的取值）。
+    pub const OPENAI: &'static str = "openai";
+    /// 见 [Self::OPENAI]。
+    pub const DEEPSEEK: &'static str = "deepseek";
+
+    /// 稳定字符串。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenAi => Self::OPENAI,
+            Self::DeepSeek => Self::DEEPSEEK,
+        }
+    }
+
+    /// 是否缺省 `openai`（`skip_serializing_if` 用：**缺省不落盘**，
+    /// 旧 toml 无 `provider` 键因此逐字 round-trip）。
+    ///
+    /// 收 `&self`：serde 的 `skip_serializing_if` 传的是字段引用。
+    #[must_use]
+    pub fn is_openai(&self) -> bool {
+        *self == Self::OpenAi
+    }
+}
+
+/// TTS 配置（两档：OpenAI 兼容 `/audio/speech` / DeepSeek `/v1/tools/tts`）。
 ///
 /// 传输层原样转发 chunked bytes；`response_format = "pcm"`（本 crate 的默认值）
 /// 的字节流契约见 [`crate::audio`]：little-endian signed 16-bit interleaved
@@ -69,7 +113,12 @@ impl LlmConfig {
 /// 本批不保证可解码（见 [`crate::audio::ensure_supported_format`]）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TtsConfig {
+    /// 出声分档（见 [`TtsProvider`]）。
+    pub provider: TtsProvider,
     /// 服务基址；请求路径拼接为 `<base_url>/audio/speech`。
+    ///
+    /// **`DeepSeek` 档不读它**（端点是固定的），但字段保留：切回 `OpenAi`
+    /// 档时用户的地址还在。
     pub base_url: String,
     /// 可选模型名（如 `tts-1`）；`None` 时请求体省略 `model` 字段，由服务端默认决定。
     pub model: Option<String>,
@@ -89,6 +138,9 @@ impl TtsConfig {
     /// 无鉴权配置：请求 `pcm` 格式，按 24 kHz 单声道解释。
     pub fn new(base_url: impl Into<String>, voice: impl Into<String>) -> Self {
         Self {
+            // 便捷构造（测试 / 手工装配）缺省走 OpenAI 兼容档；
+            // 生产路径由 settings 解析注入。
+            provider: TtsProvider::default(),
             base_url: base_url.into(),
             model: None,
             api_key: None,
@@ -98,12 +150,20 @@ impl TtsConfig {
         }
     }
 
-    /// 是否已配置 TTS 端点。
+    /// 是否已配置 TTS 端点（这一句**有没有可能**出声）。
     ///
     /// 2026-09-10：TTS 选型未定期间 `base_url` 允许为空 —— 表示「本轮不接 TTS」，
     /// 引擎走空句路径（只出文本、不合成音频），不报错。
+    ///
+    /// 2026-11-16：判定**按档分叉**。
+    /// - `OpenAi`：看 `base_url`（空 = 未配置，语义一字不变）；
+    /// - `DeepSeek`：**不看** `base_url`（端点固定），看钥匙——钥匙为空时这一句
+    ///   不出声，与「未配置 TTS」同一条收口（只出文字）。
     pub fn is_configured(&self) -> bool {
-        !self.base_url.trim().is_empty()
+        match self.provider {
+            TtsProvider::OpenAi => !self.base_url.trim().is_empty(),
+            TtsProvider::DeepSeek => self.api_key.is_some(),
+        }
     }
 
     /// 覆盖 PCM 流规格（采样率/声道数）。规格合法性在 [`AudioSpec::new`]

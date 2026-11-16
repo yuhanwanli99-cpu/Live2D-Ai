@@ -57,6 +57,14 @@ api_key_env = "DEEPSEEK_API_KEY"
 # 语音来源：local = 本机端点（出厂 = CosyVoice3 sidecar）；cloud = 你自己填的
 # OpenAI 兼容端点（地址 / 音色 / 模型名 / 密钥，本项目不预填厂商、不带 Key）。
 mode = "local"
+# 出声分档（2026-11-16，与上面的 mode 正交）：
+#   "openai"（缺省）= <base_url>/audio/speech，逐块转发；本地各引擎（MeloTTS /
+#                     CosyVoice3 / 任何 OpenAI 兼容端点）都走这一档。
+#   "deepseek"     = 固定 https://api.deepseek.com/v1/tools/tts，**整句**收完再播；
+#                     上游恒 24 kHz / 单声道 / 裸 PCM，忽略下面的 sample_rate /
+#                     channels / response_format；音色只允许 stella 或 tide。
+# **缺省 openai 不写这个键**（省略 = openai；旧配置逐字 round-trip）。
+# provider = "deepseek"
 base_url = "http://127.0.0.1:8011/v1"
 # 音色 = sidecar 的 voice 名（CosyVoice3 出厂音色 dafeiyu；原样进请求体 voice 字段）
 voice = "dafeiyu"

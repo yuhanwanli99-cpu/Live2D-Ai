@@ -4,6 +4,7 @@
 //! 棘轮（上限 0）——把新一族断言塞进去会直接把 `src-rs-1000` 判红。
 //! 断言本体与住在 `patch_tests.rs` 里的那些**同一口径**：都走 `apply_patch`。
 
+use crate::config::TtsProvider;
 use crate::settings::patch::{PatchOutcome, SettingsPatch, apply_patch};
 use crate::settings::{AppSettings, TtsMode, TtsSettings};
 
@@ -14,6 +15,7 @@ fn cloud_sample() -> AppSettings {
     AppSettings {
         tts: TtsSettings {
             mode: TtsMode::Cloud,
+            provider: crate::config::TtsProvider::OpenAi,
             base_url: "http://127.0.0.1:8000/v1".into(),
             model: Some("tts-1".into()),
             voice: "alloy".into(),
@@ -119,4 +121,79 @@ fn patch_tts_cloud_without_voice_is_rejected() {
     .unwrap();
     let err = apply_patch(&s, &patch).expect_err("空音色的云端必须被拒");
     assert!(err.contains("音色"), "{err}");
+}
+// ------------------------- 出声分档（2026-11-16）
+
+/// 缺省 `provider = openai`：旧 toml 不写这个键，行为与今天一字不变。
+#[test]
+fn tts_provider_defaults_to_openai() {
+    assert_eq!(TtsSettings::default().provider, TtsProvider::OpenAi);
+    assert_eq!(TtsProvider::default().as_str(), "openai");
+    // 旧 toml（无 provider 键）→ 仍是 openai，且 base_url / 规格一字不动。
+    let parsed: TtsSettings = serde_json::from_str(
+        r#"{"base_url":"http://127.0.0.1:8091/v1","voice":"ZH","sample_rate":44100}"#,
+    )
+    .unwrap();
+    assert_eq!(parsed.provider, TtsProvider::OpenAi);
+    assert_eq!(parsed.sample_rate, 44_100);
+}
+
+/// 切到 `deepseek` 且音色在**上游白名单**内 → 保存成功。
+#[test]
+fn patch_tts_deepseek_with_whitelisted_voice_is_accepted() {
+    let s = AppSettings::default();
+    for voice in ["stella", "tide"] {
+        let json = format!(r#"{{"tts":{{"provider":"deepseek","voice":"{voice}"}}}}"#);
+        let patch: SettingsPatch = serde_json::from_str(&json).unwrap();
+        let (next, outcome) = apply_patch(&s, &patch).unwrap();
+        assert_eq!(outcome, PatchOutcome::Updated);
+        assert_eq!(next.tts.provider, TtsProvider::DeepSeek);
+        assert_eq!(next.tts.voice, voice);
+    }
+}
+
+/// 切到 `deepseek` 但音色不在白名单 → **保存失败**（原值一个字没动）。
+///
+/// 这是 V1 的硬要求：不静默落一个上游会拒的音色（那会让每一句都静默失败）。
+#[test]
+fn patch_tts_deepseek_with_other_voice_is_rejected() {
+    let s = AppSettings::default();
+    for voice in ["alloy", "nova", "Stella", "", " stella"] {
+        let json = format!(
+            r#"{{"tts":{{"provider":"deepseek","voice":{}}}}}"#,
+            serde_json::to_string(voice).unwrap()
+        );
+        let patch: SettingsPatch = serde_json::from_str(&json).unwrap();
+        let err = apply_patch(&s, &patch).expect_err("非白名单音色必须被拒");
+        assert!(err.contains("stella") && err.contains("tide"), "{err}");
+    }
+    // 失败后原设置对象一个字没动（apply_patch 是纯函数）。
+    assert_eq!(s.tts.provider, TtsProvider::OpenAi);
+}
+
+/// 已经在 deepseek 档时，把音色改成白名单外的值同样被拒（总校验，不只是切换时校验）。
+#[test]
+fn patch_tts_deepseek_voice_change_is_validated_too() {
+    let s = AppSettings {
+        tts: TtsSettings {
+            provider: TtsProvider::DeepSeek,
+            voice: "stella".into(),
+            ..TtsSettings::default()
+        },
+        ..Default::default()
+    };
+    let patch: SettingsPatch = serde_json::from_str(r#"{"tts":{"voice":"alloy"}}"#).unwrap();
+    let err = apply_patch(&s, &patch).expect_err("白名单外的音色必须被拒");
+    assert!(err.contains("DeepSeek"), "{err}");
+    // 白名单内的换音色放行。
+    let ok: SettingsPatch = serde_json::from_str(r#"{"tts":{"voice":"tide"}}"#).unwrap();
+    let (next, _) = apply_patch(&s, &ok).unwrap();
+    assert_eq!(next.tts.voice, "tide");
+}
+
+/// 未知的 provider 取值由 serde 直接拒（不静默忽略）。
+#[test]
+fn patch_tts_unknown_provider_is_rejected_by_serde() {
+    let bad = serde_json::from_str::<SettingsPatch>(r#"{"tts":{"provider":"azure"}}"#);
+    assert!(bad.is_err(), "未知 provider 必须在反序列化时就失败");
 }

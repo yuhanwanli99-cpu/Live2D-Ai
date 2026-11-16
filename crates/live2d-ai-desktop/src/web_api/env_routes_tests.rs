@@ -26,6 +26,7 @@ mod tests {
                 show_reasoning: None,
             },
             tts: TtsSettings {
+                provider: live2d_ai_runtime::config::TtsProvider::OpenAi,
                 mode: live2d_ai_runtime::settings::TtsMode::Cloud,
                 base_url: String::new(),
                 model: None,
