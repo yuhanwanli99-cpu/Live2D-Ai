@@ -14,11 +14,11 @@
 //! 缺省**、其它字段照常，永不向调用方返回 `Err`——宠物窗是 HTTP 服务的旁路，
 //! 一份坏 JSON 不该阻止开窗，更不该让进程退出码变化。
 //!
-//! 本文件（H2）还不读文件：调用方传缺省值。读 `mods.json` 是配对 WSL 计划
-//! rc.2 的事，它把文件里的对象直接交给 `PetConfig::from_json`（同一套回落）。
+//! 本文件不读文件：读 `mods.json` 的是 `desk_pet/manifest.rs`（rc.2），它把
+//! `mods.desk-pet.config` 那段对象直接交给 `PetConfig::from_json`（同一套回落）。
 
-// 解析入口这一步只有单测在调：读 `mods.json` 是配对 WSL 计划 rc.2 的事，在那之前
-// 命令行路径只用 `PetConfig::default()`。留着它们是为了 rc.2 直接接上同一份实现。
+// `HitMode::as_str` 目前只有 Windows 的窗口日志在用；Linux 上（含非 Windows 单测）
+// 只有测试会碰它，其余入口由 `desk_pet/manifest.rs` 在启动路径调用。
 #![allow(dead_code)]
 
 use serde_json::Value;

@@ -6,30 +6,24 @@
 //!
 //! # 画法
 //!
-//! - 皮套由进程内 `OffscreenRenderer` 渲染（`render_frame` 返回**直通 alpha**
-//!   的 `RgbaFrame`），经父模块的 `fill_premultiplied_bgra` 预乘后写进 32bpp、
-//!   **顶朝下**的 DIB，再用 `UpdateLayeredWindow`（`ULW_ALPHA` +
-//!   `AC_SRC_ALPHA`）交给 DWM；`opacity` 走 `BLENDFUNCTION.SourceConstantAlpha`
-//!   （整窗淡出，不改像素、不影响命中）；
-//! - **不进 WebView、不碰 /render、不改 wasm 背景、不改口型**：WebGPU 的 surface
-//!   只能 Opaque 合成（`crates/l2d-wasm-demo/src/web/surface/background.rs`），
-//!   「让 canvas 透明」这条路走不通；
-//! - 离屏清屏**本来就是** `Clear(TRANSPARENT)`（`model_core.rs` 的
-//!   `render_to_view_submit`），读回经 `unpremultiply(clamp=true)` 转直通 alpha ⇒
+//! - 皮套由进程内 `OffscreenRenderer` 渲染（直通 alpha 的 `RgbaFrame`），经父模块
+//!   `fill_premultiplied_bgra` 预乘后写进 32bpp 顶朝下 DIB，再 `UpdateLayeredWindow`
+//!   （`ULW_ALPHA` + `AC_SRC_ALPHA`）交 DWM；`opacity` 走 `SourceConstantAlpha`；
+//! - **不进 WebView、不碰 /render、不改 wasm 背景/口型**：WebGPU surface 只能 Opaque
+//!   合成（`l2d-wasm-demo/.../surface/background.rs`），「让 canvas 透明」走不通；
+//! - 离屏清屏本来就是 `Clear(TRANSPARENT)`，读回 `unpremultiply` 成直通 alpha ⇒
 //!   **l2d 一行未改**；真机首帧 `coverage = 0.0825`（皮套以外确实全透明）。
 //!
 //! # 命中与拖动
 //!
 //! `hit = opaque`（缺省）时窗口**不挂**常驻 `WS_EX_TRANSPARENT`：`WM_NCHITTEST`
-//! 转给 `hit.rs` 按最近一帧的 alpha 采样回答 `HTCLIENT` / `HTTRANSPARENT`。左键在
-//! 客户区按下即拖动（`SetCapture` + `SetWindowPos`），松手留下新位置；位置不再每帧
-//! 写回右下角——只有建窗时用 `window_rect`。`through` 恢复 0.4.3 的整窗穿透，
-//! `window` 整矩形吃鼠标（调试）。
+//! 转给 `hit.rs` 按最近一帧 alpha 回答 `HTCLIENT` / `HTTRANSPARENT`。左键按下即拖动
+//! （`SetCapture` + `SetWindowPos`），松手留下新位置（建窗时才用 `window_rect`）。
+//! `through` 恢复整窗穿透；`window` 整矩形吃鼠标（调试，帧 alpha 抬到 1 才生效）。
 //!
 //! # 失败语义
 //!
-//! 任何一步失败（无桌面 / 无 GPU / 皮套包缺失 / Win32 调用失败）都返回
-//! `Err(String)`；调用方（`desk_pet::start_if_armed` 的线程体）只记
+//! 任何一步失败都返回 `Err(String)`；调用方（`start_if_armed` 的线程体）只记
 //! `tracing::error!`，**HTTP 服务继续、进程退出码不变**。窗口被外部关掉
 //! （`WM_DESTROY`）时线程正常结束。
 //!
@@ -403,7 +397,7 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
     renderer
         .update(FIXED_DT_60HZ)
         .map_err(|e| format!("首帧 update 失败: {e}"))?;
-    let first = renderer
+    let mut first = renderer
         .render_frame()
         .map_err(|e| format!("首帧渲染失败: {e}"))?;
     let coverage = first.alpha_coverage();
@@ -428,6 +422,10 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
     let ex_style = ex_style_for(&config);
     let mut window = PetWindow::create(width, height, Point { x, y }, ex_style)?;
     // 命中态必须在第一帧上屏之前装好：窗口一出现就可能收到 WM_NCHITTEST。
+    if config.hit == HitMode::Window {
+        // 分层窗 alpha=0 的像素系统级穿透：抬到 1 才能「整矩形吃鼠标」（调试）。
+        crate::desk_pet::raise_alpha_floor_for_window_mode(&mut first);
+    }
     hit::install(config, Point { x, y });
     hit::refresh_map(&first);
     window.present(&first, config.opacity)?;
@@ -464,9 +462,12 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
         }
         if steps > 0 {
             let started = Instant::now();
-            let frame = renderer
+            let mut frame = renderer
                 .render_frame()
                 .map_err(|e| format!("渲染失败: {e}"))?;
+            if config.hit == HitMode::Window {
+                crate::desk_pet::raise_alpha_floor_for_window_mode(&mut frame);
+            }
             // 命中测试永远读「最近一帧」：先把 alpha 交给 hit.rs，再上屏。
             hit::refresh_map(&frame);
             window.present(&frame, config.opacity)?;

@@ -4,7 +4,9 @@
 //!   alpha 采样——alpha ≥ 16 返回 `HTCLIENT`（吃鼠标，可拖），否则 `HTTRANSPARENT`
 //!   （穿透到下面的窗，桌面图标照样能点）；
 //! - `through`：保持 0.4.3 的整窗 `WS_EX_TRANSPARENT`，本文件不参与；
-//! - `window`：整矩形 `HTCLIENT`（空像素也吃），只给调试；
+//! - `window`：整矩形 `HTCLIENT`（空像素也吃），只给调试；注意分层窗里
+//!   **alpha=0 的像素由系统判为穿透**，所以 `window.rs` 会把帧 alpha 抬到 1
+//!   （不可见）——否则 `WM_NCHITTEST` 收不到空像素，整矩形吃不到鼠标；
 //! - 拖动：命中像素上按住左键 → `SetCapture` + 记起点 → `WM_MOUSEMOVE` 里按光标
 //!   位移调 `SetWindowPos` 并更新「窗原点」→ 松手 `ReleaseCapture`。拖动中命中测试
 //!   一律 `HTCLIENT`（否则窗跟着光标离开角色后会丢捕获）。

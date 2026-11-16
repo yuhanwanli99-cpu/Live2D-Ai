@@ -11,7 +11,9 @@
 //!   `through` 恢复 0.4.3 的整窗穿透，`window` 整矩形吃鼠标（调试用）。
 //! - **拖动**：在命中的像素上按住左键可拖动窗，松手留下新位置（本进程内记住，不写盘）。
 //! - **配置**：`hit` / `opacity` / `always_on_top` / `height_ratio`，解析在 `config.rs`
-//!   （纯函数）；本文件只消费 `PetConfig`，缺省值即 0.4.3 的构图。
+//!   （纯函数）；本文件只消费 `PetConfig`，缺省值即 0.4.3 的构图。配置来源是
+//!   `mods.json` 的 `mods.desk-pet.config`（rc.2，见 `manifest.rs`）：读不到 / 坏值
+//!   一律用合同缺省；命令行 `--desk-pet` 也读同一段。
 //! - **DPI**：建窗前把进程设为 Per-Monitor V2，高分屏不再被系统放大糊掉（`window.rs`）。
 //!
 //! # 为什么本文件平台无关
@@ -42,6 +44,8 @@ use l2d::renderer::RgbaFrame;
 mod config;
 /// 命中与拖动（`hit = opaque` 时按 alpha 采样；纯采样部分 Linux 单测）。
 mod hit;
+/// rc.2：`mods.json` 的 `mods.desk-pet.config` 读取 + 开窗判定（纯函数 + 读文件边界）。
+mod manifest;
 
 /// Win32 裸绑定（类型 / 常量 / 结构体 / extern；只在 Windows 目标编译）。
 #[cfg(windows)]
@@ -71,10 +75,11 @@ static ARMED: AtomicBool = AtomicBool::new(false);
 /// arm 时一并存下的配置快照；`start_if_armed` 取走后清空（一扇窗只开一次）。
 static ARMED_CONFIG: Mutex<Option<config::PetConfig>> = Mutex::new(None);
 
-/// 打开「监听成功后开宠物窗」（只在 `main` 的 `Command::DeskPet` 分支调一次）。
+/// 打开「监听成功后开宠物窗」，用合同缺省配置（**不是**生产入口）。
 ///
-/// 等价于 `arm_with(PetConfig::default())`：命令行路径只认缺省配置（读
-/// `mods.json` 是配对 WSL 计划 rc.2 的事，它改用 `arm_with` 交进解析结果）。
+/// rc.2 起生产路径走 [`arm_from_startup`]：它先读 `mods.desk-pet.config`，再
+/// `arm_with` 交进解析结果；本函数只保留给「用缺省构图」的调用与测试。
+#[allow(dead_code)]
 pub fn arm() {
     arm_with(config::PetConfig::default());
 }
@@ -85,6 +90,45 @@ pub fn arm_with(pet_config: config::PetConfig) {
         *slot = Some(pet_config);
     }
     ARMED.store(true, Ordering::SeqCst);
+}
+
+/// 生产启动入口（rc.2）：决定要不要开窗，并读 `mods.desk-pet.config` 当配置。
+///
+/// 判定见 [`manifest::should_open`]：命令行 `--desk-pet` 优先；否则要求本进程
+/// 工厂表里有 `desk-pet` 且 manifest `enabled` 为真。缺省二进制工厂数是 0，
+/// 所以双击 / `--web` 的行为不变（只有命令行能开窗）。
+///
+/// 返回是否 arm（单测可断言；不创建 HWND、不起线程）。
+pub fn arm_from_startup(cli_requested: bool) -> bool {
+    let path = crate::web_api::cli_entry::mods_path_for_web();
+    let manifest = manifest::read_manifest(&path);
+    arm_from_manifest(cli_requested, &manifest)
+}
+
+/// [`arm_from_startup`] 的纯逻辑部分：判定 → 解析配置 → arm（manifest 由调用方给）。
+pub fn arm_from_manifest(cli_requested: bool, manifest: &serde_json::Value) -> bool {
+    let factory_ids: Vec<&str> = crate::AVAILABLE_MOD_FACTORIES
+        .iter()
+        .map(|factory| factory.descriptor().id)
+        .collect();
+    if !manifest::should_open(cli_requested, &factory_ids, manifest) {
+        return false;
+    }
+    arm_with(manifest::config_from_manifest(manifest));
+    true
+}
+
+#[cfg(test)]
+fn reset_armed_for_test() {
+    ARMED.store(false, Ordering::SeqCst);
+    if let Ok(mut slot) = ARMED_CONFIG.lock() {
+        *slot = None;
+    }
+}
+
+#[cfg(test)]
+fn armed_for_test() -> Option<config::PetConfig> {
+    ARMED_CONFIG.lock().ok().and_then(|slot| *slot)
 }
 
 /// 监听成功后开宠物窗；未 arm → 什么都不做。
@@ -220,6 +264,18 @@ pub fn fill_premultiplied_bgra(frame: &RgbaFrame, out: &mut [u8]) {
     }
 }
 
+/// `hit = window`（调试）专用：把整帧 alpha 的下限抬到 1。
+///
+/// Windows 分层窗（`UpdateLayeredWindow` + `ULW_ALPHA`）里 **alpha=0 的像素由系统
+/// 判为穿透**——`WM_NCHITTEST` 根本收不到这些点，光改 `hit.rs` 的 verdict 不足以
+/// 「整矩形吃鼠标」。抬到 1（预乘后颜色 ≤1，肉眼不可见）即可让系统按「非零 alpha」
+/// 把整矩形交给本窗。`opaque` / `through` 不走这里，像素零改动。
+pub fn raise_alpha_floor_for_window_mode(frame: &mut RgbaFrame) {
+    for pixel in frame.pixels.as_chunks_mut::<4>().0 {
+        pixel[3] = pixel[3].max(1);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,6 +355,19 @@ mod tests {
         assert_eq!(out, vec![1, 1, 1, 128]);
     }
 
+    /// `window` 调试模式：只把 alpha=0 抬到 1，已有 alpha 与 RGB 一个字节都不动。
+    #[test]
+    fn window_mode_alpha_floor_only_raises_zero_alpha() {
+        let mut frame = RgbaFrame {
+            width: 2,
+            height: 1,
+            pixels: vec![10, 20, 30, 0, 10, 20, 30, 200],
+        };
+        raise_alpha_floor_for_window_mode(&mut frame);
+        assert_eq!(&frame.pixels[0..4], &[10, 20, 30, 1]);
+        assert_eq!(&frame.pixels[4..8], &[10, 20, 30, 200]);
+    }
+
     #[test]
     #[should_panic(expected = "预乘目标长度")]
     fn premultiply_rejects_wrong_length() {
@@ -319,5 +388,41 @@ mod tests {
         arm_with(config::PetConfig::default());
         start_if_armed();
         start_if_armed(); // swap 语义：第二次无需再做事
+    }
+
+    /// rc.2：开窗判定与配置来源（工厂 0 + 命令行 → 开；配置取自 manifest；
+    /// 工厂 0 时 manifest enabled 不参与）。不创建 HWND、不起线程。
+    #[test]
+    fn arm_from_manifest_follows_cli_and_reads_config() {
+        reset_armed_for_test();
+        let manifest = serde_json::json!({
+            "mods": {"desk-pet": {
+                "enabled": false,
+                "config": {"hit": "through", "height_ratio": 0.4}
+            }}
+        });
+        // 工厂 0 且无命令行 → 不开窗（双击 / --web 行为不变）。
+        assert!(!arm_from_manifest(false, &manifest));
+        assert_eq!(armed_for_test(), None);
+        // 命令行优先于 enabled: false，且配置来自 manifest（不是合同缺省）。
+        assert!(arm_from_manifest(true, &manifest));
+        let armed = armed_for_test().expect("命令行应 arm");
+        assert_eq!(armed.hit, config::HitMode::Through);
+        assert_eq!(armed.height_ratio, 0.4);
+        // 坏 manifest：命令行仍能开窗，但用合同缺省。
+        reset_armed_for_test();
+        assert!(arm_from_manifest(
+            true,
+            &serde_json::json!({"mods": {"desk-pet": {"config": "坏值"}}})
+        ));
+        assert_eq!(armed_for_test(), Some(config::PetConfig::default()));
+        // 工厂为 0 时 manifest enabled 不参与判定。
+        reset_armed_for_test();
+        assert!(!arm_from_manifest(
+            false,
+            &serde_json::json!({"mods": {"desk-pet": {"enabled": true}}})
+        ));
+        assert_eq!(armed_for_test(), None);
+        reset_armed_for_test();
     }
 }

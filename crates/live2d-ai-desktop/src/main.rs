@@ -191,6 +191,10 @@ fn main() -> ExitCode {
             // 浏览器（测试 / 库调用不 arm；Linux 仍由 `scripts/ignite.sh` 打开）。
             #[cfg(windows)]
             browser::arm();
+            // rc.2：挂载了 desk-pet（工厂表里有）且 manifest enabled 为真时，
+            // `--web` 也在监听成功后开窗；缺省工厂 0 → 不 arm，行为不变。
+            #[cfg(windows)]
+            desk_pet::arm_from_startup(false);
             let code = web_api::cli_entry::run_web_mode(port, dev_mode);
             // 0.4.7 rc.1（W8）：失败且是交互双击才弹 MessageBoxW；其它平台 no-op。
             ExitCode::from(failure_dialog::show_on_failure(code))
@@ -203,8 +207,9 @@ fn main() -> ExitCode {
             // 在模块内按 `cfg(windows)` 分叉。
             #[cfg(windows)]
             browser::arm();
+            // rc.2：命令行入口也要读 `mods.desk-pet.config`（命令行优先于 enabled）。
             #[cfg(windows)]
-            desk_pet::arm();
+            desk_pet::arm_from_startup(true);
             let code = web_api::cli_entry::run_web_mode(port, dev_mode);
             ExitCode::from(failure_dialog::show_on_failure(code))
         }
