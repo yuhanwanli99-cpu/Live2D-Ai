@@ -18,9 +18,26 @@
 //!
 //! `R >= 0.7` 标「清楚」，`0.2 <= R < 0.7` 标「模糊」，`R < 0.2` 不进热卡。
 //! 外挂资料与保留率无关，只标「资料」。钉住的事只放「清楚」，**不放「资料」**。
+//!
+//! # 热卡不按保留率填（2026-11-16 维护者裁决）
+//!
+//! 保留率只说明「还记得」，**不说明「和这句草稿有关」**。所以本模块**没有**
+//! 「按 R 把事实库铺进热卡」的入口：一行要进热卡，必须由调用方**显式**给出
+//! （本轮检索命中的事实行、或外挂资料行）。没有向量检索时事实行一行都不给，
+//! 热卡里只剩 `[资料]` 行、或者干脆是空卡——耐久且 `R >= 0.7` 的事实走
+//! 「钉住的事」，不借热卡出场。删掉那条入口而不是留着不用：留着就会有人
+//! 再写一行 `from_facts(..)` 把不相关的旧事每轮带进来。
+//!
+//! # 单行长度上限
+//!
+//! 每行正文（不含前缀）不超过 [CARD_LINE_MAX_CHARS] = 120 字。因为热卡按
+//! **整行收、整行丢**（见 [super::budget::fit_lines]），一行放不下就等于这一行
+//! 永远进不了卡；120 字 + `- [清楚] ` 前缀按本模块 token 口径约 123 token，
+//! 单独一行必然放得进 200 token 预算。所以兜底 episode 在库里仍存 200 字
+//! （[crate::hotmem::Recollection::fallback_episode] 的口径），**渲染进卡前**
+//! 截到 120 字：库里的长度是「记得多少」，卡里的长度是「说得下多少」。
 
 use super::budget::{estimate_tokens, fit_lines};
-use super::fact::HotFact;
 
 /// 一行的分档。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -67,6 +84,15 @@ impl CardTier {
     }
 }
 
+/// 热卡单行正文（**不含**前缀）的字符上限。
+///
+/// 为什么是 120：热卡整行收、整行丢，一行放不下 = 这一行永远进不了卡。
+/// 120 个 CJK 字符 + `- [清楚] ` 前缀按本模块 token 口径约 123 token，
+/// 单独一行必然能进 200 token 预算（见 [super::render::HOT_CARD_BUDGET_TOKENS]）。
+/// 与材料切块上限 [super::material::MATERIAL_CHUNK_CHARS] 取同一个数字，
+/// 因为两者解的是同一个问题：**一条候选必须能独自进卡**。
+pub const CARD_LINE_MAX_CHARS: usize = 120;
+
 /// 热卡里的一行（**不含**前缀；渲染时才加）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CardLine {
@@ -77,12 +103,21 @@ pub struct CardLine {
 }
 
 impl CardLine {
-    /// 造一行；正文里的换行与前后空白被压成单个空格（热卡是「一行一条」）。
+    /// 造一行；正文里的换行与前后空白被压成单个空格（热卡是「一行一条」），
+    /// 并**截到 [CARD_LINE_MAX_CHARS] 字**。
+    ///
+    /// 截断发生在这里而不是在各调用点：这是「一行进卡」的唯一入口，于是
+    /// 「库里能存 200 字、卡里只说 120 字」这条口径由类型守住——兜底 episode
+    /// （[crate::hotmem::Recollection::fallback_episode]，库里 200 字）渲染前
+    /// 自动缩到 120 字，不需要谁记得手动截一次。
     pub fn new(tier: CardTier, text: impl Into<String>) -> Self {
-        Self {
-            tier,
-            text: normalize_line(&text.into()),
-        }
+        let text = normalize_line(&text.into());
+        let text = if text.chars().count() > CARD_LINE_MAX_CHARS {
+            text.chars().take(CARD_LINE_MAX_CHARS).collect()
+        } else {
+            text
+        };
+        Self { tier, text }
     }
 
     /// 渲染成 `- [清楚] …` 形状。
@@ -142,18 +177,6 @@ impl HotCard {
             }
         }
         Self { lines }
-    }
-
-    /// 由事实列表造卡（正文 = 事实文本，档位按当前保留率；`R < 0.2` 丢）。
-    ///
-    /// 这是「查」的**最小实现**：没有向量时的候选集就是钉住 + 未过期事实。
-    pub fn from_facts(facts: &[HotFact], recent: &[String]) -> Self {
-        let mut candidates: Vec<CardLine> = facts
-            .iter()
-            .filter_map(|f| f.tier().map(|t| CardLine::new(t, f.text.clone())))
-            .collect();
-        candidates.sort_by_key(|l| l.tier);
-        Self::from_lines(candidates, recent)
     }
 
     /// 行（只读）。

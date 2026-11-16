@@ -18,6 +18,14 @@
 //! - **摘要**：≤300 字，替换上一条（[HotMemory::set_summary]）；
 //! - **已说索引**：上一轮渲染过的钉住条目 id（[HotMemory::note_spoken]），
 //!   用来跳过复读——条目不删。
+//!
+//! # 这里**没有**「按保留率取热卡候选」的方法
+//!
+//! 曾经有过一个 `candidates()`：把 `R >= 0.2` 的事实按新鲜度排好，交给热卡。
+//! 2026-11-16 维护者裁决把它删了——保留率只说明「还记得」，不说明「和这句
+//! 草稿有关」，按它填热卡会把不相关的旧事每轮带进请求。热卡的事实行只能
+//! 来自**向量检索命中**；检索没配好就没有命中，热卡为空（只可能剩 `[资料]`）。
+//! 钉住块走 [HotMemory::pinned_items]，那是另一条路，与热卡无关。
 
 use std::collections::BTreeMap;
 
@@ -312,23 +320,5 @@ impl HotMemory {
             cards: self.cards.len(),
             summaries: self.summaries.len(),
         }
-    }
-
-    /// 供「查」用的候选事实：未过期、且 `R >= 0.2`（模糊及以上），**近的在前**。
-    pub fn candidates(&self) -> Vec<HotFact> {
-        let now = self.now_hours;
-        let mut out: Vec<HotFact> = self
-            .facts
-            .iter()
-            .map(|f| f.project(now))
-            .filter(|f| f.tier().is_some())
-            .collect();
-        out.sort_by(|a, b| {
-            a.age_hours
-                .partial_cmp(&b.age_hours)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(a.id.cmp(&b.id))
-        });
-        out
     }
 }

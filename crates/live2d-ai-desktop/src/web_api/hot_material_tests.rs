@@ -122,7 +122,8 @@ fn large_material_only_contributes_budgeted_material_lines() {
         load_material("/etc/live2d-ai.toml", path.to_str().expect("utf8")).expect("资料应能读出来");
     assert!(chunks.len() > 6, "切块数量应远多于一次能取的数量");
 
-    // 先放两条事实，占掉一部分热卡预算。
+    // 库里放两条清楚档 durable：它们**不**进热卡（没有向量检索就没有命中），
+    // 于是这份语料能用到几乎整个 200 token 预算——正好压一压资料的上限。
     handle.hot_slot().record(vec![
         live2d_ai_runtime::hotmem::Recollection::new(
             "用户喜欢薄荷",
@@ -149,10 +150,15 @@ fn large_material_only_contributes_budgeted_material_lines() {
         "整卡必须落在 200 token 内：{}",
         parsed.tokens
     );
-    // 事实行仍然在（资料不得把事实挤光）。
+    // 事实行一条都不在：没有向量检索 ⇒ 没有命中 ⇒ 热卡只有 `[资料]` 行。
     assert!(
-        parsed.card.contains("- [清楚] 用户喜欢薄荷"),
-        "{}",
+        !parsed.card.contains("[清楚]") && !parsed.card.contains("[模糊]"),
+        "没有命中时不许出现事实行：{}",
+        parsed.card
+    );
+    assert!(
+        parsed.card.lines().all(|l| l.starts_with("- [资料] ")),
+        "卡里只能有资料行：{}",
         parsed.card
     );
 
@@ -187,7 +193,10 @@ fn material_lines_appear_without_any_facts() {
     quit(handle);
 }
 
-/// 没配资料（空表）时，行为与 M3 完全一致（只有事实行）。
+/// 没配资料（空表）+ 没有检索命中 → 空卡（与 M3 的「查不到就是空」一致）。
+///
+/// 事实库里有清楚档 durable，但它走「钉住的事」，不进热卡——这是 2026-11-16
+/// 裁决第 1 条的直接推论。
 #[test]
 fn empty_material_list_keeps_the_m3_behaviour() {
     let (ctx, handle) = ctx_with_supervisor();
@@ -200,7 +209,11 @@ fn empty_material_list_keeps_the_m3_behaviour() {
     let resp = post_draft_with_material(&ctx, &handle, &[], "薄荷");
     let parsed: DraftAccepted = serde_json::from_str(&read_body(resp)).expect("JSON");
     assert_eq!(parsed.material_lines, 0);
-    assert_eq!(parsed.card, "- [清楚] 用户喜欢薄荷");
+    assert_eq!(parsed.lines, 0, "没有命中也没有资料 → 空卡");
+    assert!(parsed.card.is_empty(), "{}", parsed.card);
+    // 那条 durable 仍在钉住块里出场。
+    let blocks = handle.hot_slot().compose("", None);
+    assert!(blocks.pinned.contains("用户喜欢薄荷"), "{}", blocks.pinned);
     quit(handle);
 }
 

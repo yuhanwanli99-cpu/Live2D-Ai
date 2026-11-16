@@ -212,6 +212,42 @@ fn summary_is_replaced_and_bounded() {
 #[test]
 fn fallback_episode_truncation_is_the_documented_value() {
     assert_eq!(crate::hot_slot::FALLBACK_EPISODE_CHARS, 200);
+    // 渲染侧的上限是另一个数字：120 字（见下一条测试）。
+    assert_eq!(live2d_ai_runtime::hotmem::CARD_LINE_MAX_CHARS, 120);
+}
+
+/// **兜底 episode 渲染进卡时截到 120 字，并且真能进卡**（2026-11-16 裁决第 2 条）。
+///
+/// 库里存 200 字；`- [清楚] ` + 200 字约 203 token > 200，整行策略下永远进不去。
+/// 渲染前截到 120 字后一行约 123 token，单独也放得下。**不放宽 200 token 上限**。
+#[test]
+fn fallback_episode_is_clipped_for_rendering_so_it_fits_the_card() {
+    use live2d_ai_runtime::hotmem::{
+        CARD_LINE_MAX_CHARS, CardLine, CardTier, HOT_CARD_BUDGET_TOKENS, HotCard, render_hot_card,
+    };
+    let slot = HotSlot::new();
+    slot.record_fallback_episode(&"字".repeat(500));
+    let facts = slot.facts_for_test();
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].text.chars().count(), 200, "库里仍是 200 字");
+
+    // 渲染：拿库里那条正文造行 → 自动截到 120 字。
+    let card = HotCard::from_lines(
+        vec![CardLine::new(CardTier::Clear, facts[0].text.clone())],
+        &[],
+    );
+    let rendered = render_hot_card(Some(&card));
+    assert!(!rendered.is_empty(), "截断后这一行必须进得了卡");
+    assert_eq!(rendered.chars().count(), 7 + CARD_LINE_MAX_CHARS);
+    assert!(
+        card.tokens() <= HOT_CARD_BUDGET_TOKENS,
+        "截断后必须落在 200 token 内：{}",
+        card.tokens()
+    );
+    assert!(
+        !card.is_empty(),
+        "这条兜底 episode 以前因为超预算而静默不可见"
+    );
 }
 
 /// 「查」的最长等待常量是契约（计划 §3「最多等 1500 ms」）。

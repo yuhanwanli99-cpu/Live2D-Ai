@@ -15,10 +15,14 @@
 //!
 //! 资料与事实**共用**热卡那 200 token：先放事实行，再用剩余预算放资料行。
 //! 计划 §4「受热卡剩余预算限制」即此意。
+//!
+//! # 没有向量时热卡只剩资料
+//!
+//! 事实行只能来自本轮检索命中；本机没有 embedding 时检索给不出命中，于是
+//! 热卡要么只有 `[资料]` 行、要么是空卡。**不要**为此退回「按 `R` 铺事实库」
+//! ——那会把不相关的旧事每轮都带进请求（2026-11-16 维护者裁决）。
 
 use super::card::{CardLine, CardTier, HotCard};
-use super::fact::HotFact;
-use super::render::HOT_CARD_BUDGET_TOKENS;
 
 /// 资料切块的最大字符数（一块 = 一个候选）。
 ///
@@ -60,10 +64,12 @@ pub fn split_material(text: &str) -> Vec<String> {
     out
 }
 
-/// 把候选块压成 `[资料]` 行，并**整块**与事实一起装进热卡。
+/// 把候选块压成 `[资料]` 行，并**整块**与调用方给的事实行一起装进热卡。
 ///
 /// 参数：
-/// - `facts`：本轮由事实库来的候选行（顺序即优先级）；
+/// - `facts`：**本轮检索命中**的事实行（顺序即优先级）。没有向量检索时
+///   调用方传空表——保留率不是相关性（见 [super::card] 头注），
+///   本模块**不会**自己去事实库里按 `R` 挑；
 /// - `material`：外挂资料切出来的块（调用方已按 [split_material] 切好）；
 /// - `recent`：最近几轮原文（与热卡同一套去重口径）。
 ///
@@ -79,18 +85,3 @@ pub fn compose_card(facts: Vec<CardLine>, material: &[String], recent: &[String]
     }
     HotCard::from_lines(candidates, recent)
 }
-
-/// 由事实 + 资料一起造卡（「查」的完整实现）。
-///
-/// 没有事实时资料照样进卡（资料与保留率无关）；两者都空 → 空卡。
-pub fn compose_card_from(facts: &[HotFact], material: &[String], recent: &[String]) -> HotCard {
-    let mut fact_lines: Vec<CardLine> = facts
-        .iter()
-        .filter_map(|f| f.tier().map(|t| CardLine::new(t, f.text.clone())))
-        .collect();
-    fact_lines.sort_by_key(|line| line.tier);
-    compose_card(fact_lines, material, recent)
-}
-
-/// 热卡的预算（重复导出，方便调用点只 import 本模块）。
-pub const CARD_BUDGET_TOKENS: usize = HOT_CARD_BUDGET_TOKENS;

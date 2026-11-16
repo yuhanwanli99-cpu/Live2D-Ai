@@ -33,6 +33,14 @@
 //! 热卡**整块替换**，禁止把检索结果往旧热卡后面追加——[HotCard] 只有整体构造
 //! 入口、没有 `push`，形状本身就守住了这条。
 //!
+//! **热卡不按保留率填**：一行要进卡，必须来自本轮检索命中或外挂资料。本机
+//! embedding 没配好时检索给不出命中 → 热卡为空（只可能剩 `[资料]` 行）。
+//! 耐久且 `R >= 0.7` 的事实走「钉住的事」，不借热卡出场——保留率只说明
+//! 「还记得」，不说明「和这句草稿有关」（2026-11-16 维护者裁决）。
+//!
+//! **每行正文 ≤ [CARD_LINE_MAX_CHARS]（120 字）**：热卡整行收整行丢，一行放不下
+//! 就等于这一行永远进不了卡，所以渲染前先截到 120 字（库里仍可存 200 字）。
+//!
 //! # token 口径（**钉死**，实现与测试用同一条）
 //!
 //! 本项目不引 tokenizer。预算按字符近似：**1 token = 1 个 CJK 字符 = 1 个
@@ -50,17 +58,16 @@ mod recall_tests;
 mod render;
 mod store;
 #[cfg(test)]
+mod store_tests;
+#[cfg(test)]
 mod summary_tests;
 #[cfg(test)]
 mod tests;
 
 pub use budget::{estimate_tokens, fit_lines, trim_to_tokens};
-pub use card::{CardLine, CardTier, HotCard, render_hot_card};
+pub use card::{CARD_LINE_MAX_CHARS, CardLine, CardTier, HotCard, render_hot_card};
 pub use fact::{FactKind, HotFact, retention, strengthen};
-pub use material::{
-    CARD_BUDGET_TOKENS, MATERIAL_CHUNK_CHARS, MATERIAL_MAX_CHUNKS, compose_card, compose_card_from,
-    split_material,
-};
+pub use material::{MATERIAL_CHUNK_CHARS, MATERIAL_MAX_CHUNKS, compose_card, split_material};
 pub use pin::{PINNED_BUDGET_TOKENS, PinnedItem, pinned_tokens, render_pinned};
 pub use recall::{
     MAX_RECALL_ITEMS, MAX_RECALL_TEXT_CHARS, RECALL_SYSTEM_PROMPT, fold_summary, parse_recalled,

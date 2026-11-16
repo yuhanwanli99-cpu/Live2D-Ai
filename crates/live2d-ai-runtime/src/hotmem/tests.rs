@@ -255,6 +255,75 @@ fn hot_card_fits_the_200_token_budget() {
     }
 }
 
+/// **单行正文截到 120 字**（2026-11-16 裁决第 2 条）。
+///
+/// 热卡整行收整行丢，所以「库里能存 200 字」必须配上「卡里只说 120 字」——
+/// 否则那一行永远进不了卡，等于静默丢事实。
+#[test]
+fn card_line_is_clipped_to_120_chars_before_rendering() {
+    assert_eq!(CARD_LINE_MAX_CHARS, 120);
+    let line = CardLine::new(CardTier::Clear, "字".repeat(200));
+    assert_eq!(line.text.chars().count(), 120, "正文必须先截到 120 字");
+    let rendered = line.render();
+    // 前缀 `- [清楚] ` 共 7 字 + 120 字正文。
+    assert_eq!(rendered.chars().count(), 7 + 120);
+    assert!(
+        estimate_tokens(&rendered) <= HOT_CARD_BUDGET_TOKENS,
+        "单行必须能独自进卡：{} token",
+        estimate_tokens(&rendered)
+    );
+    // 120 字以内原样保留（不无脑截断正常长度的事实）。
+    assert_eq!(
+        CardLine::new(CardTier::Clear, "用户喜欢薄荷").text,
+        "用户喜欢薄荷"
+    );
+    assert_eq!(
+        CardLine::new(CardTier::Clear, "字".repeat(120))
+            .text
+            .chars()
+            .count(),
+        120
+    );
+}
+
+/// **兜底 episode：库里 200 字，卡里 120 字，且这一行能进卡**。
+///
+/// 这是裁决第 2 条的端到端判据：`- [清楚] ` + 120 字 ≈ 123 token < 200，
+/// 所以一行单独也放得下；截到 120 之前它约 203 token，整行策略下永远进不去。
+#[test]
+fn fallback_episode_keeps_200_in_the_store_but_120_in_the_card() {
+    let stored = Recollection::fallback_episode(&"字".repeat(500));
+    assert_eq!(stored.text.chars().count(), 200, "库里仍存 200 字");
+    let card = HotCard::from_lines(
+        vec![CardLine::new(CardTier::Clear, stored.text.clone())],
+        &[],
+    );
+    assert!(
+        !card.is_empty(),
+        "这一行必须进得了卡（整行策略下放不下就是永不可见）"
+    );
+    let rendered = render_hot_card(Some(&card));
+    assert_eq!(rendered.chars().count(), 7 + 120, "前缀 + 120 字");
+    assert!(card.tokens() <= HOT_CARD_BUDGET_TOKENS, "{}", card.tokens());
+}
+
+/// **没有向量时热卡只剩资料行**（2026-11-16 裁决第 1 条）。
+///
+/// `compose_card` 的 `facts` 参数是「本轮检索命中」，没有检索就是空表；
+/// 事实库再满也不会自己走进来——耐久且 `R >= 0.7` 的走钉住块。
+#[test]
+fn empty_retrieval_yields_no_fact_lines_but_keeps_material() {
+    // 没有命中、也没有资料 → 空卡。
+    assert!(compose_card(Vec::new(), &[], &[]).is_empty());
+    // 没有命中、但有资料 → 只有资料行。
+    let card = compose_card(Vec::new(), &["薄荷是唇形科".to_string()], &[]);
+    assert_eq!(render_hot_card(Some(&card)), "- [资料] 薄荷是唇形科");
+    assert!(
+        card.lines().iter().all(|l| l.tier == CardTier::Material),
+        "没有检索命中时不许有任何事实行"
+    );
+}
+
 // ---------------------------------------------------------------- 钉住块
 
 #[test]
@@ -347,105 +416,4 @@ fn prompt_budget_measures_the_three_blocks() {
     // 「- 一条」= 1（孤立的 ASCII `-` 算一个词）+ 2 个 CJK = 3 token。
     assert_eq!(budget.pinned, 3);
     assert!(budget.hot_card > 0);
-}
-
-// ---------------------------------------------------------------- 事实库
-
-#[test]
-fn hot_memory_records_reinforces_and_prunes() {
-    let mut mem = HotMemory::new();
-    // 时间基点 0；记两条。
-    let a = mem.remember(Recollection::new("用户叫星梦", FactKind::Durable));
-    let b = mem.remember(Recollection::new("今天聊了天气", FactKind::Episode));
-    assert!(a > 0 && b > 0 && a != b);
-    assert_eq!(mem.facts().len(), 2);
-
-    // 推进 20 天：durable 仍在「清楚」附近（S=14 天 → R≈0.24 模糊），
-    // episode（S=18 小时）早已掉出热卡，但 20 天 < 180 天**不删**。
-    mem.advance_to(20.0 * 24.0);
-    mem.prune_expired();
-    assert_eq!(mem.facts().len(), 2, "不到 180 天不得删 episode");
-
-    // 加固 episode：强度 ×1.6、时间基点回到现在（仍不回到清楚档，
-    // 但年龄归零 → 从「刚加固」重新算）。
-    assert!(mem.reinforce(b));
-    let after = mem.facts().into_iter().find(|f| f.id == b).expect("还在");
-    assert_eq!(after.age_hours, 0.0);
-    assert!((after.s_hours - 18.0 * 1.6).abs() < 1e-9);
-
-    // 再推进 200 天 → episode 被清掉，durable 留着。
-    mem.advance_to(220.0 * 24.0);
-    assert_eq!(mem.prune_expired(), 1, "只清 episode");
-    assert_eq!(mem.facts().len(), 1);
-    assert_eq!(mem.facts()[0].kind, FactKind::Durable);
-
-    // 快照数字与库里一致。
-    let snap = mem.snapshot();
-    assert_eq!(snap.facts, 1);
-    assert_eq!(snap.durable, 1);
-}
-
-#[test]
-fn card_is_replaced_per_session_and_cleared() {
-    let mut mem = HotMemory::new();
-    let a = HotCard::from_lines(card_of(&[(CardTier::Clear, "A 的命中")]), &[]);
-    mem.set_card(Some("s1"), a);
-    assert!(mem.card(Some("s1")).is_some());
-    assert!(mem.card(Some("s2")).is_none(), "会话之间不共享热卡");
-
-    // 新草稿 → 整块替换。
-    let b = HotCard::from_lines(card_of(&[(CardTier::Clear, "B 的命中")]), &[]);
-    mem.set_card(Some("s1"), b);
-    assert_eq!(
-        render_hot_card(mem.card(Some("s1"))),
-        "- [清楚] B 的命中",
-        "只替换、不追加"
-    );
-
-    // 空卡 = 清掉条目；已经空了再清是幂等的 false。
-    mem.set_card(Some("s1"), HotCard::empty());
-    assert!(mem.card(Some("s1")).is_none());
-    assert!(!mem.clear_card(Some("s1")), "已经空的会话再清是 no-op");
-}
-
-#[test]
-fn summary_is_replaced_and_clipped() {
-    let mut mem = HotMemory::new();
-    assert_eq!(mem.summary(Some("s1")), "");
-    mem.set_summary(Some("s1"), "第一轮摘要");
-    assert_eq!(mem.summary(Some("s1")), "第一轮摘要");
-    // 替换（不是追加）。
-    mem.set_summary(Some("s1"), "第二轮摘要");
-    assert_eq!(mem.summary(Some("s1")), "第二轮摘要");
-    // 300 字上限。
-    mem.set_summary(Some("s1"), "字".repeat(1000));
-    assert_eq!(mem.summary(Some("s1")).chars().count(), SUMMARY_MAX_CHARS);
-    // 空串 = 撤销。
-    mem.set_summary(Some("s1"), "");
-    assert_eq!(mem.summary(Some("s1")), "");
-}
-
-#[test]
-fn spoken_ids_suppress_repeats_without_deleting_facts() {
-    let mut mem = HotMemory::new();
-    let id = mem.remember(Recollection::new("用户叫星梦", FactKind::Durable));
-    let items = mem.pinned_items();
-    assert_eq!(items.len(), 1);
-    assert_eq!(
-        render_pinned(&items, mem.spoken(Some("s1"))),
-        "- 用户叫星梦"
-    );
-    // 记下「上一轮说过」→ 本轮渲染跳过。
-    mem.note_spoken(Some("s1"), vec![id]);
-    assert_eq!(
-        render_pinned(&mem.pinned_items(), mem.spoken(Some("s1"))),
-        ""
-    );
-    // **条目还在库里**（跳过 ≠ 删除）。
-    assert_eq!(mem.facts().len(), 1);
-    // 别的会话不受影响。
-    assert_eq!(
-        render_pinned(&mem.pinned_items(), mem.spoken(Some("s2"))),
-        "- 用户叫星梦"
-    );
 }

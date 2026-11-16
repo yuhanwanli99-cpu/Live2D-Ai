@@ -12,6 +12,9 @@
 //! - **不打 marker**：请求体里不会出现 `<!-- live2d-ai:memory-v0` 那种串；
 //! - **不阻塞说话**：记是后台任务，说的 HTTP 响应不等它；查最多等
 //!   [RETRIEVE_WAIT_MS] 毫秒，超时按空热卡开口；
+//! - **热卡只装本轮命中的内容**：事实行来自向量检索命中、资料行来自外挂文件。
+//!   本机没有 embedding 时没有命中，热卡为空——**不**按保留率拿事实库填卡
+//!   （2026-11-16 维护者裁决，理由见 [HotSlot::retrieve_with_material]）；
 //! - **不碰 `desk_pet/` / 工厂表 / `--desk-pet`**；
 //! - **不读旧 Mod 的 `memory.jsonl`**：那是另一条已退休路径的文件。
 //!
@@ -30,16 +33,17 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use live2d_ai_runtime::hotmem::{
-    FactKind, HotCard, HotMemory, HotMemorySnapshot, Recollection, compose_card_from,
+    FactKind, HotCard, HotMemory, HotMemorySnapshot, Recollection, compose_card,
     compose_system_text_with_summary, render_pinned, system_sentence,
 };
 
 /// 「查」的最长等待（毫秒）。超时按空热卡开口，不追改已经送去 TTS 的句子。
 ///
-/// **当前没有调用点**：M3 的「查」是同步完成的（候选集来自内存事实库，没有
-/// 向量网络往返），所以这条等待今天不需要。一旦接上 embedding 检索，说话路径
-/// 就要 `timeout(RETRIEVE_WAIT_MS, retrieve())`——常量留在这里，别在调用点写
-/// 一个新的数字（计划 §3 写死 1500）。测试也按这个常量断言。
+/// **当前没有调用点**：M3 的「查」是同步完成的（事实行今天恒为空表，因为本机
+/// 没有向量检索；外挂资料是本地读盘，几十微秒），所以这条等待今天不需要。
+/// 一旦接上 embedding 检索，说话路径就要 `timeout(RETRIEVE_WAIT_MS, retrieve())`
+/// ——常量留在这里，别在调用点写一个新的数字（计划 §3 写死 1500）。
+/// 测试也按这个常量断言。
 #[allow(dead_code)]
 pub const RETRIEVE_WAIT_MS: u64 = 1_500;
 
@@ -163,14 +167,25 @@ impl HotSlot {
         self.guard().mem.note_spoken(session, ids);
     }
 
-    /// **查**（带外挂资料，M5）：事实 + 资料一起整块装成本轮热卡。
+    /// **查**（带外挂资料，M5）：把本轮命中装成热卡。
     ///
     /// `material` 是**已切好的块**（见 `hotmem::split_material`）：调用方负责
     /// 读文件，本模块不做 IO（与 M1 的边界一致）。资料与保留率无关，只受热卡
-    /// 剩余预算限制——见 `hotmem::compose_card_from`。
+    /// 剩余预算限制——见 `hotmem::compose_card`。
     ///
-    /// 候选的排序与裁剪口径：事实按保留率分档（清楚 → 模糊），资料排在它们
-    /// 之后吃剩余预算；与最近几轮原文逐字重复的行丢掉；整行收，不截半行。
+    /// # 没有向量 → 热卡为空（2026-11-16 维护者裁决）
+    ///
+    /// **事实行只能来自向量检索命中**，而本机今天没有 embedding（计划 §3
+    /// 「查不做向量」），所以 `facts` 传**空表**。热卡于是只剩 `[资料]` 行、
+    /// 或者干脆是空卡。
+    ///
+    /// 这里曾经写成「候选集 = 事实库里 `R >= 0.2` 的全部事实」，那是错的：
+    /// 保留率只说明「还记得」，不说明「和这句草稿有关」。按 `R` 填卡会把
+    /// 不相关的旧事**每轮**都带进请求；耐久且 `R >= 0.7` 的本来就在「钉住的
+    /// 事」里，不借热卡出场。接上向量检索时，命中的 id 从这里进 `facts`。
+    ///
+    /// 裁剪口径：资料排事实行之后吃剩余预算；与最近几轮原文逐字重复的行丢掉；
+    /// 整行收不截半行；单行正文超 120 字在 `CardLine::new` 里截断。
     ///
     /// 返回写好的热卡（空卡 = 清掉了该会话的热卡）。
     pub fn retrieve_with_material(
@@ -187,8 +202,9 @@ impl HotSlot {
         let card = if draft.is_empty() {
             HotCard::empty()
         } else {
-            let facts = inner.mem.candidates();
-            compose_card_from(&facts, material, recent)
+            // 没有向量检索 ⇒ 没有命中 ⇒ 事实行空表（见上面「没有向量」一节）。
+            // 外挂资料仍进卡：它与相关性无关，是用户自己挂的那份笔记。
+            compose_card(Vec::new(), material, recent)
         };
         inner.mem.set_card(session, card.clone());
         card
@@ -200,6 +216,9 @@ impl HotSlot {
     }
 
     /// 丢掉某会话的热卡（草稿话题变了 / 含 `[资料]` 的卡整块作废）。
+    ///
+    /// 生产路径不直接调它：`retrieve_with_material` 每次整块替换，草稿一变旧卡
+    /// 就自然没了。留作状态面与将来「话题彻底变了」的显式作废口。
     pub fn clear_card(&self, session: Option<&str>) -> bool {
         self.guard().mem.clear_card(session)
     }
@@ -238,6 +257,14 @@ impl HotSlot {
     /// 截断长度 = [FALLBACK_EPISODE_CHARS]（200 字）。这里**显式**用这个常量而不是
     /// 依赖 runtime 侧的默认值：计划 §3 把「原文截断到 200 字」写成了产品口径，
     /// 两侧各钉一次常量，任何一边改都会在测试里立刻暴露。
+    ///
+    /// # 库里的 200 字 ≠ 卡里的 200 字
+    ///
+    /// 200 字是**库**的口径（「这一轮原文最多记得多少」）。进热卡时还要再截一次
+    /// 到 `hotmem::CARD_LINE_MAX_CHARS`（120 字）——因为热卡整行收整行丢，
+    /// `- [清楚] ` + 200 字 ≈ 203 token 放不进 200 token 预算，那条兜底
+    /// episode 就会**永远静默不可见**。截断在 `CardLine::new` 里做，调用方不必
+    /// 自己再截一次（也不要在这里改小 200：那是库的容量，不是渲染宽度）。
     pub fn record_fallback_episode(&self, text: &str) -> usize {
         let clipped: String = text.trim().chars().take(FALLBACK_EPISODE_CHARS).collect();
         self.record(vec![Recollection::new(clipped, FactKind::Episode)])
