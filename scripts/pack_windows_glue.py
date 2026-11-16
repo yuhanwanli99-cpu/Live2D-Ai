@@ -3,12 +3,12 @@
 
 职责（与 docs/versions/0.4.md §0.4.6 一致）：
   1. 用 mktemp 临时根 + 「git worktree add --detach <BASE_SHA>」起一次性干净树；
-  2. 八个兄弟仓库按 PINNED 里的**固定完整提交**导出（`git archive <full sha>`；
+  2. 七个兄弟仓库按 PINNED 里的**固定完整提交**导出（`git archive <full sha>`；
      绝不 HEAD、绝不 clone、绝不回退到当前 checkout；任一仓库/提交缺失即硬失败）。
      目录名必须是 Live2D-Ai / live2d-ai-mod-*，让它们 Cargo.toml 的
      ../Live2D-Ai/... path 依赖自洽；dirty src/child.rs 不会进包；
   3. 在临时树里按 docs/architecture/two-repo-mods.md 第 4 节挂载：根
-     [workspace.dependencies] path、desktop 八个 **optional** 依赖、把已提交的
+     [workspace.dependencies] path、desktop 七个 **optional** 依赖、把已提交的
      空特征 `packed-mods = []` 改写成 `["dep:..."]` 清单、main.rs 工厂表+工厂数
      断言、缺省 manifest 只启用 external-input。宿主路由已由分支提交的
      web_api/mod_front_routes.rs 承担——**不再**恢复任何旧文件、不生成
@@ -40,7 +40,6 @@ from pathlib import Path
 MOD_NAMES = [
     "external-input",
     "persona",
-    "voice-input",
     "memory",
     "local-tts",
     "local-engine",
@@ -55,7 +54,6 @@ ORDER = MOD_NAMES
 INFO = {
     "external-input": ("live2d-ai-mod-external-input", "live2d_ai_mod_external_input", "FACTORY"),
     "persona": ("live2d-ai-mod-persona", "live2d_ai_mod_persona", "FACTORY"),
-    "voice-input": ("live2d-ai-mod-voice-input", "live2d_ai_mod_voice_input", "FACTORY"),
     "memory": ("live2d-ai-mod-memory", "live2d_ai_mod_memory", "FACTORY"),
     "local-tts": ("live2d-ai-mod-local-tts", "live2d_ai_mod_local_tts", "MELO_FACTORY"),
     "local-engine": ("live2d-ai-mod-local-engine", "live2d_ai_mod_local_engine", "FACTORY"),
@@ -67,13 +65,12 @@ INFO = {
     ),
 }
 
-# 0.6.0：八个兄弟仓库的**固定完整提交**（40 位 sha）。导出只认这些值——
+# 0.6.0：七个兄弟仓库的**固定完整提交**（40 位 sha）。导出只认这些值——
 # 不接受 HEAD / 分支名 / 短 sha，也不回退到当前 checkout；仓库或提交缺失 =
 # 硬失败（见 export_repo_commit）。改这里 = 明确换一次导出基线。
 PINNED = {
     "external-input": "66f82868e01165cecb7faffd6f1a6233c5a6804f",
     "persona": "e6165f920f9138ef26b5d1749ed73c26dc4e6119",
-    "voice-input": "9031f9ca7a99e7496a94043f513169ba9d7a5718",
     "memory": "d7a7a960666365df4bd41951d3629cf547e059e1",
     "local-tts": "440f7ea51253754491f0c08ad0eeb28214f30351",
     "local-engine": "32bbe9ff56b247fb36b6ec91f188386a00137946",
@@ -88,7 +85,6 @@ PACKAGE_MODS_JSON = """{
   "mods": {
     "external-input": { "enabled": true, "config": {} },
     "persona": { "enabled": false, "config": {} },
-    "voice-input": { "enabled": false, "config": {} },
     "memory": { "enabled": false, "config": {} },
     "local-tts-melo": { "enabled": false, "config": { "launch_mode": "on_apply", "program": "" } },
     "local-engine": { "enabled": false, "config": { "launch_mode": "on_apply", "program": "" } },
@@ -102,7 +98,7 @@ PACKAGE_MODS_JSON = """{
 PACKAGE_README = """进入本目录后双击 live2d-ai-desktop.exe。它听 127.0.0.1:18080。
 不要用 WSL 里的 mods.json、.env、live2d-ai.toml 覆盖本目录。
 出厂只启用 external-input。local-tts-melo 没有 Windows 可执行文件，保持关闭。
-八个 Mod 已经编进 exe，不是旁边的 dll。
+七个 Mod 已经编进 exe，不是旁边的 dll。
 cosyvoice3-tts 是 Windows 专属（不依赖 WSL2），出厂停用；用户自备 CosyVoice3 权重与
 参考音色后，按 tools/cosyvoice3/README.md 装 sidecar，再在设置里启用。权重/参考音色不进本包。
 本包 [tts] 已指向 127.0.0.1:8011：先跑 tools/cosyvoice3/setup.ps1，再跑
@@ -257,7 +253,7 @@ def patch_tree(wtree: Path, mods: list) -> int:
     )
     write_text(wtree / "Cargo.toml", root_toml)
 
-    # --- 五步链 2a：desktop Cargo.toml 八个依赖必须是 optional（由特征开关）
+    # --- 五步链 2a：desktop Cargo.toml 七个依赖必须是 optional（由特征开关）
     desk = read_text(wtree / "crates/live2d-ai-desktop/Cargo.toml")
     anchor = 'live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }\n'
     deps = "".join(
@@ -267,7 +263,7 @@ def patch_tree(wtree: Path, mods: list) -> int:
         desk,
         anchor,
         anchor
-        + "# pack-windows.sh 临时树（不提交）：八个 Mod 实现编进本二进制，"
+        + "# pack-windows.sh 临时树（不提交）：七个 Mod 实现编进本二进制，"
           "由 packed-mods 特征统一启用（工厂数同步）。\n"
         + deps,
         "desktop Cargo.toml [dependencies]",
@@ -325,7 +321,7 @@ def patch_tree(wtree: Path, mods: list) -> int:
     # --- 缺省 manifest 只启用 external-input
     # 宿主路由已由分支提交的 web_api/mod_front_routes.rs 承担，本脚本不再改
     # web_api/mod.rs；这里只写 manifest，且 local-tts-melo **不进启用表**
-    # （出厂不拉起）。八个库仍链进临时树
+    # （出厂不拉起）。七个库仍链进临时树
     # （Cargo 依赖 / 工厂表不动），只是出厂不再启用一个在 Windows 上必然失败
     # 的 Mod——0.4.1 的包里它的缺省入口是打包机的
     # /tmp/live2d-ai-pack.<随机>/…/melo/start.sh。用户以后把 program 配成
@@ -418,8 +414,8 @@ def main() -> int:
         description="0.6.0 带 Mod 的 Windows 包组装：临时 worktree + 兄弟仓库固定提交导出 + 交叉编译 + dist/",
         epilog=(
             "前置条件：\n"
-            "  * 八个兄弟仓库：/home/skystar/live2d-ai-mod-<id>（external-input persona\n"
-            "    voice-input memory local-tts local-engine a2a cosyvoice3-tts）。每个都必须含本脚本\n"
+            "  * 七个兄弟仓库：/home/skystar/live2d-ai-mod-<id>（external-input persona\n"
+            "    memory local-tts local-engine a2a cosyvoice3-tts）。每个都必须含本脚本\n"
             "    PINNED 里的固定完整提交；缺仓库或缺提交 = 硬失败（不 HEAD、不回退、\n"
             "    不 clone）。不下载 Melo / CosyVoice3 权重；cosyvoice3-tts 是 Windows\n"
             "    专属（不依赖 WSL2），权重与参考音色不进包，sidecar 脚本随包在\n"
@@ -434,7 +430,7 @@ def main() -> int:
             "    ~/.cache/win-pack-target-046）；可用 < 4G 直接停，不删任何共享 target。\n"
             "    脚本按阶段清理该目录并在结束时删除（--keep-target 保留）。\n"
             "\n"
-            "产物（<dist>/）：live2d-ai-desktop.exe（八个 Mod 编进 exe，\n"
+            "产物（<dist>/）：live2d-ai-desktop.exe（七个 Mod 编进 exe，\n"
             "特征 packed-mods；不是旁边的 dll）、live2d-ai.toml（由仓库 example 生成的\n"
             "空密钥模板）、mods.json（出厂只启用 external-input）、README.txt、\n"
             "web/（Flutter 构建）、web/render/（l2d-wasm-demo 的 /render wasm 产物）、\n"
@@ -830,9 +826,9 @@ def main() -> int:
                                 capture_output=True, text=True).stdout.split()
             dist_du = du[0] if du else "0"
         report_lines = [
-            "0.6.0 带 8 个 Mod 的 Windows 包（scripts/pack-windows.sh）",
+            "0.6.0 带 7 个 Mod 的 Windows 包（scripts/pack-windows.sh）",
             "主仓临时树基线（full）：" + base_sha + "（--base " + args.base + "）",
-            "八个兄弟仓库固定提交（full，git archive <sha>）：",
+            "七个兄弟仓库固定提交（full，git archive <sha>）：",
         ]
         for name in MOD_NAMES:
             report_lines.append("  " + name + "  " + PINNED[name])
