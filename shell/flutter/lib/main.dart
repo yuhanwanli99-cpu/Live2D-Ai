@@ -103,8 +103,8 @@ import 'settings/settings_controller.dart';
 import 'settings/settings_sections.dart';
 import 'state/live_region.dart';
 import 'state/ui_state_tracker.dart';
-import 'voice/speech_recognizer.dart';
 import 'voice/voice_listen_controller.dart';
+import 'voice/wav_recorder.dart';
 import 'ui/confirm_discard_dialog.dart';
 import 'ui/error_actions.dart';
 import 'ui/field_row.dart';
@@ -125,18 +125,6 @@ part 'app/shell_app_root.dart';
 part 'app/shell_lifecycle_wiring.dart';
 part 'app/shell_draft_wiring.dart';
 part 'app/shell_playback_wiring.dart';
-
-/// Mod 列表里某个 id 的启停；**不在册**（极简装配 / 自定义注册表）→ `true`。
-///
-/// 与 web_api 端点的口径一致：端点是核心 say 能力，不该因为一个可选 Mod
-/// 缺失而失效（见 `voice_routes.rs` 头注「启停门禁」第三点）。所以这里
-/// 「查不到」绝不能当成「未启用」——那会误报红字。
-bool _enabledOf(List<ModInfo> mods, String id) {
-  for (final ModInfo m in mods) {
-    if (m.id == id) return m.enabled;
-  }
-  return true;
-}
 
 void main() {
   runApp(const Live2DShellApp());
@@ -329,11 +317,7 @@ class _ShellRootState extends State<ShellRoot> {
   bool _modelSwapFailed = false;
   List<ModInfo> _mods = const <ModInfo>[];
 
-  /// voice-input Mod 是否启用（`null` = 还没读到，**不误报**红字）。
-  ///
-  /// 判据真源 = `GET /api/v1/mods` 的 `enabled`；读失败保持 `null`，
-  /// 端点自己的 403 `mod_disabled` 仍是兜底。
-  bool? _voiceInputEnabled;
+
   List<LogLine> _logs = const <LogLine>[];
   String? _logsError;
   Map<String, Object?> _status = const <String, Object?>{};
@@ -646,16 +630,20 @@ class _ShellRootState extends State<ShellRoot> {
           audioUnlocked: _audio.unlocked,
           onEnableSound: _audio.unlock,
           onUserGesture: _audio.unlock,
-          // 常态语音检测：聊天主界面常驻的「听」按钮（唤醒词缺省「小可爱」）。
+          // 听写按钮：点一下开录、再点一下结束 → 整段 WAV 交给
+          // `POST /api/v1/voice/asr` → 文本进输入框（**不自动发送**）。
+          //
+          // 2026-11-16：不再走浏览器 Web Speech（那会把音频送到浏览器厂商的
+          // 云端），也不再常驻等唤醒词 / 不再有 PTT——那条链随 `voice-input`
+          // Mod 一起退休。
           listenSupported: _voiceListen.supported,
           listening: _voiceListen.listening,
           listenStatus: _voiceListen.statusLine,
           listenError: _voiceListen.error,
-          // 2026-10-08：产品路径 = 点一下开录、再点一下结束，定稿进输入框
-          //（不打语音端点、不自动发送；不再有 PTT，也不再常驻等唤醒词）。
           onToggleListen: () => unawaited(_voiceListen.toggleDictation()),
-          // 诚实性：Web Speech 是云端识别、需联网、音频会出本机。
-          listenNote: _voiceListen.supported ? kVoiceWebSpeechNote : null,
+          // 诚实性：音频送的是**本项目配置的**识别端点（也可来自浏览器之外），
+          // 识别结果只进输入框。
+          listenNote: _voiceListen.supported ? kDictationAsrNote : null,
           // L1 基座：Mod 变更后的统一提示（聊天区顶部常驻，可关）。
           modRestartNotice: _modRestartNotice,
           onDismissModRestart: _dismissModRestart,

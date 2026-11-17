@@ -74,6 +74,13 @@ mod settings_tests;
 #[cfg(test)]
 mod settings_tests_roundtrip;
 pub use llm_mode::LlmMode;
+/// `[tts]` 段（2026-11-16 拆出，语义一字未改）：类型 / 缺省值 / 平台分叉常量 /
+/// `apply_local_tts_defaults`。拆出理由见该模块头注（1000 行棘轮）。
+mod tts;
+pub use tts::{
+    DEFAULT_TTS_BASE_URL, DEFAULT_TTS_SAMPLE_RATE, DEFAULT_TTS_VOICE, TtsMode, TtsSettings,
+    apply_local_tts_defaults,
+};
 pub mod view;
 use std::path::Path;
 
@@ -81,7 +88,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::audio::AudioSpec;
-use crate::config::{LlmConfig, TtsConfig};
+use crate::config::{LlmConfig, TtsConfig, TtsProvider};
 use crate::conversation::ConversationConfig;
 use crate::secret::ApiSecret;
 
@@ -125,6 +132,13 @@ pub enum SettingsError {
     /// `[tts]` 的 PCM 规格非法（采样率/声道数为 0）。
     #[error("tts 音频规格非法: {0}")]
     InvalidAudioSpec(#[from] crate::error::Error),
+
+    /// `[tts] provider = "deepseek"` 时音色不在白名单里（只有 `stella` / `tide`）。
+    #[error("deepseek 音色非法: {voice:?}（只允许 stella / tide）")]
+    InvalidDeepSeekVoice {
+        /// 实际配置的值。
+        voice: String,
+    },
 }
 
 /// `live2d-ai.toml` 的反序列化形态（字段全部有默认值的最小文件即可工作）。
@@ -156,6 +170,16 @@ pub struct AppSettings {
     /// 表演层段（`[performance]`，2026-09-22）：主模型之外的「导演/大脑」。
     /// **缺省关**（`enabled=false`）——关掉时主链行为与没有本段时逐字一致。
     pub performance: PerformanceSettings,
+    /// 语音识别段（`[asr]`，2026-11-16）：核心转发的 DeepSeek ASR。
+    ///
+    /// **整段可省略**：不写 = 没配钥匙，`POST /api/v1/voice/asr` 回
+    /// `503 asr_unconfigured`。这一段的钥匙**不借用** `[llm]`——录音送到
+    /// 另一个账号的代价太高，宁可让用户显式绑一次。
+    ///
+    /// **未配置时整段不落盘**（与 `[llm] mode` 同一条纪律）：旧 toml 里没有
+    /// 这一段，读一次再写回时不能凭空长出一行空的 `[asr]`。
+    #[serde(default, skip_serializing_if = "AsrSettings::is_unconfigured")]
+    pub asr: AsrSettings,
     /// 开发者模式开关（默认 false）：打开后 `/api/v1/logs*` 端点放行
     /// （见 W3 任务约定）。可在 `live2d-ai.toml` 顶层显式写 `dev_mode = true`，
     /// 或由 CLI `--dev-mode` 覆盖，或在设置面板（egui）勾选后 PATCH 落盘。
@@ -250,173 +274,6 @@ impl LlmSettings {
     #[must_use]
     pub fn effective_show_reasoning(&self) -> bool {
         self.show_reasoning.unwrap_or(false)
-    }
-}
-
-/// 语音来源二选一（`[tts].mode`，2026-10-09）。
-///
-/// **缺省 `Local`**：出声走「本机 TTS 端点」——非 Windows 是仓库自带的
-/// MeloTTS 垫片（`127.0.0.1:8091` / 音色 `ZH`）；Windows 包不带 MeloTTS，
-/// 出厂端点是随包的 CosyVoice3 sidecar（`127.0.0.1:8011` / 音色 `dafeiyu`，见
-/// [`DEFAULT_TTS_BASE_URL`] 的平台分叉）。音色 / 格式 / 采样率 / 声道由设置保存
-/// 写死（普通层不给改端口）。
-/// `Cloud`：地址 / 音色 / 模型名 / 密钥由用户自己填，本项目**不预填厂商**、
-/// **不带 Key**。
-///
-/// 切换走同一次「保存并应用」；失败就是这一轮没生效（错误码照旧），
-/// **不自动改回另一个**。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum TtsMode {
-    /// 本地（缺省）。
-    #[default]
-    Local,
-    /// 云端。
-    Cloud,
-}
-
-impl TtsMode {
-    /// 稳定值（写进 `[tts].mode`，也是 HTTP patch 的取值）。
-    pub const LOCAL: &'static str = "local";
-    /// 见 [Self::LOCAL]。
-    pub const CLOUD: &'static str = "cloud";
-
-    /// 稳定字符串。
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Local => Self::LOCAL,
-            Self::Cloud => Self::CLOUD,
-        }
-    }
-}
-
-/// `[tts]` 段：OpenAI-compatible `/audio/speech` 上游。
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct TtsSettings {
-    /// 语音来源（本地 / 云端）。缺省 `local`——出厂是本机端点（平台分叉：非 Windows
-    /// 是仓库自带 MeloTTS 垫片，Windows 是随包 CosyVoice3 sidecar，见 [`DEFAULT_TTS_BASE_URL`]）。
-    #[serde(default)]
-    pub mode: TtsMode,
-    /// 服务基址。**出厂缺省按平台分叉**（见 [`DEFAULT_TTS_BASE_URL`]）：
-    /// 非 Windows = 仓库自带 MeloTTS 垫片（8091）；Windows = 随包 CosyVoice3
-    /// sidecar（8011，Windows 包不带 MeloTTS 运行环境）。本地 TTS 不是 Mod，
-    /// 出声端点唯一权威仍是这一段。
-    #[serde(default = "default_tts_base_url")]
-    pub base_url: String,
-    /// 可选模型名；省略时请求体不带 `model` 字段。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    /// 音色（请求体 `voice` 字段）。**出厂缺省按平台分叉**：非 Windows =
-    /// `ZH`（`melo/weights/config.json` 里 `spk2id` 的键）；Windows = `dafeiyu`
-    /// （CosyVoice3 sidecar 的 voice）。
-    #[serde(default = "default_voice")]
-    pub voice: String,
-    /// 返回格式：`"pcm"`（出厂默认，裸 s16le 流式）或 `"wav"`（RIFF 容器，一次性解析）。
-    ///
-    /// 缺省随出厂端点（MeloTTS 垫片回 s16le 裸流）取 `"pcm"`。换了返回 WAV 的
-    /// 服务端才需要写 `"wav"`——填错要么被 400 拒绝，要么按错容器解出杂音。
-    #[serde(default = "default_response_format")]
-    pub response_format: String,
-    /// 可选：存放 API key 的环境变量名。省略 = 不鉴权。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api_key_env: Option<String>,
-    /// 返回 PCM 流采样率；**出厂缺省 44.1 kHz**（[`DEFAULT_TTS_SAMPLE_RATE`] =
-    /// `melo/weights/config.json` 的 `sampling_rate`）。
-    /// 注意：默认值不能靠 `u32::default()`（那是 0），必须显式指定函数。
-    /// 它与 [`AudioSpec::DEFAULT_SAMPLE_RATE`]（播放侧 24 kHz）**是两个口径**：
-    /// 改这里不动播放默认，改播放默认也不动出厂 TTS 配置。
-    #[serde(default = "default_sample_rate")]
-    pub sample_rate: u32,
-    /// 返回 PCM 流声道数；默认单声道。
-    #[serde(default = "default_channels")]
-    pub channels: u16,
-}
-
-/// 出厂 TTS 服务地址：**平台条件**（2026-11-10，0.6.0）。
-///
-/// - **Windows**：`http://127.0.0.1:8011/v1` = 随包的 CosyVoice3 Windows 原生
-///   sidecar（`tools/cosyvoice3/`）。理由：Windows 包**不带** MeloTTS 运行环境，
-///   8091 在 Windows 上是死路径；出厂模板（`live2d-ai.toml.example`）与这里必须
-///   一致，否则用户在设置里保存「本地」TTS 会把地址打回 8091，开箱即用立刻坏。
-/// - **非 Windows**：`http://127.0.0.1:8091/v1` = 仓库自带的 MeloTTS 垫片
-///   （`local-tts-melo` 随应用拉起 `melo/start.sh`），语义保持 2026-10-09 口径不变。
-///
-/// Mod **不写**这一段（`tts-is-core.md`）：它只是与平台缺省一致；用户改了地址或
-/// 换了端点，链路照样跟着 `[tts]` 走。
-#[cfg(windows)]
-pub const DEFAULT_TTS_BASE_URL: &str = "http://127.0.0.1:8011/v1";
-#[cfg(not(windows))]
-pub const DEFAULT_TTS_BASE_URL: &str = "http://127.0.0.1:8091/v1";
-
-/// 出厂音色：**平台条件**（2026-11-10，0.6.0）。
-///
-/// - **Windows**：`dafeiyu`（CosyVoice3 sidecar 的 voice，模板同值）；
-/// - **非 Windows**：`ZH`（`melo/weights/config.json` 里 `spk2id` 的键）。
-#[cfg(windows)]
-pub const DEFAULT_TTS_VOICE: &str = "dafeiyu";
-#[cfg(not(windows))]
-pub const DEFAULT_TTS_VOICE: &str = "ZH";
-
-/// 出厂 TTS 采样率 = `melo/weights/config.json` 的 `sampling_rate`。
-///
-/// **与播放侧 `AudioSpec::DEFAULT_SAMPLE_RATE`（24 kHz）是两个口径**：那个是
-/// 「没有配置时音频调度按多少赫兹理解」，这个是「出厂 `[tts]` 那一行写什么」。
-pub const DEFAULT_TTS_SAMPLE_RATE: u32 = 44_100;
-
-fn default_tts_base_url() -> String {
-    DEFAULT_TTS_BASE_URL.to_string()
-}
-
-fn default_voice() -> String {
-    DEFAULT_TTS_VOICE.to_string()
-}
-
-fn default_response_format() -> String {
-    crate::audio::SUPPORTED_FORMAT.to_string()
-}
-
-fn default_sample_rate() -> u32 {
-    DEFAULT_TTS_SAMPLE_RATE
-}
-
-fn default_channels() -> u16 {
-    AudioSpec::DEFAULT_CHANNELS
-}
-
-/// 本地模式的**冻结字段**：切到「本地」时由设置保存写进 `[tts]`。
-///
-/// **地址 / 音色按平台分叉**（2026-11-10，0.6.0；理由同 [`DEFAULT_TTS_BASE_URL`]）：
-/// Windows = `127.0.0.1:8011` / `dafeiyu`（CosyVoice3 sidecar；Windows 包不带
-/// MeloTTS，8091 是死路径）；非 Windows = `127.0.0.1:8091` / `ZH`（MeloTTS 垫片，
-/// 语义不动）。其余冻结：裸 PCM / 44100 / 单声道、**无密钥**、model 清空。
-/// 这是核心链路（不是 Mod）——本地 Mod 只负责把进程拉起来（`tts-is-core.md`）。
-///
-/// **不**碰 [`AudioSpec::DEFAULT_SAMPLE_RATE`]（那是没配音频时的调度常量，
-/// 与「出厂 `[tts]` 那一行写什么」是两个口径）。
-pub fn apply_local_tts_defaults(tts: &mut TtsSettings) {
-    tts.mode = TtsMode::Local;
-    tts.base_url = DEFAULT_TTS_BASE_URL.to_string();
-    tts.model = None;
-    tts.voice = DEFAULT_TTS_VOICE.to_string();
-    tts.response_format = default_response_format();
-    tts.api_key_env = None;
-    tts.sample_rate = DEFAULT_TTS_SAMPLE_RATE;
-    tts.channels = AudioSpec::DEFAULT_CHANNELS;
-}
-
-impl Default for TtsSettings {
-    fn default() -> Self {
-        Self {
-            mode: TtsMode::default(),
-            base_url: default_tts_base_url(),
-            model: None,
-            voice: default_voice(),
-            response_format: default_response_format(),
-            api_key_env: None,
-            sample_rate: default_sample_rate(),
-            channels: default_channels(),
-        }
     }
 }
 
@@ -521,6 +378,44 @@ impl PerformanceSettings {
     }
 }
 
+/// `[asr]` 段：核心转发的 DeepSeek 语音识别（2026-11-16）。
+///
+/// **只有一项**：密钥的环境变量名。地址是固定的（`asr::deepseek::ASR_URL`），
+/// 容器 / 时长 / 大小上限是上游契约常量——都不做成配置项，免得「改了也不生效」
+/// 或「改出上游不认的组合」。
+///
+/// 缺省 = 没有变量名 = 未配置（`503 asr_unconfigured`）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AsrSettings {
+    /// 存放 DeepSeek ASR 密钥的环境变量名；省略 = 未配置。
+    ///
+    /// **不借用 `[llm].api_key_env`**：缺省是空的，用户必须显式绑一次，
+    /// 这样「录音送给了哪个账号」永远是可解释的。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_env: Option<String>,
+}
+
+impl AsrSettings {
+    /// 这一段是否配了钥匙变量名（**只判声明**，不读环境）。
+    ///
+    /// 「声明了但变量为空」由调用方经 `secrets::lookup` 判——与 llm/tts 同一条
+    /// 两段式口径（`declared_key_envs` 与 `resolve` 都用它）。
+    #[must_use]
+    pub fn declares_key(&self) -> bool {
+        self.api_key_env.as_deref().is_some_and(|n| !n.is_empty())
+    }
+
+    /// 是否**没配钥匙**（`skip_serializing_if` 用：未配置时整段不落盘，
+    /// 旧 toml 因此逐字 round-trip）。
+    ///
+    /// 收 `&self`：serde 的 `skip_serializing_if` 传的是字段引用。
+    #[must_use]
+    pub fn is_unconfigured(&self) -> bool {
+        !self.declares_key()
+    }
+}
+
 /// 解析产物：可直接交给引擎/客户端使用的配置视图。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedSettings {
@@ -532,6 +427,10 @@ pub struct ResolvedSettings {
     pub conversation: ConversationConfig,
     /// 表演层配置（**原样**交给 desktop 装配；客户端在 host 侧构造）。
     pub performance: PerformanceSettings,
+    /// ASR 的密钥（`None` = 未配置 → 路由回 `503 asr_unconfigured`）。
+    ///
+    /// 只在这里暴露**值**：`AppSettings` 本身只持变量名。
+    pub asr_key: Option<ApiSecret>,
 }
 
 impl AppSettings {
@@ -595,14 +494,39 @@ impl AppSettings {
             }
             None => None,
         };
+        // ASR 的钥匙**独立**：不借用 llm / tts 的变量名（录音送错账号的代价高）。
+        // 变量名为空串 = 没声明，与 llm/tts 同一条口径。
+        let asr_key = match self.asr.api_key_env.as_deref().filter(|n| !n.is_empty()) {
+            Some(name) => {
+                validate_env_name("asr", name)?;
+                lookup(name).map(ApiSecret::new)
+            }
+            None => None,
+        };
 
         validate_base_url("llm", &self.llm.base_url)?;
         // **TTS 选型待定（2026-09-10）**：`base_url` 为空 = 明确「未配置」，
         // 不报错；引擎走空句路径（见 `conversation::worker`）。
-        if !self.tts.base_url.trim().is_empty() {
-            validate_base_url("tts", &self.tts.base_url)?;
-            // 格式门禁：只接受 pcm / wav（mp3/flac 等明确报错，不假装支持）。
-            crate::audio::ensure_supported_format(Some(&self.tts.response_format))?;
+        //
+        // 2026-11-16：分档校验。`deepseek` 档**不读** `base_url`（端点固定），
+        // 所以空地址不是错误；它要校验的是音色白名单。保存路径
+        // （`settings::patch`）已经拒过一次，这里再兜一层，防止手改配置
+        // 让每一句都静默失败。
+        match self.tts.provider {
+            TtsProvider::OpenAi => {
+                if !self.tts.base_url.trim().is_empty() {
+                    validate_base_url("tts", &self.tts.base_url)?;
+                    // 格式门禁：只接受 pcm / wav（mp3/flac 等明确报错，不假装支持）。
+                    crate::audio::ensure_supported_format(Some(&self.tts.response_format))?;
+                }
+            }
+            TtsProvider::DeepSeek => {
+                if !crate::tts::deepseek::validate_voice(&self.tts.voice) {
+                    return Err(SettingsError::InvalidDeepSeekVoice {
+                        voice: self.tts.voice.clone(),
+                    });
+                }
+            }
         }
 
         // sample_rate/channels 为 0 时经 AudioSpec::new 显式报配置错误
@@ -632,12 +556,24 @@ impl AppSettings {
                 clean_tts: true,
             },
             tts: TtsConfig {
+                provider: self.tts.provider,
                 base_url: self.tts.base_url.clone(),
                 model: self.tts.model.clone(),
                 api_key: tts_key,
                 voice: self.tts.voice.clone(),
-                response_format: Some(self.tts.response_format.clone()),
-                spec,
+                // DeepSeek 档恒回裸 PCM（没有别的格式可选），所以
+                // `response_format` 也一并定死——否则用户配置里留着
+                // `"wav"` 会让播放侧拿裸 PCM 去解 RIFF 头。
+                response_format: Some(match self.tts.provider {
+                    TtsProvider::DeepSeek => crate::audio::SUPPORTED_FORMAT.to_string(),
+                    TtsProvider::OpenAi => self.tts.response_format.clone(),
+                }),
+                // DeepSeek 档的上游规格是固定的 24 000 Hz / 单声道，**忽略**
+                // 配置里的 sample_rate / channels（见 `tts::deepseek`）。
+                spec: match self.tts.provider {
+                    TtsProvider::DeepSeek => crate::tts::deepseek::resolved_spec(),
+                    TtsProvider::OpenAi => spec,
+                },
             },
             conversation: ConversationConfig {
                 // rc.4 M5：主链只发 `system_prompt` 原文，不再拼角色卡 name/description。
@@ -648,6 +584,7 @@ impl AppSettings {
                 ..ConversationConfig::default()
             },
             performance: self.performance.clone(),
+            asr_key,
         })
     }
 
@@ -675,6 +612,7 @@ impl AppSettings {
             ("llm", self.llm.api_key_env.as_deref()),
             ("tts", self.tts.api_key_env.as_deref()),
             ("performance", self.performance.api_key_env.as_deref()),
+            ("asr", self.asr.api_key_env.as_deref()),
         ]
         .into_iter()
         .filter_map(|(section, name)| {

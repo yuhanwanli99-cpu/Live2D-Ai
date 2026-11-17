@@ -79,6 +79,7 @@ fn write_settings(path: &std::path::Path, llm_base_url: &str) {
 /// 写一个最小 AppSettings 到 path（含有效 llm + tts base_url）。
 fn write_settings_with_tts(path: &std::path::Path, llm_base_url: &str, tts_base_url: &str) {
     let s = AppSettings {
+        asr: Default::default(),
         // 2026-09-16：action 段默认（幅度倍率）。
         action: Default::default(),
         llm: live2d_ai_runtime::settings::LlmSettings {
@@ -90,6 +91,7 @@ fn write_settings_with_tts(path: &std::path::Path, llm_base_url: &str, tts_base_
             show_reasoning: None,
         },
         tts: live2d_ai_runtime::settings::TtsSettings {
+            provider: live2d_ai_runtime::config::TtsProvider::OpenAi,
             mode: live2d_ai_runtime::settings::TtsMode::Cloud,
             base_url: tts_base_url.to_string(),
             model: None,

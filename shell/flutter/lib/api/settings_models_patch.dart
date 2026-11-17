@@ -49,6 +49,7 @@ class LlmSettingsPatch {
 class TtsSettingsPatch {
   const TtsSettingsPatch({
     this.mode,
+    this.provider,
     this.baseUrl,
     this.model,
     this.voice,
@@ -63,6 +64,12 @@ class TtsSettingsPatch {
   /// 切 `local` 会覆盖同一次补丁里的地址/音色/采样率（端口固定）；
   /// 切 `cloud` 要求同一次补丁给出非空地址与音色。
   final String? mode;
+
+  /// 出声分档（`"openai"` / `"deepseek"`，2026-11-16）。
+  ///
+  /// 服务端这一项同样是**普通可选值**（不是三态）：缺键 = 不动；给了值就切换。
+  /// 切 `deepseek` 时服务端会校验音色白名单，不合法整体 400（不静默落值）。
+  final String? provider;
 
   final Tri<String>? baseUrl;
   final Tri<String>? model;
@@ -79,6 +86,7 @@ class TtsSettingsPatch {
   Map<String, Object?> toJson() {
     final Map<String, Object?> out = <String, Object?>{};
     if (mode != null) out['mode'] = mode;
+    if (provider != null) out['provider'] = provider;
     putTri<String>(out, 'base_url', baseUrl);
     putTri<String>(out, 'api_key_env', apiKeyEnv);
     putTri<String>(out, 'model', model);

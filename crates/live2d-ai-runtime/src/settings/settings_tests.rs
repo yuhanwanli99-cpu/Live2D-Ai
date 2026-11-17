@@ -397,3 +397,98 @@ fn declared_key_envs_is_empty_when_nothing_declared() {
     s.performance.api_key_env = Some(String::new());
     assert!(s.declared_key_envs().is_empty());
 }
+// ------------------------- ASR 段（2026-11-16）
+
+/// `[asr]` 缺省 = 未配置：钥匙为空串 → 不列进 `declared_key_envs`。
+#[test]
+fn asr_section_defaults_to_unconfigured_and_stays_out_of_key_envs() {
+    let s = AppSettings::default();
+    assert!(!s.asr.declares_key());
+    assert!(s.declared_key_envs().iter().all(|d| d.section != "asr"));
+}
+
+/// `[asr].api_key_env` 声明了就出现在 `declared_key_envs`（顺序排最后）。
+#[test]
+fn asr_key_env_is_declared_after_the_other_sections() {
+    let s = AppSettings {
+        asr: crate::settings::AsrSettings {
+            api_key_env: Some("L2D_ASR_KEY".into()),
+        },
+        ..Default::default()
+    };
+    let got: Vec<(&str, String)> = s
+        .declared_key_envs()
+        .into_iter()
+        .map(|d| (d.section, d.name))
+        .collect();
+    assert_eq!(got, vec![("asr", "L2D_ASR_KEY".to_string())]);
+}
+
+/// ASR 的钥匙**不借用** `[llm]`：只配了 llm 的变量名时 `asr_key` 仍是 `None`。
+///
+/// 这条是硬要求：录音绝不能因为「llm 配了钥匙」就送到那个账号。
+#[test]
+fn asr_never_borrows_the_llm_key() {
+    let mut s = AppSettings::default();
+    // resolve 会校验 llm 的 base_url，所以先给一个合法地址。
+    s.llm.base_url = "http://127.0.0.1:9/v1".into();
+    s.llm.api_key_env = Some("L2D_LLM_KEY".into());
+    let resolved = s
+        .resolve_with(|name| (name == "L2D_LLM_KEY").then(|| "sk-llm".to_string()))
+        .expect("resolve");
+    assert!(resolved.llm.api_key.is_some(), "前提：llm 有钥匙");
+    assert!(
+        resolved.asr_key.is_none(),
+        "ASR 不得借用 [llm] 的钥匙（录音送错账号）"
+    );
+}
+
+/// 配了独立的 ASR 钥匙时，`resolve` 从**同一个 lookup** 取到它。
+#[test]
+fn asr_key_resolves_from_its_own_env_name() {
+    let mut s = AppSettings::default();
+    s.llm.base_url = "http://127.0.0.1:9/v1".into();
+    s.asr.api_key_env = Some("L2D_ASR_KEY".into());
+    let resolved = s
+        .resolve_with(|name| (name == "L2D_ASR_KEY").then(|| "sk-asr".to_string()))
+        .expect("resolve");
+    assert_eq!(
+        resolved.asr_key.as_ref().map(ApiSecret::expose_secret),
+        Some("sk-asr")
+    );
+}
+
+/// 未配置 `[asr]` 时整段**不落盘**：旧 toml 读一次再写回，不会凭空长出 `[asr]`。
+#[test]
+fn asr_section_is_omitted_when_unconfigured() {
+    let written = AppSettings::default().to_toml_string();
+    assert!(
+        !written.contains("[asr]"),
+        "未配置时不得落盘 [asr]：\n{written}"
+    );
+    // 配了才写（且只写变量名，不写值）。
+    let s = AppSettings {
+        asr: crate::settings::AsrSettings {
+            api_key_env: Some("L2D_ASR_KEY".into()),
+        },
+        ..Default::default()
+    };
+    let written = s.to_toml_string();
+    assert!(written.contains("[asr]"), "{written}");
+    assert!(written.contains("L2D_ASR_KEY"));
+    assert_eq!(AppSettings::from_toml_str(&written).unwrap(), s);
+}
+
+/// 空的变量名 = 没声明：不写盘、也不列进 `declared_key_envs`（与 llm/tts 同口径）。
+#[test]
+fn asr_empty_env_name_counts_as_unconfigured() {
+    let s = AppSettings {
+        asr: crate::settings::AsrSettings {
+            api_key_env: Some(String::new()),
+        },
+        ..Default::default()
+    };
+    assert!(!s.asr.declares_key());
+    assert!(s.declared_key_envs().iter().all(|d| d.section != "asr"));
+    assert!(!s.to_toml_string().contains("[asr]"));
+}

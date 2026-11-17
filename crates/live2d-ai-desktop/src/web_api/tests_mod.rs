@@ -269,12 +269,14 @@ fn dispatch_chat_wrong_method_returns_405() {
 /// 判据是 mod.rs **生产段**里的调用形状，不是「提到过这个名字」：注释先剥掉
 /// （本仓习惯把「为什么」写进注释，不剥会被自己的说明文字判红）。
 ///
-/// - respond_and_log( 恰好 **9** 次 = 1 处定义 + 8 处调用（API 前置路由
-///   chat draft / chat session / external chat / voice transcript / mods +
+/// - respond_and_log( 恰好 **10** 次 = 1 处定义 + 9 处调用（API 前置路由
+///   chat draft / chat session / external chat / voice transcript / voice asr / mods +
 ///   WS Origin 拒绝 + WS 方法/路径错 + A2A 一处：2026-10-19 起两条 A2A 路径
 ///   都是未挂载存根、循环内直接 respond，不再派生 POST 工作线程 —— 原
 ///   「GET 直答 + POST 回调」两处合并成一处；2026-11-16 热槽记忆 M3 新增
-///   `POST /api/v1/chat/draft` 一处）；
+///   `POST /api/v1/chat/draft` 一处，DeepSeek 语音新增 `voice asr` 一处（它是
+///   二进制正文端点，在 `run_request_loop` 里先于 `read_body_from_request`
+///   接手，出口仍走同一个 `respond_and_log`））；
 /// - 直接 request.respond( 恰好 **4** 次 = 1 处（respond_and_log 体内）
 ///   另有 3 处**白名单**：两处静态资产（/render、/models、/app 这类纯读盘请求，
 ///   逐文件记 info 只会把日志淹掉，刻意不记）与 dispatch 之后那一处
@@ -291,8 +293,8 @@ fn pre_dispatch_responses_go_through_respond_and_log() {
     let calls = code.matches("respond_and_log(").count();
     let direct = code.matches("request.respond(").count();
     assert!(
-        calls == 9,
-        "respond_and_log 的调用形状变了：期望 9（1 定义 + 8 调用）；新增一条前置路由就把它一起改大 —— 直接 request.respond 会让响应绕过 dispatch 的分级日志（F-0001-01）。当前={calls}"
+        calls == 10,
+        "respond_and_log 的调用形状变了：期望 10（1 定义 + 9 调用）；新增一条前置路由就把它一起改大 —— 直接 request.respond 会让响应绕过 dispatch 的分级日志（F-0001-01）。当前={calls}"
     );
     assert!(
         direct == 4,

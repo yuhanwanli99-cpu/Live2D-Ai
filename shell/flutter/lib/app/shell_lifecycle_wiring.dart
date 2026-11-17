@@ -9,36 +9,17 @@ extension _ShellLifecycleWiring on _ShellRootState {
     _envApi = EnvApi();
     _modsApi = ModsApi();
     _diagApi = DiagnosticsApi();
-    // 常态语音检测：读 voice-input Mod 的 wake_phrase（缺省「小可爱」），
-    // 命中后把原文交给 /api/v1/voice/transcript（服务端剥词，一份真相）。
+    // 语音**听写**（2026-11-16）：录一段 16 位单声道 WAV → `POST /api/v1/voice/asr`
+    // → 文本进输入框。**不自动发送**、不唤醒词、不打已退休的 /voice/transcript。
+    // 录音平台能力由 `createWavRecorder()` 条件导入（VM/不支持 → null，按钮禁用并说明）。
     _voiceApi = VoiceApi();
     _voiceListen = VoiceListenController(
-      recognizer: createSpeechRecognizer(),
-      // B1（L1，2026-09-16）：服务端受理后**立刻**把用户句上屏并开一轮。
-      // 以前这里直接透传 `_voiceApi.sendTranscript`：链路（turn_prompt / 回答）
-      // 起来了，聊天区却没有用户那句话——用户以为「识别了但没发出去」。
-      send: (String text, {bool ptt = false}) async {
-        final VoiceTranscriptResult result = await _voiceApi.sendTranscript(
-          text,
-          ptt: ptt,
-        );
-        if (result.ok) {
-          // 语音注入也是「新消息」：先同步取消上一轮编排（V10 §9.3），再上屏。
-          _cancelStageForTurnBoundary('voice');
-          // 上屏用服务端剥词 / 归一化后的正文（与真正喂给 LLM 的**同一份**）。
-          _chat.acceptInjectedUserTurn(
-            result.text.isNotEmpty ? result.text : text,
-          );
-        }
-        return result;
+      recorder: createWavRecorder(),
+      transcribe: (List<int> wav) async {
+        final VoiceAsrResult result = await _voiceApi.transcribe(wav);
+        return result.text;
       },
-      loadWakePhrase: _loadWakePhrase,
-      // Mod 未启用 → 先给红字（不要等 403 回来）。
-      loadModEnabled: _voiceInputModEnabled,
-      // 两条路都落到同一段「写进输入框」：
-      // - busy 不排队，正文交回输入框让用户改字重发；
-      // - 产品听写的定稿（成功与失败都走它）。
-      onBusyResult: _onVoiceResult,
+      // 定稿（成功与失败都走它）：空串 = 没听清 → 宿主什么都不做。
       onDictation: _onVoiceResult,
     );
     _settings = SettingsController(api: _api);
@@ -171,7 +152,6 @@ extension _ShellLifecycleWiring on _ShellRootState {
     unawaited(_loadAppStatus());
     // 启动就取一次 voice-input 的启停：主界面「听」按钮旁要能**先**给红字
     // （而不是等用户说完才由 403 回来说）。
-    unawaited(_refreshVoiceModState());
   }
 
   /// 被接受的新 `user_line` 清掉还没播的上一轮动作（0.3.14）。

@@ -54,7 +54,13 @@ pub fn handle_external_chat(
     }
 }
 
-/// 语音转写端点：缺省 = 未挂载存根；打包树 = 真实宿主门。
+/// 语音转写端点：**已退休**（2026-11-16），两棵树都是同一个 410。
+///
+/// 从前这里按 `packed-mods` 分派（缺省 = 未挂载存根 404 `mod_disabled`；
+/// 打包树 = `voice-input` 的真实宿主门）。识别改成核心的
+/// `POST /api/v1/voice/asr` 之后，这条路**没有实现了**，也就没有第二棵分支
+/// 可言；分派层保留函数只是为了 `run_request_loop` 的调用点不挪
+/// （`410 Gone` + `voice_retired`，见 `voice_routes`）。
 pub fn handle_voice_transcript(
     ctx: &ServerContext,
     method: &Method,
@@ -64,30 +70,15 @@ pub fn handle_voice_transcript(
     content_type: Option<&str>,
     auth_header: Option<&str>,
 ) -> Option<Response<Cursor<Vec<u8>>>> {
-    #[cfg(feature = "packed-mods")]
-    {
-        crate::web_api::packed_mods::voice::handle_voice_transcript(
-            ctx,
-            method,
-            path,
-            body,
-            origin,
-            content_type,
-            auth_header,
-        )
-    }
-    #[cfg(not(feature = "packed-mods"))]
-    {
-        crate::web_api::voice_routes::handle_voice_transcript(
-            ctx,
-            method,
-            path,
-            body,
-            origin,
-            content_type,
-            auth_header,
-        )
-    }
+    crate::web_api::voice_routes::handle_voice_transcript(
+        ctx,
+        method,
+        path,
+        body,
+        origin,
+        content_type,
+        auth_header,
+    )
 }
 
 /// A2A 前置路由：缺省 = 未挂载存根（直接 respond）；打包树 = 宿主门

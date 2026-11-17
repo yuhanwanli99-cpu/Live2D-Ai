@@ -72,6 +72,9 @@
 //! 最小对话引擎；其余传输仍由 reqwest 内部驱动，[`audio`] 模块为纯 std
 //! 实现（无锁/无线程）。
 
+/// 语音识别（2026-11-16）：核心的一次 HTTP 转发（`POST /api/v1/voice/asr`）。
+/// 上游是 DeepSeek `/v1/tools/asr`；**不做流式**（上游没有这个能力）。
+pub mod asr;
 pub mod audio;
 /// 二路按句清洗（2026-10-08）：一句原文 → `{display, speech}`（模型与一路同一份）。
 pub mod cleaning;

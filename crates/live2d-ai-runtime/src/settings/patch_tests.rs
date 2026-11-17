@@ -18,6 +18,8 @@ pub(super) fn sample() -> AppSettings {
         hotmem: Default::default(),
         // 2026-09-22：表演层默认关（[performance] 段，客户端在 host 侧构造）。
         performance: Default::default(),
+        // 2026-11-16：ASR 段默认未配置（不借用 llm/tts 的钥匙）。
+        asr: Default::default(),
         llm: LlmSettings {
             mode: LlmMode::Cloud,
             base_url: "http://127.0.0.1:11434/v1".into(),
@@ -28,6 +30,7 @@ pub(super) fn sample() -> AppSettings {
         },
         tts: TtsSettings {
             mode: crate::settings::TtsMode::Cloud,
+            provider: crate::config::TtsProvider::OpenAi,
             base_url: "http://127.0.0.1:8000/v1".into(),
             model: Some("tts-1".into()),
             voice: "alloy".into(),

@@ -16,7 +16,7 @@ import 'package:live2d_ai_shell/state/ui_phase.dart';
 import 'package:live2d_ai_shell/ui/chat_panel.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 import 'package:live2d_ai_shell/voice/voice_listen_controller.dart'
-    show kVoiceWebSpeechNote;
+    show kDictationAsrNote;
 
 Widget _wrap(Widget child) => MaterialApp(
   theme: buildAppTheme(),
@@ -113,11 +113,11 @@ void main() {
     expect(find.textContaining('没听清，再点一次说'), findsOneWidget);
   });
 
-  testWidgets('诚实说明：Web Speech 需联网 / 音频出本机（listenNote）', (
+  testWidgets('诚实说明：录音会上传到已配置的识别端点 / 结果只进输入框（listenNote）', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(_wrap(_panel(listenNote: kVoiceWebSpeechNote)));
-    expect(find.textContaining('需联网'), findsOneWidget);
-    expect(find.textContaining('音频会出本机'), findsOneWidget);
+    await tester.pumpWidget(_wrap(_panel(listenNote: kDictationAsrNote)));
+    expect(find.textContaining('识别端点'), findsOneWidget);
+    expect(find.textContaining('不会自动发送'), findsOneWidget);
   });
 }

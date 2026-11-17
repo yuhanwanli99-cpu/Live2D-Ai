@@ -11,6 +11,7 @@ use super::*;
 
 pub(super) fn sample() -> AppSettings {
     AppSettings {
+        asr: Default::default(),
         // 2026-09-16：action 段默认（幅度倍率）。
         action: Default::default(),
         // 2026-11-16：热槽段默认（不查外挂资料）。
@@ -26,6 +27,7 @@ pub(super) fn sample() -> AppSettings {
             show_reasoning: None,
         },
         tts: live2d_ai_runtime::settings::TtsSettings {
+            provider: live2d_ai_runtime::config::TtsProvider::OpenAi,
             mode: live2d_ai_runtime::settings::TtsMode::Cloud,
             base_url: "http://127.0.0.1:8000/v1".into(),
             model: Some("tts-1".into()),
@@ -553,6 +555,7 @@ fn e2e_max_tokens_tri_state_through_http_patch() {
 
     // 3) 缺省字段 = 不动（已有值保持）。
     let capped = AppSettings {
+        asr: Default::default(),
         // 2026-09-16：action 段默认（幅度倍率）。
         action: Default::default(),
         llm: live2d_ai_runtime::settings::LlmSettings {

@@ -59,6 +59,9 @@ class SettingsDraft {
   // ── TTS ──
   /// 语音来源（`local` / `cloud`，2026-10-09）。null = 没动。
   String? ttsMode;
+
+  /// 出声分档草稿（`"openai"` / `"deepseek"`，2026-11-16）。
+  String? ttsProvider;
   String? ttsBaseUrl;
   String? ttsModel;
   String? ttsVoice;
@@ -200,6 +203,7 @@ class SettingsDraft {
         : (model.trim().isEmpty ? Tri.clear<String>() : Tri.set(model));
     final TtsSettingsPatch patch = TtsSettingsPatch(
       mode: ttsMode,
+      provider: ttsProvider,
       baseUrl: _tri(ttsBaseUrl),
       model: modelTri,
       voice: _tri(ttsVoice),
@@ -246,6 +250,7 @@ class SettingsDraft {
     llmShowReasoning = null;
     llmMode = null;
     ttsMode = null;
+    ttsProvider = null;
     ttsBaseUrl = null;
     ttsModel = null;
     ttsVoice = null;
@@ -492,6 +497,7 @@ class SettingsController extends ChangeNotifier {
     // 切回服务端本就使用的模式 → 撤回草稿（「点开又改回去」不该显示未保存）。
     if (_draft.llmMode == remote.llm.mode) _draft.llmMode = null;
     if (_draft.ttsMode == remote.tts.mode) _draft.ttsMode = null;
+    if (_draft.ttsProvider == remote.tts.provider) _draft.ttsProvider = null;
     if (_draft.ttsBaseUrl == remote.tts.baseUrl) _draft.ttsBaseUrl = null;
     if (_draft.ttsModel == remote.tts.model) _draft.ttsModel = null;
     if (_draft.ttsVoice == remote.tts.voice) _draft.ttsVoice = null;

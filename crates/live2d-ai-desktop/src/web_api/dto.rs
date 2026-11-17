@@ -319,6 +319,7 @@ mod tests {
 
     fn sample() -> AppSettings {
         AppSettings {
+            asr: Default::default(),
             // 2026-09-16：action 段默认（幅度倍率）。
             action: Default::default(),
             // 2026-11-16：热槽段默认（不查外挂资料）。
@@ -334,6 +335,7 @@ mod tests {
                 show_reasoning: None,
             },
             tts: TtsSettings {
+                provider: live2d_ai_runtime::config::TtsProvider::OpenAi,
                 mode: live2d_ai_runtime::settings::TtsMode::Cloud,
                 base_url: "http://127.0.0.1:8000/v1".into(),
                 model: Some("tts-1".into()),

@@ -72,6 +72,7 @@ use super::{
     ActionModelOverride, ActionSettings, AppSettings, LlmMode, TtsMode, TtsSettings,
     apply_local_tts_defaults, clamp_action_scale, is_valid_model_id,
 };
+use crate::config::TtsProvider;
 
 // `serde_with::rust::double_option` 的 deserialize/serialize 函数；
 // 作用在 `Option<Option<T>>` 字段上，让 JSON 端 `缺省 / null / 显式值`
@@ -198,6 +199,15 @@ pub struct TtsPatch {
     /// 地址与音色，否则整体 `Err`（400），**不静默改回另一个**。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<super::TtsMode>,
+    /// 出声分档（2026-11-16）：**普通可选值**（不是三态）——缺键 / `null` = 不改；
+    /// `"openai"` / `"deepseek"` = 切换。未知取值由 serde 直接拒绝
+    /// （→ 路由层 400 `invalid_payload`），不会静默忽略。
+    ///
+    /// 与 `mode` 正交：`mode` 说的是「本地 / 云端」，`provider` 说的是
+    /// 「OpenAI 兼容 / DeepSeek」。切到 `deepseek` 时**必须**同一次补丁给出
+    /// 白名单内的音色（否则整体 `Err`，不静默改回另一个）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<TtsProvider>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -606,6 +616,26 @@ pub fn apply_patch(
                         }
                     }
                 }
+                // 出声分档切换（2026-11-16）：**排在来源切换之后**——切到
+                // `local` 会先把地址/音色/规格冻成本地那一套（provider 覆回
+                // openai），所以这里再看「最终」的 provider 与音色。
+                //
+                // 切到 `deepseek` 时音色必须是上游白名单里的两个之一；别的值
+                // 整体 `Err`（400），**不静默落一个上游会拒的音色**。
+                if let Some(provider) = fields.provider {
+                    if next.tts.provider != provider {
+                        next.tts.provider = provider;
+                        changed = true;
+                    }
+                    if provider == TtsProvider::DeepSeek
+                        && !crate::tts::deepseek::validate_voice(&next.tts.voice)
+                    {
+                        return Err(format!(
+                            "DeepSeek 音色只允许 stella / tide（收到 {:?}）；本次保存未生效",
+                            next.tts.voice
+                        ));
+                    }
+                }
             }
         }
     }
@@ -743,6 +773,16 @@ pub fn apply_patch(
     }
     if !next.tts.base_url.is_empty() {
         validate_base_url_strict("tts", &next.tts.base_url)?;
+    }
+    // deepseek 档的音色白名单做一次**总校验**：不管它是这一次补丁给的、还是
+    // 磁盘上本来就在的，落盘之前最终值必须合法（否则每一句都会静默失败）。
+    if next.tts.provider == TtsProvider::DeepSeek
+        && !crate::tts::deepseek::validate_voice(&next.tts.voice)
+    {
+        return Err(format!(
+            "DeepSeek 音色只允许 stella / tide（收到 {:?}）；本次保存未生效",
+            next.tts.voice
+        ));
     }
 
     let outcome = if changed {
