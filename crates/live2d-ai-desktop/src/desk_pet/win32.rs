@@ -74,6 +74,16 @@ pub(super) const HWND_TOPMOST: Hwnd = -1_isize as Hwnd;
 /// `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2`（值 -4）。
 pub(super) const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: Handle = -4_isize as Handle;
 
+// ── 气泡文字栅格（2026-11-17）：临时 DIB 上用 GDI 画字，读回覆盖率 ──
+pub(super) const DT_WORDBREAK: u32 = 0x0010;
+pub(super) const DT_NOPREFIX: u32 = 0x0800;
+pub(super) const DT_LEFT: u32 = 0x0000;
+pub(super) const DT_TOP: u32 = 0x0000;
+pub(super) const TRANSPARENT: i32 = 1;
+pub(super) const FW_NORMAL: i32 = 400;
+pub(super) const DEFAULT_CHARSET: u32 = 1;
+pub(super) const ANTIALIASED_QUALITY: u32 = 4;
+
 // ── 结构体（字段顺序与头文件一致；构造在 window.rs / hit.rs，所以字段 pub(super)） ──
 #[repr(C)]
 pub(super) struct WndClassExW {
@@ -104,6 +114,15 @@ pub(super) struct Point {
 pub(super) struct Size {
     pub(super) cx: i32,
     pub(super) cy: i32,
+}
+
+/// `RECT`（DrawTextW 的排版边界）。
+#[repr(C)]
+pub(super) struct Rect {
+    pub(super) left: i32,
+    pub(super) top: i32,
+    pub(super) right: i32,
+    pub(super) bottom: i32,
 }
 
 #[repr(C)]
@@ -233,6 +252,32 @@ unsafe extern "system" {
     pub(super) fn SelectObject(hdc: Hdc, object: Handle) -> Handle;
     pub(super) fn DeleteObject(object: Handle) -> Bool;
     pub(super) fn DeleteDC(hdc: Hdc) -> Bool;
+    // 气泡文字栅格：临时 DIB 上画黑字，读回像素当覆盖率蒙版。
+    pub(super) fn CreateFontW(
+        height: i32,
+        width: i32,
+        escapement: i32,
+        orientation: i32,
+        weight: i32,
+        italic: u32,
+        underline: u32,
+        strike_out: u32,
+        char_set: u32,
+        out_precision: u32,
+        clip_precision: u32,
+        quality: u32,
+        pitch_and_family: u32,
+        face_name: *const u16,
+    ) -> Handle;
+    pub(super) fn DrawTextW(
+        hdc: Hdc,
+        text: *const u16,
+        count: i32,
+        rect: *mut Rect,
+        format: u32,
+    ) -> i32;
+    pub(super) fn SetTextColor(hdc: Hdc, color: u32) -> u32;
+    pub(super) fn SetBkMode(hdc: Hdc, mode: i32) -> i32;
 }
 
 #[link(name = "kernel32")]

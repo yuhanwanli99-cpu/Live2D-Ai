@@ -427,6 +427,7 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
         crate::desk_pet::raise_alpha_floor_for_window_mode(&mut first);
     }
     hit::install(config, Point { x, y });
+    let mut companion = super::companion::Companion::new(); // 窗开好后才分配事件通道
     hit::refresh_map(&first);
     window.present(&first, config.opacity)?;
     unsafe {
@@ -468,8 +469,8 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
             if config.hit == HitMode::Window {
                 crate::desk_pet::raise_alpha_floor_for_window_mode(&mut frame);
             }
-            // 命中测试永远读「最近一帧」：先把 alpha 交给 hit.rs，再上屏。
-            hit::refresh_map(&frame);
+            companion.tick(&mut frame); // 气泡画进同一帧（上屏前）
+            hit::refresh_map(&frame); // 命中表读最近一帧，含气泡像素
             window.present(&frame, config.opacity)?;
             render_time += started.elapsed();
             frames += 1;

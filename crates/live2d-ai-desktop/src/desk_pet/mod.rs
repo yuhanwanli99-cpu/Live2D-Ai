@@ -47,6 +47,15 @@ mod hit;
 /// rc.2：`mods.json` 的 `mods.desk-pet.config` 读取 + 开窗判定（纯函数 + 读文件边界）。
 mod manifest;
 
+/// 2026-11-17 长期陪伴：事件桥 / 气泡 / 按住说话。纯判定与状态机平台无关，
+/// Linux 单测同样真跑；Win32 绘制与 cpal 输入流只在 Windows 目标编译。
+pub(crate) mod bridge;
+pub(crate) mod bubble;
+/// 窗线程每帧编排（气泡 + 按住说话收在一处，`window.rs` 只多两行）。
+#[cfg(windows)]
+mod companion;
+pub(crate) mod talk;
+
 /// Win32 裸绑定（类型 / 常量 / 结构体 / extern；只在 Windows 目标编译）。
 #[cfg(windows)]
 mod win32;

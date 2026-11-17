@@ -117,6 +117,9 @@ fn spawn_supervisor_impl(
     let mod_events_for_emit = config.mod_events.clone();
     let emit: Emit = Arc::new(move |ev: AppEvent| {
         emit(ev.clone());
+        // 桌宠气泡只订阅「已交给合成的这一句 / 开始出声 / 出声结束」；
+        // 宠物窗没开时 publish 是 no-op（通道根本没分配）。
+        crate::desk_pet::bridge::publish_from_app_event(&ev);
         if let Some(f) = &mod_events_for_emit
             && let Some((topic, payload)) = project_conversation_to_mod(&ev)
         {

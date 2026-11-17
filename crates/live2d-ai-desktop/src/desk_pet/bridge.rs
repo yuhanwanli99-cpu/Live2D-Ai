@@ -1,0 +1,199 @@
+//! 宠物窗 ↔ 桌面进程的**唯一接线点**（旁路，2026-11-17 长期陪伴）。
+//!
+//! # 纪律
+//!
+//! - **窗没开时不分配通道**：`std::sync::mpsc` 只在窗线程的
+//!   [`open_events`] 里创建；此前 [`publish`] 是纯粹的 no-op。于是
+//!   `/app/`（Flutter Web）与并入前逐字一致，不会为了一个不存在的窗
+//!   去抢事件、抢麦克风、抢播放器。
+//! - **不新开 HTTP 回路**：`say` 是启动期注入的同一个
+//!   `SupervisorHandle::say` 闭包；识别走 `live2d_ai_runtime::asr::deepseek`
+//!   的现成函数，不打自己的 `/api/v1/voice/asr`。
+//! - **不新起播放器**：出声仍是桌面进程里那一路 cpal；这里只转发
+//!   「这句开始 / 这句结束」两个事实给气泡。
+//! - 只订阅四类 `AppEvent`：已交给合成的那一句（`TextDelta`，来源
+//!   `EngineEvent::SentenceVoiced`）、`VoiceStarted`、`VoiceEnded`、
+//!   `NewEpoch`（`/stop` 打断时也推进 epoch，用来立刻撤掉气泡）。
+
+// 非 Windows：宿主出口与窗线程通道都不装配，纯映射函数仍供单测使用。
+#![cfg_attr(not(windows), allow(dead_code))]
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
+
+use crate::app_event::{AppEvent, ConversationUiEvent};
+
+/// 进程内「说一句话」的出口（启动期注入，等于 `SupervisorHandle::say`）。
+pub type SayFn = Arc<dyn Fn(String) -> bool + Send + Sync>;
+
+/// 从 supervisor 送进窗线程的事实。只有这三种，气泡不需要别的。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PetEvent {
+    /// 这一句**已经交给语音合成**的上台词（整块替换，不是增量）。
+    Sentence(String),
+    /// 这句 PCM 在 cpal 里开始播。
+    VoiceStarted,
+    /// 这句播完 / 被 `/stop` 打断 / 声卡排空。
+    VoiceEnded,
+}
+
+struct Host {
+    say: Option<SayFn>,
+    asr_key: Option<String>,
+}
+
+static HOST: OnceLock<Host> = OnceLock::new();
+/// `None` = 宠物窗没开（此时连 `Sender` 都不存在）。
+static EVENT_TX: Mutex<Option<mpsc::Sender<PetEvent>>> = Mutex::new(None);
+/// 正在播自己的声音：按住说话在这段时间不听（与 Flutter
+/// `suspendForPlayback` 同一条理由，避免把喇叭录回去）。
+static PLAYING: AtomicBool = AtomicBool::new(false);
+
+/// 启动期注入（见 `web_api::cli_entry::run_web_mode`）。重复调用只认第一次。
+pub fn install_host(say: Option<SayFn>, asr_key: Option<String>) {
+    let _ = HOST.set(Host { say, asr_key });
+}
+
+/// 非空文本 → 直接 `supervisor.say`（热槽 / 导演 / 逐句合成照旧在这一轮里）。
+/// 没装 supervisor（纯控制平面）时返回 false，调用方只记日志。
+pub fn say(text: &str) -> bool {
+    HOST.get()
+        .and_then(|h| h.say.as_ref())
+        .is_some_and(|f| f(text.to_string()))
+}
+
+/// `[asr].api_key_env` 解析出来的钥匙；**空串视作没配**。
+pub fn asr_key() -> Option<String> {
+    HOST.get()
+        .and_then(|h| h.asr_key.clone())
+        .filter(|k| !k.is_empty())
+}
+
+pub fn is_playing() -> bool {
+    PLAYING.load(Ordering::SeqCst)
+}
+
+/// `AppEvent` → `PetEvent` 的纯映射（单测钉住；不碰全局状态）。
+#[must_use]
+pub fn map_app_event(event: &AppEvent) -> Option<PetEvent> {
+    let AppEvent::Conversation(inner) = event else {
+        return None;
+    };
+    match inner {
+        // SentenceVoiced 的 text 就是「已经交给合成的那一句」的上屏文本。
+        ConversationUiEvent::TextDelta { text, .. } => Some(PetEvent::Sentence(text.clone())),
+        ConversationUiEvent::VoiceStarted { .. } => Some(PetEvent::VoiceStarted),
+        ConversationUiEvent::VoiceEnded { .. } | ConversationUiEvent::NewEpoch { .. } => {
+            Some(PetEvent::VoiceEnded)
+        }
+        // 思考 / cue / 用户输入 / 失败兜底都不进这扇窗的气泡。
+        _ => None,
+    }
+}
+
+/// supervisor 的 `emit` 闭包每次发射后调一次；窗没开时是 no-op。
+pub fn publish_from_app_event(event: &AppEvent) {
+    let Some(mapped) = map_app_event(event) else {
+        return;
+    };
+    match &mapped {
+        PetEvent::VoiceStarted => PLAYING.store(true, Ordering::SeqCst),
+        PetEvent::VoiceEnded => PLAYING.store(false, Ordering::SeqCst),
+        PetEvent::Sentence(_) => {}
+    }
+    publish(mapped);
+}
+
+/// 只往「已经开着的宠物窗」投；满 / 无窗 / 毒锁一律静默丢弃（旁路纪律）。
+pub fn publish(event: PetEvent) {
+    if let Ok(guard) = EVENT_TX.lock()
+        && let Some(tx) = guard.as_ref()
+    {
+        let _ = tx.send(event);
+    }
+}
+
+/// 窗线程建窗成功后调：此刻才分配通道。返回接收端，由窗线程每帧抽干。
+pub fn open_events() -> mpsc::Receiver<PetEvent> {
+    let (tx, rx) = mpsc::channel();
+    match EVENT_TX.lock() {
+        Ok(mut guard) => *guard = Some(tx),
+        Err(poisoned) => *poisoned.into_inner() = Some(tx),
+    }
+    rx
+}
+
+/// 窗关掉时撤掉通道，之后的 `publish` 重新变回 no-op。
+pub fn close_events() {
+    match EVENT_TX.lock() {
+        Ok(mut guard) => *guard = None,
+        Err(poisoned) => *poisoned.into_inner() = None,
+    }
+    PLAYING.store(false, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn delta(text: &str) -> AppEvent {
+        AppEvent::Conversation(ConversationUiEvent::TextDelta {
+            epoch: 7,
+            ts_ms: 1,
+            sentence_seq: 2,
+            text: text.to_string(),
+        })
+    }
+
+    #[test]
+    fn only_the_voiced_sentence_and_voice_edges_reach_the_pet_window() {
+        assert_eq!(
+            map_app_event(&delta("今天想聊点什么")),
+            Some(PetEvent::Sentence("今天想聊点什么".to_string()))
+        );
+        assert_eq!(
+            map_app_event(&AppEvent::Conversation(ConversationUiEvent::VoiceStarted {
+                epoch: 7
+            })),
+            Some(PetEvent::VoiceStarted)
+        );
+        assert_eq!(
+            map_app_event(&AppEvent::Conversation(ConversationUiEvent::VoiceEnded {
+                epoch: 7
+            })),
+            Some(PetEvent::VoiceEnded)
+        );
+        // /stop 推进 epoch；用它兜住「播到一半被打断」也要撤气泡。
+        assert_eq!(
+            map_app_event(&AppEvent::Conversation(ConversationUiEvent::NewEpoch {
+                epoch: 8
+            })),
+            Some(PetEvent::VoiceEnded)
+        );
+    }
+
+    #[test]
+    fn reasoning_and_user_lines_never_enter_the_bubble() {
+        let reasoning = AppEvent::Conversation(ConversationUiEvent::ReasoningDelta {
+            epoch: 7,
+            ts_ms: 1,
+            text: "内心独白".to_string(),
+        });
+        let user = AppEvent::Conversation(ConversationUiEvent::UserLine {
+            epoch: 7,
+            text: "用户说的".to_string(),
+        });
+        assert_eq!(map_app_event(&reasoning), None);
+        assert_eq!(map_app_event(&user), None);
+        assert_eq!(map_app_event(&AppEvent::ShutdownReady), None);
+    }
+
+    /// 窗没开时 `publish` 不得 panic（这条通道本身也不该被分配）。
+    #[test]
+    fn publish_without_an_open_window_is_a_noop() {
+        publish(PetEvent::Sentence("没人收".to_string()));
+        publish(PetEvent::VoiceStarted);
+        publish(PetEvent::VoiceEnded);
+        assert!(!is_playing(), "窗没开时不应留下播放态");
+    }
+}

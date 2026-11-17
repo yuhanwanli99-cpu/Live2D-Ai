@@ -223,6 +223,9 @@ mod platform {
         })
         .unwrap_or(false);
         if started {
+            // 按下即记时；是否录音由 talk.rs 的 300 ms / 8 像素状态机决定。
+            // 拖拽行为一字不改（下面 SetCapture 照旧）。
+            crate::desk_pet::talk::on_down();
             // SAFETY: 捕获本线程创建的窗；失败也只是拖不动，不影响其它路径。
             unsafe { SetCapture(hwnd) };
             let origin = origin();
@@ -238,8 +241,12 @@ mod platform {
                 return None;
             }
             let cursor = cursor_pos();
-            let x = state.origin_start.x + (cursor.x - state.cursor_start.x);
-            let y = state.origin_start.y + (cursor.y - state.cursor_start.y);
+            let dx = cursor.x - state.cursor_start.x;
+            let dy = cursor.y - state.cursor_start.y;
+            // 相对按下点的位移交给按住说话状态机：>8 px 归拖拽、不录音。
+            crate::desk_pet::talk::on_move(dx, dy);
+            let x = state.origin_start.x + dx;
+            let y = state.origin_start.y + dy;
             if x == state.origin.x && y == state.origin.y {
                 return None;
             }
@@ -275,6 +282,8 @@ mod platform {
         })
         .unwrap_or(false);
         if was_dragging {
+            // 松手：短按 / 拖拽 / 有效按住说话在这里分界（拖拽语义不变）。
+            crate::desk_pet::talk::on_up();
             // SAFETY: ReleaseCapture 只影响本线程的捕获状态；没捕获时返回 0。
             unsafe { ReleaseCapture() };
             let origin = origin();

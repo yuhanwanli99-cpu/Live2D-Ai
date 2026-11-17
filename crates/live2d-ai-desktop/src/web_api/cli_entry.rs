@@ -81,6 +81,10 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
         AppSettings::default()
     };
 
+    // 宠物窗按住说话：`[asr]` 钥匙在启动期解析一次（`.env` 快照上面刚刷新）。
+    // 没配钥匙时窗上的气泡会写明原因，且绝不会打上游。
+    let asr_key_for_pet = crate::web_api::voice_asr::asr_key(&settings);
+
     // W7：dev_mode 优先级 = CLI flag > settings 文件 > 默认 false。
     // 用 `Option<bool>` 透传到 `StatusContext::new`：CLI 为 true 时强制覆盖；
     // CLI 为 false 时仍走 settings 派生（保留 PATCH 切 false 的能力）。
@@ -170,6 +174,15 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
         println!("web: 无配置文件，跳过 supervisor 装配（纯控制平面）");
         None
     };
+
+    // 桌宠窗的唯一进程内出口：复用同一个 supervisor 句柄的 `say`，不新开
+    // HTTP 回路、不新起播放器（出声仍是桌面进程里已有的 cpal）。窗没开时
+    // `bridge` 不分配事件通道，也不会去抢麦克风。
+    let pet_say: Option<crate::desk_pet::bridge::SayFn> = supervisor_opt.as_ref().map(|sup| {
+        let sup = std::sync::Arc::clone(sup);
+        std::sync::Arc::new(move |text: String| sup.say(text)) as crate::desk_pet::bridge::SayFn
+    });
+    crate::desk_pet::bridge::install_host(pet_say, asr_key_for_pet);
 
     // 3) 装配 ModRegistry（节点 E5，2026-08-30）：用静态编译的
     //    AVAILABLE_MOD_FACTORIES + manifest 配置；start_all() 启动 enabled Mod。
