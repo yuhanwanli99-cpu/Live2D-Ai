@@ -30,7 +30,11 @@ pub type SayFn = Arc<dyn Fn(String) -> bool + Send + Sync>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PetEvent {
     /// 这一句**已经交给语音合成**的上台词（整块替换，不是增量）。
+    /// 右键菜单的「AI 回复」开关管它。
     Sentence(String),
+    /// 用户刚说的那句（网页里发的 / ASR 识别出来的）。
+    /// 右键菜单的「输入消息」开关管它；两块气泡、会话框都读这一路。
+    UserLine(String),
     /// 这句 PCM 在 cpal 里开始播。
     VoiceStarted,
     /// 这句播完 / 被 `/stop` 打断 / 声卡排空。
@@ -82,11 +86,13 @@ pub fn map_app_event(event: &AppEvent) -> Option<PetEvent> {
     match inner {
         // SentenceVoiced 的 text 就是「已经交给合成的那一句」的上屏文本。
         ConversationUiEvent::TextDelta { text, .. } => Some(PetEvent::Sentence(text.clone())),
+        // 2026-11-17 纠正版：用户句要进「输入消息」气泡与简易会话框。
+        ConversationUiEvent::UserLine { text, .. } => Some(PetEvent::UserLine(text.clone())),
         ConversationUiEvent::VoiceStarted { .. } => Some(PetEvent::VoiceStarted),
         ConversationUiEvent::VoiceEnded { .. } | ConversationUiEvent::NewEpoch { .. } => {
             Some(PetEvent::VoiceEnded)
         }
-        // 思考 / cue / 用户输入 / 失败兜底都不进这扇窗的气泡。
+        // 思考 / cue / 失败兜底都不进这扇窗。
         _ => None,
     }
 }
@@ -99,7 +105,7 @@ pub fn publish_from_app_event(event: &AppEvent) {
     match &mapped {
         PetEvent::VoiceStarted => PLAYING.store(true, Ordering::SeqCst),
         PetEvent::VoiceEnded => PLAYING.store(false, Ordering::SeqCst),
-        PetEvent::Sentence(_) => {}
+        PetEvent::Sentence(_) | PetEvent::UserLine(_) => {}
     }
     publish(mapped);
 }
@@ -173,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_and_user_lines_never_enter_the_bubble() {
+    fn user_line_feeds_the_input_bubble_but_reasoning_stays_out() {
         let reasoning = AppEvent::Conversation(ConversationUiEvent::ReasoningDelta {
             epoch: 7,
             ts_ms: 1,
@@ -183,8 +189,11 @@ mod tests {
             epoch: 7,
             text: "用户说的".to_string(),
         });
+        assert_eq!(
+            map_app_event(&user),
+            Some(PetEvent::UserLine("用户说的".to_string()))
+        );
         assert_eq!(map_app_event(&reasoning), None);
-        assert_eq!(map_app_event(&user), None);
         assert_eq!(map_app_event(&AppEvent::ShutdownReady), None);
     }
 
@@ -192,6 +201,7 @@ mod tests {
     #[test]
     fn publish_without_an_open_window_is_a_noop() {
         publish(PetEvent::Sentence("没人收".to_string()));
+        publish(PetEvent::UserLine("没人听".to_string()));
         publish(PetEvent::VoiceStarted);
         publish(PetEvent::VoiceEnded);
         assert!(!is_playing(), "窗没开时不应留下播放态");

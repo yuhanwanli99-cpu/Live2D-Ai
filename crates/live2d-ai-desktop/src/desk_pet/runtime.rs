@@ -73,10 +73,10 @@ pub fn open_pet() -> Result<(), String> {
     if is_running() {
         return Ok(());
     }
-    // 「窗没开起来」要能同步回报：皮套包缺失是最常见的失败，先查这一项
-    // （与 window.rs 用同一个模型根，不做第二套路径推导）。
-    let model3 = crate::web_api::model_root::model_root()
-        .join(crate::web_api::model_root::builtin_model3_rel_path());
+    // 「窗没开起来」要能同步回报：皮套包缺失是最常见的失败，先查这一项。
+    // 与 window.rs 共用 `skin::model_path()`：当前皮肤不存在时不能被
+    // 出厂 bai 的存在性蒙混过去。
+    let model3 = super::skin::model_path();
     if !model3.is_file() {
         return Err(format!("皮套包不存在（{}）", model3.display()));
     }

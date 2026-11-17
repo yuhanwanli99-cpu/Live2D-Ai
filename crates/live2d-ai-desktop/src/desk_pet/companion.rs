@@ -10,13 +10,18 @@ use std::time::Instant;
 use l2d::renderer::RgbaFrame;
 
 use super::bridge::{self, PetEvent};
-use super::bubble::{self, BubbleState, TextCache};
+use super::bubble::{self, BubbleRect, BubbleState, TextCache};
+use super::menu_state;
 use super::talk;
 
 pub struct Companion {
     events: mpsc::Receiver<PetEvent>,
     bubble: BubbleState,
     cache: TextCache,
+    /// 用户句自己的文字栅格缓存，与 AI 句分开。
+    user_cache: TextCache,
+    /// `bubble::layout` 要扫整帧 bbox，窗尺寸固定 ⇒ 只算一次。
+    base: Option<BubbleRect>,
 }
 
 impl Companion {
@@ -26,6 +31,8 @@ impl Companion {
             events: bridge::open_events(),
             bubble: BubbleState::default(),
             cache: TextCache::new(),
+            user_cache: TextCache::new(),
+            base: None,
         }
     }
 
@@ -38,6 +45,11 @@ impl Companion {
             match event {
                 PetEvent::Sentence(text) => {
                     self.bubble.on_sentence(&text, now, bridge::is_playing());
+                    super::chat::push("AI", &text);
+                }
+                PetEvent::UserLine(text) => {
+                    self.bubble.on_user_line(&text, now);
+                    super::chat::push("我", &text);
                 }
                 PetEvent::VoiceStarted => self.bubble.on_voice_started(),
                 PetEvent::VoiceEnded => self.bubble.on_voice_ended(),
@@ -52,8 +64,22 @@ impl Companion {
         // 3) 到期（只出文字 4 秒、notice 自己的 ttl、播放保险丝）。
         self.bubble.tick(now);
 
-        // 4) 画进这一帧：与皮套共用同一张 DIB，像素同时进命中表。
-        bubble::overlay(frame, &self.bubble, &mut self.cache);
+        // 4) 简易会话框按菜单状态开 / 关 / 置顶 / 重绘（独立于角色窗）。
+        super::chat::poll();
+
+        // 5) 画进这一帧：两块气泡各自受菜单开关控制，像素同时进命中表。
+        let state = menu_state::get();
+        let (show_user, show_ai) = menu_state::bubble_visibility(&state);
+        let base = *self.base.get_or_insert_with(|| bubble::layout(frame, 0));
+        bubble::overlay_pair(
+            frame,
+            &self.bubble,
+            &mut self.cache,
+            &mut self.user_cache,
+            show_user,
+            show_ai,
+            base,
+        );
     }
 }
 
@@ -65,6 +91,8 @@ impl Default for Companion {
 
 impl Drop for Companion {
     fn drop(&mut self) {
+        // 宠物窗关了，那块小窗不能留在屏幕上（它的消息循环也一起没了）。
+        super::chat::close();
         bridge::close_events();
     }
 }

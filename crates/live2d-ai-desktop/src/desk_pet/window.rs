@@ -19,8 +19,7 @@
 //! 任何一步失败都返回 `Err(String)`；调用方（`start_if_armed` 的线程体）只记
 //! `tracing::error!`，**HTTP 服务继续、进程退出码不变**。窗口被外部关掉
 //! （`WM_DESTROY`）时线程正常结束。
-//! 真机证据：`D:\live2dai\plan\VERIFY-desk-pet-win.md`（H1 基线 / H3 命中拖动 /
-//! H4 DPI 的截图与日志原文）。
+//! 真机证据：`D:\live2dai\plan\VERIFY-desk-pet-win.md`（H1 / H3 / H4）。
 #![allow(unsafe_code)]
 
 use std::ffi::c_void;
@@ -377,8 +376,7 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
     // 2) 离屏渲染器 + 皮套包（沿用「唯一模型根」：cwd / exe 旁的 assets/models/bai）。
     let mut renderer = OffscreenRenderer::new(width as u32, height as u32)
         .map_err(|e| format!("离屏渲染器创建失败: {e}"))?;
-    let model3 = crate::web_api::model_root::model_root()
-        .join(crate::web_api::model_root::builtin_model3_rel_path());
+    let model3 = super::skin::model_path(); // 当前皮肤；没选过就是出厂 bai
     let package = ModelPackage::load(&model3)
         .map_err(|e| format!("加载皮套包失败（{}）: {e}", model3.display()))?;
     let loaded = LoadedModel::resolve(package).map_err(|e| format!("解析皮套失败: {e}"))?;
@@ -421,6 +419,7 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
     let ex_style = ex_style_for(&config);
     let mut window = PetWindow::create(width, height, Point { x, y }, ex_style)?;
     crate::desk_pet::set_hwnd(window.hwnd);
+    super::chat::set_pet_hwnd(window.hwnd);
     if config.hit == HitMode::Window {
         // 分层窗 alpha=0 的像素系统级穿透：抬到 1 才能「整矩形吃鼠标」（调试）。
         crate::desk_pet::raise_alpha_floor_for_window_mode(&mut first);
@@ -450,6 +449,7 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
         if !pump_messages()? {
             break; // WM_QUIT：窗口已销毁
         }
+        super::skin::apply_pending(&mut renderer); // 换肤失败只记日志，旧皮套照跑
         let now = Instant::now();
         accumulated += (now - last).min(MAX_CATCH_UP);
         last = now;

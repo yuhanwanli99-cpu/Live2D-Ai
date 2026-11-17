@@ -6,7 +6,7 @@
 
 use std::sync::Mutex;
 
-use super::config::{PetConfig, OPACITY_MAX, OPACITY_MIN};
+use super::config::{OPACITY_MAX, OPACITY_MIN, PetConfig};
 
 static LIVE: Mutex<PetConfig> = Mutex::new(PetConfig {
     hit: super::config::HIT_DEFAULT,
@@ -35,6 +35,9 @@ pub fn opacity() -> f32 {
 }
 
 /// 透明度加减一档（0.1）。已经到头就停在边界。
+/// 2026-11-17 纠正版菜单**不再**提供「淡一点 / 浓一点」，这个函数只为
+/// 配置层的边界语义与单测留着，不在产品路径上被调用。
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn nudge_opacity(delta: f32) -> PetConfig {
     with_live(|slot| {
         let next = (slot.opacity + delta).clamp(OPACITY_MIN, OPACITY_MAX);

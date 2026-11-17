@@ -535,14 +535,7 @@ class _ShellRootState extends State<ShellRoot> {
       builder: (BuildContext context, Widget? _) {
         if (_enteredDeskPet) {
           // 占位页先上屏再尝试关窗；wasm 的 rAF 已随 iframe 卸载停掉。
-          return const Scaffold(
-            body: Center(
-              child: Text(
-                '已进入桌宠。右键角色可以置顶、调节透明度，或打开对话。\n请关闭此页。',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          );
+          return deskPetExitPage();
         }
         // 统一「停止」的判据只算一次：圆键停止态与 Esc 共用它。
         // **不看界面相位**——服务端推完 PCM 后相位先归零，尾巴只剩这三条。
@@ -552,7 +545,6 @@ class _ShellRootState extends State<ShellRoot> {
           cuesPending: _directorCues.length > 0,
         );
         return AppShell(
-          onSwitchToDeskPet: _switchToDeskPet,
           key: _shellKey,
           stage: Live2DStage(
             key: _stageKey,
@@ -752,8 +744,7 @@ class _ShellRootState extends State<ShellRoot> {
           onSaveSettings: () => unawaited(_saveAll()),
           onDiscardSettings: _discardAllDrafts,
           confirmDiscard: _confirmDiscard,
-          // ── 舞台浮标：只剩缩放三键（原文件 `action_toolbar.dart` 已按实际内容
-          //    改名为 `ui/stage_corner_controls.dart`；动作工具条早已移出成品） ──
+          // ── 舞台角标：缩放三键 + 「切换到桌宠」（不进顶栏、不盖设置） ──
           // ── 多会话（P-会话：**本地记录**，模型记忆待实现） ──
           sessions: _chat.sessions.byRecency,
           activeSessionId: _chat.sessions.activeId,
@@ -769,6 +760,7 @@ class _ShellRootState extends State<ShellRoot> {
           stageCorner: StageCornerControls(
             onZoom: (String dir) => unawaited(_zoom(dir)),
             scaleFromAck: _stageScaleFromAck,
+            onSwitchToDeskPet: _switchToDeskPet,
           ),
           // ── P6：无障碍 ──
           modelName: _modelName,

@@ -264,6 +264,12 @@ extension _ShellLifecycleWiring on _ShellRootState {
   }
 }
 
+/// 已切到桌宠后的占位页：一句提示，整棵外壳（含 /render iframe）离树。
+/// 放在 part 里让 `main.dart` 不越过 800 行棘轮。
+Widget deskPetExitPage() => const Scaffold(
+  body: Center(child: Text('已进入桌宠，请关闭此页')),
+);
+
 /// 「先进网页，再切桌宠」的按钮回调（2026-11-17）。
 ///
 /// 放在 part 里是为了 `main.dart` 不越过 800 行（code-stats `dart-800` 棘轮）。

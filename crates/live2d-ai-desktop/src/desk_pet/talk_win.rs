@@ -7,10 +7,21 @@ use live2d_ai_runtime::asr::{self, deepseek};
 
 use super::*;
 use crate::desk_pet::bridge;
+use crate::desk_pet::menu_state::{self, VoiceMode};
+
+/// 「常开」档：一句说完的静音判据 / 开麦失败后的重试冷却。
+const ALWAYS_SILENCE: Duration = Duration::from_millis(700);
+const MIC_RETRY_COOLDOWN: Duration = Duration::from_secs(5);
+/// 16 位样本里超过这个绝对值算「有声音」（约 -34 dB）。
+const VOICE_THRESHOLD: i16 = 600;
 
 struct Gate {
     hold: HoldState,
     recorder: Option<Recorder>,
+    /// 「常开」档那一路持续开着的麦（与按住那一路互斥）。
+    always: Option<Recorder>,
+    /// 常开开麦失败后的冷却，避免每帧重试刷日志。
+    mic_cooldown: Option<Instant>,
     /// 这次按住因为没钥匙而没开麦，松手要写明原因。
     no_key: bool,
 }
@@ -20,6 +31,8 @@ impl Gate {
         Self {
             hold: HoldState::new(),
             recorder: None,
+            always: None,
+            mic_cooldown: None,
             no_key: false,
         }
     }
@@ -53,6 +66,10 @@ struct Recorder {
     stop: Arc<AtomicBool>,
     samples: Arc<Mutex<Vec<i16>>>,
     thread: Option<JoinHandle<()>>,
+    /// 最后一个「有声音」样本的时刻（常开档的简易 VAD）。
+    last_voice: Arc<Mutex<Option<Instant>>>,
+    /// 这一段里是否真的听到过声音（全静音段不送识别）。
+    voice_seen: Arc<AtomicBool>,
 }
 
 impl Recorder {
@@ -80,11 +97,15 @@ impl Recorder {
         let channels = usize::from(config.channels).max(1);
         let stop = Arc::new(AtomicBool::new(false));
         let samples = Arc::new(Mutex::new(Vec::<i16>::new()));
+        let last_voice = Arc::new(Mutex::new(None::<Instant>));
+        let voice_seen = Arc::new(AtomicBool::new(false));
         // `StreamConfig` 是 Copy：两条分支各拿一份；`device` 被移进这个
         // 闭包，输入流连同回调一起只活在本函数起的那个线程里。
         let format = chosen.sample_format();
         let capture = {
             let samples = Arc::clone(&samples);
+            let last_voice = Arc::clone(&last_voice);
+            let voice_seen = Arc::clone(&voice_seen);
             move || -> Result<cpal::Stream, String> {
                 match format {
                     cpal::SampleFormat::I16 => device
@@ -92,8 +113,15 @@ impl Recorder {
                             config,
                             {
                                 let samples = Arc::clone(&samples);
+                                let last_voice = Arc::clone(&last_voice);
+                                let voice_seen = Arc::clone(&voice_seen);
                                 move |data: &[i16], _| {
-                                    push_samples(&samples, data.iter().step_by(channels).copied())
+                                    push_samples(
+                                        &samples,
+                                        data.iter().step_by(channels).copied(),
+                                        &last_voice,
+                                        &voice_seen,
+                                    )
                                 }
                             },
                             |e| tracing::warn!(target: "desk_pet", error = %e, "麦克风回调错误"),
@@ -105,12 +133,14 @@ impl Recorder {
                             config,
                             {
                                 let samples = Arc::clone(&samples);
+                                let last_voice = Arc::clone(&last_voice);
+                                let voice_seen = Arc::clone(&voice_seen);
                                 move |data: &[f32], _| {
                                     let converted = data
                                         .iter()
                                         .step_by(channels)
                                         .map(|&v| (v.clamp(-1.0, 1.0) * 32767.0) as i16);
-                                    push_samples(&samples, converted)
+                                    push_samples(&samples, converted, &last_voice, &voice_seen)
                                 }
                             },
                             |e| tracing::warn!(target: "desk_pet", error = %e, "麦克风回调错误"),
@@ -148,6 +178,8 @@ impl Recorder {
             stop,
             samples,
             thread: Some(thread),
+            last_voice,
+            voice_seen,
         })
     }
 
@@ -170,13 +202,25 @@ impl Drop for Recorder {
     }
 }
 
-fn push_samples(samples: &Arc<Mutex<Vec<i16>>>, values: impl Iterator<Item = i16>) {
+fn push_samples(
+    samples: &Arc<Mutex<Vec<i16>>>,
+    values: impl Iterator<Item = i16>,
+    last_voice: &Arc<Mutex<Option<Instant>>>,
+    voice_seen: &Arc<AtomicBool>,
+) {
     if let Ok(mut g) = samples.lock() {
         for value in values {
             if g.len() >= MAX_SAMPLES {
                 break;
             }
             g.push(value);
+            // 简易能量 VAD：给「常开」档判断一句话说完了没有。
+            if value.unsigned_abs() > VOICE_THRESHOLD as u16 {
+                voice_seen.store(true, Ordering::SeqCst);
+                if let Ok(mut slot) = last_voice.lock() {
+                    *slot = Some(Instant::now());
+                }
+            }
         }
     }
 }
@@ -246,8 +290,12 @@ fn transcribe_blocking(
         .map_err(|_| ())
 }
 
-/// `WM_LBUTTONDOWN`：只记账，不开麦。
+/// `WM_LBUTTONDOWN`：只记账，不开麦。**只有「长按检测」档**才进按住状态机；
+/// 「关闭」与「常开」档的左键只用于拖动，不录音。
 pub fn on_down() {
+    if menu_state::get().voice != VoiceMode::Hold {
+        return;
+    }
     with_gate(|g| {
         if let Some(mut old) = g.recorder.take() {
             let _ = old.stop();
@@ -264,6 +312,9 @@ pub fn on_move(dx: i32, dy: i32) {
 
 /// `WM_LBUTTONUP` / `WM_CAPTURECHANGED`：结束这次按住。
 pub fn on_up() {
+    if menu_state::get().voice != VoiceMode::Hold {
+        return;
+    }
     let (outcome, recorder, no_key) = with_gate(|g| {
         let outcome = g.hold.up(Instant::now());
         (outcome, g.recorder.take(), std::mem::take(&mut g.no_key))
@@ -280,9 +331,81 @@ pub fn on_up() {
     }
 }
 
-/// 每帧一次：到 300 ms 判定、120 秒自动松手、播放中停听、收提示。
+/// 停掉「常开」那一路（切档 / 播放中 / 没钥匙），样本丢弃不送识别。
+fn stop_always() {
+    let rec = with_gate(|g| g.always.take());
+    if let Some(mut r) = rec {
+        let _ = r.stop();
+    }
+}
+
+/// 「常开」档：窗在、自己没在播、有钥匙时持续听；一句静音结束就送识别，
+/// 下一帧自动重开下一段。没配钥匙时**只把档位选上，不开麦、不打上游**。
+fn always_tick(now: Instant) {
+    if bridge::is_playing() || bridge::asr_key().is_none() {
+        stop_always();
+        return;
+    }
+    let need_start =
+        with_gate(|g| g.always.is_none() && !g.mic_cooldown.is_some_and(|until| now < until));
+    if need_start {
+        match Recorder::start() {
+            Ok(rec) => with_gate(|g| {
+                g.always = Some(rec);
+                g.mic_cooldown = None;
+            }),
+            Err(e) => {
+                tracing::warn!(target: "desk_pet", error = %e, "常开开麦失败（不打上游）");
+                push_notice(MIC_NOTICE, Duration::from_secs(2));
+                with_gate(|g| g.mic_cooldown = Some(now + MIC_RETRY_COOLDOWN));
+                return;
+            }
+        }
+    }
+    let due = with_gate(|g| {
+        let Some(rec) = g.always.as_ref() else {
+            return false;
+        };
+        if !rec.voice_seen.load(Ordering::SeqCst) {
+            return false; // 全静音段不送识别
+        }
+        let full = rec
+            .samples
+            .lock()
+            .map(|s| s.len() >= MAX_SAMPLES)
+            .unwrap_or(false);
+        let silence = rec
+            .last_voice
+            .lock()
+            .ok()
+            .and_then(|slot| *slot)
+            .is_some_and(|t| now.saturating_duration_since(t) >= ALWAYS_SILENCE);
+        full || silence
+    });
+    if due {
+        let rec = with_gate(|g| g.always.take());
+        if let Some(r) = rec {
+            finish(r); // 下一帧自动重开下一段
+        }
+    }
+}
+
+/// 每帧一次：按档位分派、到 300 ms 判定、120 秒自动松手、播放中停听、收提示。
 pub fn poll() -> Vec<Notice> {
     let now = Instant::now();
+    let mode = menu_state::get().voice;
+    if mode != VoiceMode::Always {
+        stop_always();
+    }
+    if mode != VoiceMode::Hold {
+        with_gate(|g| {
+            g.hold.cancel();
+            g.no_key = false;
+        });
+    }
+    if mode == VoiceMode::Off {
+        return drain_notices();
+    }
     let should_start = with_gate(|g| g.hold.should_start(now));
     if should_start {
         if bridge::is_playing() {
@@ -332,6 +455,9 @@ pub fn poll() -> Vec<Notice> {
         if let Some(mut r) = rec {
             let _ = r.stop();
         }
+    }
+    if mode == VoiceMode::Always {
+        always_tick(now);
     }
     drain_notices()
 }

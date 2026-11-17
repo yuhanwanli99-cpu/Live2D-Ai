@@ -44,13 +44,17 @@ use l2d::renderer::RgbaFrame;
 mod config;
 /// 命中与拖动（`hit = opaque` 时按 alpha 采样；纯采样部分 Linux 单测）。
 mod hit;
+/// 帧循环读的运行配置（置顶 / 透明度 / 命中 / 窗高）。
+mod live;
 /// rc.2：`mods.json` 的 `mods.desk-pet.config` 读取 + 开窗判定（纯函数 + 读文件边界）。
 mod manifest;
-/// 右键菜单改透明度 / 置顶时，帧循环读的就是这份运行配置。
-mod live;
+/// 2026-11-17 纠正版：六组右键菜单的**状态与命令表**（平台无关，Linux 单测真跑）。
+pub(crate) mod menu_state;
 /// 2026-11-17「先进网页，再切桌宠」：窗的运行态、重复开关、HWND 与端口槽。
 /// 抽成独立文件是为了 `mod.rs` / `window.rs` 都不越过 500 行。
 mod runtime;
+/// 切换皮肤：已安装模型列表、当前皮肤持久化、帧循环换模邮箱。
+pub(crate) mod skin;
 #[cfg(windows)]
 pub use runtime::{clear_hwnd, set_hwnd};
 #[allow(unused_imports)] // test target 下 mode::apply 走纯决策分支，不碰这些
@@ -60,10 +64,13 @@ pub use runtime::{close_pet, http_port, open_pet, set_http_port};
 /// Linux 单测同样真跑；Win32 绘制与 cpal 输入流只在 Windows 目标编译。
 pub(crate) mod bridge;
 pub(crate) mod bubble;
+/// 简易会话框：独立 Win32 小窗、可拖边缩放、置顶与角色窗互不影响。
+#[cfg(windows)]
+mod chat;
 /// 窗线程每帧编排（气泡 + 按住说话收在一处，`window.rs` 只多两行）。
 #[cfg(windows)]
 mod companion;
-/// 右键菜单：回到网页、打开对话、置顶、透明度。逻辑不写进已满的 `window.rs`。
+/// 六组右键菜单（子菜单 + 副作用）。逻辑不写进已满的 `window.rs`。
 #[cfg(windows)]
 mod menu;
 /// 2026-11-17「先进网页，再切桌宠」：模式切换（路由与右键菜单共用）。

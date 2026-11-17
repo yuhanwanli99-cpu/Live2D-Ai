@@ -46,7 +46,10 @@ pub fn save_config(path: &Path, config: &PetConfig) {
     if !root.is_object() {
         root = serde_json::json!({});
     }
-    let mut mods = root.get("mods").cloned().unwrap_or_else(|| serde_json::json!({}));
+    let mut mods = root
+        .get("mods")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
     if !mods.is_object() {
         mods = serde_json::json!({});
     }
@@ -84,6 +87,59 @@ pub fn save_config(path: &Path, config: &PetConfig) {
     }
     if let Some(root_object) = root.as_object_mut() {
         root_object.insert("mods".to_string(), mods);
+    }
+    if let Ok(text) = serde_json::to_string_pretty(&root) {
+        let _ = std::fs::write(path, text);
+    }
+}
+
+/// 拿到 `mods.desk-pet.config` 的可变对象（缺级就补 `{}`，坏类型就地修好）。
+fn config_object_mut(root: &mut Value) -> Option<&mut serde_json::Map<String, Value>> {
+    if !root.is_object() {
+        *root = serde_json::json!({});
+    }
+    let mods = root
+        .as_object_mut()?
+        .entry("mods")
+        .or_insert_with(|| serde_json::json!({}));
+    if !mods.is_object() {
+        *mods = serde_json::json!({});
+    }
+    let pet = mods
+        .as_object_mut()?
+        .entry(DESK_PET_ID)
+        .or_insert_with(|| serde_json::json!({}));
+    if !pet.is_object() {
+        *pet = serde_json::json!({});
+    }
+    let config = pet
+        .as_object_mut()?
+        .entry("config")
+        .or_insert_with(|| serde_json::json!({}));
+    if !config.is_object() {
+        *config = serde_json::json!({});
+    }
+    config.as_object_mut()
+}
+
+/// 读 `mods.desk-pet.config.skin`（缺键 / 坏类型 / 空串 → `None` = 出厂 bai）。
+pub fn skin_from_manifest(manifest: &Value) -> Option<String> {
+    manifest
+        .get("mods")
+        .and_then(|mods| mods.get(DESK_PET_ID))
+        .and_then(|pet| pet.get("config"))
+        .and_then(|cfg| cfg.get("skin"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
+/// 只写当前皮肤；`save_config` 的 4 个键与任何其它键一字不动。
+/// 写失败只忽略（换肤不能因此卡住菜单）。
+pub fn save_skin(path: &Path, skin_rel: &str) {
+    let mut root = read_manifest(path);
+    if let Some(object) = config_object_mut(&mut root) {
+        object.insert("skin".to_string(), serde_json::json!(skin_rel));
     }
     if let Ok(text) = serde_json::to_string_pretty(&root) {
         let _ = std::fs::write(path, text);
@@ -211,5 +267,47 @@ mod tests {
         assert!(!should_open(false, &["desk-pet"], &disabled));
         assert!(!should_open(false, &["desk-pet"], &no_id));
         assert!(!should_open(false, &["desk-pet"], &bad_bool));
+    }
+
+    #[test]
+    fn skin_key_reads_and_falls_back_independently_of_the_four_config_keys() {
+        let with_skin = json!({"mods": {"desk-pet": {"config": {
+            "hit": "through", "skin": "neko/runtime/neko.model3.json"
+        }}}});
+        assert_eq!(
+            skin_from_manifest(&with_skin),
+            Some("neko/runtime/neko.model3.json".to_string())
+        );
+        for bad in [
+            json!({}),
+            json!({"mods": {"desk-pet": {"config": {}}}}),
+            json!({"mods": {"desk-pet": {"config": {"skin": ""}}}}),
+            json!({"mods": {"desk-pet": {"config": {"skin": 7}}}}),
+        ] {
+            assert_eq!(skin_from_manifest(&bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn save_skin_preserves_other_keys_and_round_trips() {
+        let dir = std::env::temp_dir().join(format!("desk-pet-skin-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        let path = dir.join("mods.json");
+        std::fs::write(
+            &path,
+            r#"{"mods":{"desk-pet":{"enabled":false,"config":{"always_on_top":true,"hit":"opaque"}}},"other":42}"#,
+        )
+        .expect("写初始 manifest");
+        save_skin(&path, "bai/runtime/bai.model3.json");
+        let saved = read_manifest(&path);
+        assert_eq!(
+            skin_from_manifest(&saved).as_deref(),
+            Some("bai/runtime/bai.model3.json")
+        );
+        assert_eq!(saved["mods"]["desk-pet"]["config"]["always_on_top"], true);
+        assert_eq!(saved["mods"]["desk-pet"]["config"]["hit"], "opaque");
+        assert_eq!(saved["mods"]["desk-pet"]["enabled"], false);
+        assert_eq!(saved["other"], 42);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

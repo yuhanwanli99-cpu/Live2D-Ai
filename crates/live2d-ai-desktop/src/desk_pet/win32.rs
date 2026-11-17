@@ -82,9 +82,19 @@ pub(super) const SWP_NOACTIVATE: u32 = 0x0010;
 pub(super) const HWND_TOPMOST: Hwnd = -1_isize as Hwnd;
 pub(super) const HWND_NOTOPMOST: Hwnd = -2_isize as Hwnd;
 pub(super) const SWP_NOMOVE: u32 = 0x0002;
-/// `AppendMenuW`：勾选当前项、画分隔线。
+/// `AppendMenuW`：勾选当前项。六组菜单之间不用分隔线（组即分组）。
 pub(super) const MF_CHECKED: u32 = 0x0008;
-pub(super) const MF_SEPARATOR: u32 = 0x0800;
+// ── 六组右键菜单 / 简易会话框（2026-11-17 纠正版） ──
+/// 子菜单：这一项的 `id` 参数是子菜单 HMENU 的句柄值。
+pub(super) const MF_POPUP: u32 = 0x0000_0010;
+pub(super) const MF_GRAYED: u32 = 0x0000_0001;
+pub(super) const MF_DISABLED: u32 = 0x0000_0002;
+/// 简易会话框用标准重叠窗：带 WS_THICKFRAME，系统自带拖边缩放。
+pub(super) const WS_OVERLAPPEDWINDOW: u32 = 0x00CF_0000;
+pub(super) const WM_PAINT: u32 = 0x000F;
+pub(super) const CHAT_CLASS_NAME: &str = "live2d-ai-desk-chat";
+/// `COLOR_WINDOW + 1` 作为 WNDCLASSEXW.hbrBackground 的伪刷子句柄。
+pub(super) const COLOR_WINDOW_BRUSH: Handle = 6_isize as Handle;
 
 // ── DPI（建窗前设进程感知；失败退线程级，再失败就用系统虚拟化坐标） ──
 /// `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2`（值 -4）。
@@ -139,6 +149,17 @@ pub(super) struct Rect {
     pub(super) top: i32,
     pub(super) right: i32,
     pub(super) bottom: i32,
+}
+
+/// `PAINTSTRUCT`（x64 = 72 字节，与 mingw-w64 `winuser.h` 一致）。
+#[repr(C)]
+pub(super) struct PaintStruct {
+    pub(super) hdc: Hdc,
+    pub(super) f_erase: Bool,
+    pub(super) rc_paint: Rect,
+    pub(super) f_restore: Bool,
+    pub(super) f_inc_update: Bool,
+    pub(super) rgb_reserved: [u8; 32],
 }
 
 #[repr(C)]
@@ -269,6 +290,12 @@ unsafe extern "system" {
         rect: *const Rect,
     ) -> Bool;
     pub(super) fn SetForegroundWindow(hwnd: Hwnd) -> Bool;
+    // 简易会话框：标准 GDI 文本窗（不加载 Flutter / WebView）。
+    pub(super) fn GetWindowRect(hwnd: Hwnd, rect: *mut Rect) -> Bool;
+    pub(super) fn GetClientRect(hwnd: Hwnd, rect: *mut Rect) -> Bool;
+    pub(super) fn InvalidateRect(hwnd: Hwnd, rect: *const Rect, erase: Bool) -> Bool;
+    pub(super) fn BeginPaint(hwnd: Hwnd, ps: *mut PaintStruct) -> Hdc;
+    pub(super) fn EndPaint(hwnd: Hwnd, ps: *const PaintStruct) -> Bool;
 }
 
 #[link(name = "gdi32")]

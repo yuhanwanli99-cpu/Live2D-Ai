@@ -1,4 +1,4 @@
-/// 舞台角标三键：缩小 / 放大 / 复位（规格 §5.2 的「舞台角标」）。
+/// 舞台角标那一排：缩小 / 放大 / 复位 + 「切换到桌宠」（规格 §5.2）。
 ///
 /// # 文件名的来历（原名 `action_toolbar.dart`，2026-09-11 改名）
 ///
@@ -33,6 +33,7 @@ class StageCornerControls extends StatelessWidget {
   const StageCornerControls({
     required this.onZoom,
     this.scaleFromAck,
+    this.onSwitchToDeskPet,
     super.key,
   });
 
@@ -42,6 +43,10 @@ class StageCornerControls extends StatelessWidget {
   /// 渲染面回报的实际缩放（收到 ack 之前为 `null` → **不显示百分比**，
   /// 而不是显示一个猜的值）。
   final double? scaleFromAck;
+
+  /// 2026-11-17：网页 → 桌宠。**从顶栏挪到这里**，不再挤掉「设置」。
+  /// 为 null 时整项不渲染（不做静默 no-op）。
+  final VoidCallback? onSwitchToDeskPet;
 
   @override
   Widget build(BuildContext context) {
@@ -90,6 +95,12 @@ class StageCornerControls extends StatelessWidget {
                 tooltip: '复位缩放与位置',
                 onPressed: () => onZoom('reset'),
               ),
+              if (onSwitchToDeskPet != null)
+                _ZoomTextButton(
+                  label: '切换到桌宠',
+                  tooltip: '切换为桌面宠物',
+                  onPressed: onSwitchToDeskPet!,
+                ),
             ],
           ),
         ),
