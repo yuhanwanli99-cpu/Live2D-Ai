@@ -101,6 +101,13 @@ void reloadAppPage() {
   web.window.location.reload();
 }
 
+/// **关闭本页**（`/app/`）。浏览器只允许关闭「由脚本打开」的窗口，被拒时
+/// `close()` 是静默 no-op（返回 void、不抛）。所以调用方必须**先把提示上屏**
+/// 再调这里：允许关 → 页面消失；不允许关 → 提示就是最终画面。
+void closeAppPage() {
+  web.window.close();
+}
+
 /// 让用户挑一张本地图片，读成 **dataURL**（组合根专有：需要 `package:web`）。
 ///
 /// 用 `FileReader.readAsDataURL` 而不是自己拼 base64：它按文件的真实 MIME

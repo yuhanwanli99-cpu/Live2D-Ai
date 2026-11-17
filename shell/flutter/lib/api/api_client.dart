@@ -124,6 +124,25 @@ class ApiClient {
     throw _errorFrom(response);
   }
 
+  /// `POST /api/v1/desk-pet/mode`（2026-11-17「先进网页，再切桌宠」）。
+  ///
+  /// 返回服务端的 `ok`：只有 true 才说明窗已经开起来，前端才会关本页。
+  /// 服务端对「窗没开起来 / 非 Windows」也回 200 + `ok:false` + `reason`，
+  /// 所以这里不抛异常，只把结果交给按钮决定要不要 `window.close()`。
+  Future<bool> setDeskPetMode(String mode) async {
+    final response = await _guard(
+      () => _client.post(
+        _uri('/api/v1/desk-pet/mode'),
+        headers: const <String, String>{
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(<String, String>{'mode': mode}),
+      ),
+    );
+    if (response.statusCode != 200) return false;
+    return _decodeObject(response.body)['ok'] == true;
+  }
+
   /// `POST /api/v1/chat/draft`（2026-11-16 热槽记忆 M3）：草稿换热卡。
   ///
   /// 语义是**检索**，不是命令：服务端不创建一轮、不调 TTS、不写配置，

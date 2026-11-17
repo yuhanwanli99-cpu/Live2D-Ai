@@ -170,6 +170,13 @@ pub fn launcher_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}/")
 }
 
+/// 「回到网页」用的地址（2026-11-17）：直接进 `/app/`，**不**打开 `GET /`
+/// ——不走启动器，也就不会重跑一次 Mod 预加载 / 「进入」。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn app_url(port: u16) -> String {
+    format!("http://127.0.0.1:{port}/app/")
+}
+
 /// 配置文件锚点候选：**cwd 的 `live2d-ai.toml` 在前**，exe 目录的在后。
 ///
 /// 只给候选，「哪个存在」由调用方判：快捷方式起进程、Start-in 不对时，cwd 里
@@ -416,6 +423,7 @@ mod tests {
     #[test]
     fn launcher_url_is_the_launcher_page() {
         assert_eq!(launcher_url(18080), "http://127.0.0.1:18080/");
+        assert_eq!(app_url(18080), "http://127.0.0.1:18080/app/");
     }
 
     /// 配置锚点：cwd 在前、exe 目录兜底；同目录去重；WSL exe 不追加。

@@ -324,6 +324,7 @@ pub fn is_mutating_route(route: crate::web_api::RouteId, method: &tiny_http::Met
         | RouteId::SettingsTestTts
         | RouteId::ChatPost
         | RouteId::ChatStop
+        | RouteId::DeskPetMode
         | RouteId::Playback => true,
         // 只读端点。
         RouteId::AppCapabilities

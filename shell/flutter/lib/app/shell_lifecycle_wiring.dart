@@ -263,3 +263,23 @@ extension _ShellLifecycleWiring on _ShellRootState {
     _input.dispose();
   }
 }
+
+/// 「先进网页，再切桌宠」的按钮回调（2026-11-17）。
+///
+/// 放在 part 里是为了 `main.dart` 不越过 800 行（code-stats `dart-800` 棘轮）。
+/// `setState` 是 @protected，扩展方法统一走 `_rebuild`（与其余接线同款）。
+extension _ShellDeskPetSwitch on _ShellRootState {
+  Future<void> _switchToDeskPet() async {
+    final bool ok;
+    try {
+      ok = await _api.setDeskPetMode('pet');
+    } catch (_) {
+      return; // 失败不关窗、不卸舞台
+    }
+    if (!ok || !mounted) return;
+    _rebuild(() => _enteredDeskPet = true);
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      closeAppPage();
+    });
+  }
+}

@@ -1,11 +1,8 @@
 //! 宠物窗本体：Win32 分层窗 + 离屏皮套 + 命中/拖动 + DPI。
-//!
 //! 只在 **Windows 目标**编译（父模块 `#[cfg(windows)] mod window;`）；非 Windows
 //! 不编译本文件，也不链接 user32/gdi32。裸绑定全在 `win32.rs`（本文件只写策略），
 //! 命中判定与拖动状态在 `hit.rs`。
-//!
 //! # 画法
-//!
 //! - 皮套由进程内 `OffscreenRenderer` 渲染（直通 alpha 的 `RgbaFrame`），经父模块
 //!   `fill_premultiplied_bgra` 预乘后写进 32bpp 顶朝下 DIB，再 `UpdateLayeredWindow`
 //!   （`ULW_ALPHA` + `AC_SRC_ALPHA`）交 DWM；`opacity` 走 `SourceConstantAlpha`；
@@ -13,20 +10,15 @@
 //!   合成（`l2d-wasm-demo/.../surface/background.rs`），「让 canvas 透明」走不通；
 //! - 离屏清屏本来就是 `Clear(TRANSPARENT)`，读回 `unpremultiply` 成直通 alpha ⇒
 //!   **l2d 一行未改**；真机首帧 `coverage = 0.0825`（皮套以外确实全透明）。
-//!
 //! # 命中与拖动
-//!
 //! `hit = opaque`（缺省）时窗口**不挂**常驻 `WS_EX_TRANSPARENT`：`WM_NCHITTEST`
 //! 转给 `hit.rs` 按最近一帧 alpha 回答 `HTCLIENT` / `HTTRANSPARENT`。左键按下即拖动
 //! （`SetCapture` + `SetWindowPos`），松手留下新位置（建窗时才用 `window_rect`）。
 //! `through` 恢复整窗穿透；`window` 整矩形吃鼠标（调试，帧 alpha 抬到 1 才生效）。
-//!
 //! # 失败语义
-//!
 //! 任何一步失败都返回 `Err(String)`；调用方（`start_if_armed` 的线程体）只记
 //! `tracing::error!`，**HTTP 服务继续、进程退出码不变**。窗口被外部关掉
 //! （`WM_DESTROY`）时线程正常结束。
-//!
 //! 真机证据：`D:\live2dai\plan\VERIFY-desk-pet-win.md`（H1 基线 / H3 命中拖动 /
 //! H4 DPI 的截图与日志原文）。
 #![allow(unsafe_code)]
@@ -157,8 +149,14 @@ impl PetWindow {
             lpsz_class_name: class_name.as_ptr(),
             h_icon_sm: std::ptr::null_mut(),
         };
-        if unsafe { RegisterClassExW(&wnd_class) } == 0 {
-            return Err(format!("RegisterClassExW 失败: {}", last_os()));
+        // 进程内重复开窗（mode=pet 关掉再开）：类名已注册
+        // ERROR_CLASS_ALREADY_EXISTS=1410 不是错误，复用同一个窗口类。
+        let registered = unsafe { RegisterClassExW(&wnd_class) } != 0;
+        if !registered {
+            let err = last_os();
+            if err.raw_os_error() != Some(1410) {
+                return Err(format!("RegisterClassExW 失败: {err}"));
+            }
         }
         let hwnd = unsafe {
             CreateWindowExW(
@@ -316,6 +314,7 @@ impl Drop for PetWindow {
             let _ = DeleteDC(self.mem_dc);
             let _ = DestroyWindow(self.hwnd);
         }
+        crate::desk_pet::clear_hwnd();
     }
 }
 
@@ -421,6 +420,7 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
     // 4) 开窗 → 装命中态 → 第一帧上屏 → 显示（不抢焦点）。
     let ex_style = ex_style_for(&config);
     let mut window = PetWindow::create(width, height, Point { x, y }, ex_style)?;
+    crate::desk_pet::set_hwnd(window.hwnd);
     // 命中态必须在第一帧上屏之前装好：窗口一出现就可能收到 WM_NCHITTEST。
     if config.hit == HitMode::Window {
         // 分层窗 alpha=0 的像素系统级穿透：抬到 1 才能「整矩形吃鼠标」（调试）。

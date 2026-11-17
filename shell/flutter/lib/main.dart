@@ -461,6 +461,9 @@ class _ShellRootState extends State<ShellRoot> {
   /// 取不到就是 `false`：dev 分区多显示一项的风险，远小于「开发模式下少东西」。
   bool _devMode = false;
 
+  /// 已切到桌宠：整棵外壳（含 `/render` iframe）离树，避免两只皮套同时跑。
+  bool _enteredDeskPet = false;
+
   /// 标记外壳需要重建（等价于 `setState(() {})`）。
   ///
   /// **为什么要有这一层**：`setState` 是 `State` 的 `@protected` 成员，只有
@@ -489,6 +492,7 @@ class _ShellRootState extends State<ShellRoot> {
     _disposeShell();
     super.dispose();
   }
+
 
   /// 连通性自检：结果**内联在字段下方**（不用 toast，一闪而过看不清）。
   ///
@@ -529,6 +533,12 @@ class _ShellRootState extends State<ShellRoot> {
         _directorMotion,
       ]),
       builder: (BuildContext context, Widget? _) {
+        if (_enteredDeskPet) {
+          // 占位页先上屏再尝试关窗；wasm 的 rAF 已随 iframe 卸载停掉。
+          return const Scaffold(
+            body: Center(child: Text('已进入桌宠，请关闭此页')),
+          );
+        }
         // 统一「停止」的判据只算一次：圆键停止态与 Esc 共用它。
         // **不看界面相位**——服务端推完 PCM 后相位先归零，尾巴只剩这三条。
         final bool canStop = canStopPlayback(
@@ -537,6 +547,7 @@ class _ShellRootState extends State<ShellRoot> {
           cuesPending: _directorCues.length > 0,
         );
         return AppShell(
+          onSwitchToDeskPet: _switchToDeskPet,
           key: _shellKey,
           stage: Live2DStage(
             key: _stageKey,

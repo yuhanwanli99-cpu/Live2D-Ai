@@ -472,6 +472,13 @@ class AppShellState extends State<AppShell> {
                   status: widget.wsStatus,
                   onRetry: widget.onRetryConnection,
                 ),
+                // 2026-11-17：产品路径的网页 → 桌宠切换。独立文字按钮，
+                // 刻意放在 `if (!compact)` 之外（compact 也常驻），
+                // 且不放进设置子页 / 舞台 iframe 之上。
+                TextButton(
+                  onPressed: widget.onSwitchToDeskPet,
+                  child: const Text('切换到桌宠'),
+                ),
                 // **文字按钮，不是齿轮图标**（用户裁决「尽量少用图片用文字
                 // 做按钮」）。「设置」两个字不需要翻译，齿轮要先认图标。
                 //

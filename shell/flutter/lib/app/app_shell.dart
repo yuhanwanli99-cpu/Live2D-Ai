@@ -143,6 +143,7 @@ class AppShell extends StatefulWidget {
     this.onDiscardSettings,
     this.confirmDiscard,
     this.stageCorner,
+    this.onSwitchToDeskPet,
     this.sessions = const <ChatSession>[],
     this.activeSessionId,
     this.sessionsListenable,
@@ -340,6 +341,9 @@ class AppShell extends StatefulWidget {
 
   /// 右下角（舞台角标三键）。
   final Widget? stageCorner;
+
+  /// 「切换到桌宠」按钮（2026-11-17）。独立入口，**不进设置子页**。
+  final VoidCallback? onSwitchToDeskPet;
 
   /// 会话列表（已按最近使用排序）。空 = 还没建过会话。
   ///

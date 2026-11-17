@@ -168,6 +168,24 @@ mod platform {
             WM_LBUTTONDOWN => Some(start_drag(hwnd)),
             WM_MOUSEMOVE => Some(drag_move(hwnd)),
             WM_LBUTTONUP => Some(stop_drag()),
+            // 右键：不进 start_drag、不进 talk 状态机（既不拖拽也不录音）。
+            WM_RBUTTONDOWN => Some(0),
+            WM_RBUTTONUP => {
+                // 与 WM_NCHITTEST 不同：这里 lparam 是**客户区**坐标，别减 origin。
+                let cx = (lparam & 0xFFFF) as i16 as i32;
+                let cy = ((lparam >> 16) & 0xFFFF) as i16 as i32;
+                // 先取锁判命中、释放锁之后再弹菜单：TrackPopupMenu 是模态，
+                // 会重入窗口过程，持锁进菜单会自锁。
+                let on_pet = with_state(|state| {
+                    let map = if state.map.is_empty() {
+                        None
+                    } else {
+                        Some(&state.map)
+                    };
+                    verdict(state.mode, map, cx, cy, false)
+                }) == Some(Verdict::Client);
+                Some(crate::desk_pet::menu::show(hwnd, cx, cy, on_pet))
+            }
             WM_CAPTURECHANGED => {
                 // 捕获被别人抢走（例如调试器/输入法）：就当松手，别让窗卡在拖动态。
                 stop_drag();

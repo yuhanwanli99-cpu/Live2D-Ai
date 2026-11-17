@@ -46,6 +46,13 @@ mod config;
 mod hit;
 /// rc.2：`mods.json` 的 `mods.desk-pet.config` 读取 + 开窗判定（纯函数 + 读文件边界）。
 mod manifest;
+/// 2026-11-17「先进网页，再切桌宠」：窗的运行态、重复开关、HWND 与端口槽。
+/// 抽成独立文件是为了 `mod.rs` / `window.rs` 都不越过 500 行。
+mod runtime;
+#[cfg(windows)]
+pub use runtime::{clear_hwnd, set_hwnd};
+#[allow(unused_imports)] // test target 下 mode::apply 走纯决策分支，不碰这些
+pub use runtime::{close_pet, http_port, open_pet, set_http_port};
 
 /// 2026-11-17 长期陪伴：事件桥 / 气泡 / 按住说话。纯判定与状态机平台无关，
 /// Linux 单测同样真跑；Win32 绘制与 cpal 输入流只在 Windows 目标编译。
@@ -54,6 +61,11 @@ pub(crate) mod bubble;
 /// 窗线程每帧编排（气泡 + 按住说话收在一处，`window.rs` 只多两行）。
 #[cfg(windows)]
 mod companion;
+/// 右键菜单（只有「回到网页」一项）；`window.rs` 已满 500 行，逻辑不写进它。
+#[cfg(windows)]
+mod menu;
+/// 2026-11-17「先进网页，再切桌宠」：模式切换（路由与右键菜单共用）。
+pub(crate) mod mode;
 pub(crate) mod talk;
 
 /// Win32 裸绑定（类型 / 常量 / 结构体 / extern；只在 Windows 目标编译）。
@@ -159,44 +171,8 @@ pub fn start_if_armed() {
         .ok()
         .and_then(|mut slot| slot.take())
         .unwrap_or_default();
-    spawn_pet_thread(pet_config);
-}
-
-/// 起 `desk-pet` 线程（Windows）；非 Windows 是空实现——`--desk-pet` 在解析期
-/// 就被拒（退出码 2），这里没有任何窗口可开，只留一条 debug 说明。
-///
-/// 抽成单独函数是为了让「只在 Windows 有事做」这件事对 clippy 也成立：
-/// 非 Windows 的 `start_if_armed` 末尾不留下一个孤零零的 `return`。
-fn spawn_pet_thread(pet_config: config::PetConfig) {
-    #[cfg(windows)]
-    {
-        let spawned = std::thread::Builder::new()
-            .name("desk-pet".to_string())
-            .spawn(move || {
-                let outcome =
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        window::run_once(pet_config)
-                    }));
-                match outcome {
-                    Ok(Ok(())) => {
-                        tracing::info!(target: "desk_pet", "宠物窗已关闭；HTTP 服务继续");
-                    }
-                    Ok(Err(e)) => {
-                        tracing::error!(target: "desk_pet", "宠物窗未打开/已退出：{e}（HTTP 服务继续）");
-                    }
-                    Err(_) => {
-                        tracing::error!(target: "desk_pet", "宠物窗线程 panic（已捕获；HTTP 服务继续）");
-                    }
-                }
-            });
-        if let Err(e) = spawned {
-            tracing::error!(target: "desk_pet", "宠物窗线程起不来：{e}（HTTP 服务继续）");
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = pet_config;
-        tracing::debug!(target: "desk_pet", "非 Windows：没有宠物窗可开（--desk-pet 已在解析期被拒）");
+    if let Err(e) = runtime::spawn_pet_thread(pet_config) {
+        tracing::error!(target: "desk_pet", "宠物窗未打开：{e}（HTTP 服务继续）");
     }
 }
 

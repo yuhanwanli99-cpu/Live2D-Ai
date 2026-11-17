@@ -170,6 +170,13 @@ pub mod ws;
 /// 配置文件热重载文件监听器（2026-08-31）。
 pub mod file_watcher;
 
+/// 「先进网页，再切桌宠」：`POST /api/v1/desk-pet/mode`。
+/// 走 `dispatch` 内（不作前置路由），与 `/api/v1/chat` 共用同一套 Origin 校验，
+/// 也不会动 `tests_mod.rs` 里 `respond_and_log(` 的源码计数断言。
+pub mod desk_pet_mode;
+#[cfg(test)]
+mod desk_pet_mode_tests;
+
 /// 路由 ID（method+path 解析结果）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouteId {
@@ -189,6 +196,8 @@ pub enum RouteId {
     ChatPost,
     /// `POST /api/v1/chat/stop`（W2 任务）
     ChatStop,
+    /// `POST /api/v1/desk-pet/mode`（2026-11-17 产品路径：网页 ↔ 桌宠）。
+    DeskPetMode,
     /// `POST /api/v1/playback`（0.3.14：浏览器播放忙上报；body `{"busy":bool}`）。
     /// 只映射 POST；其它 method 不命中，按既有口径落 `NotImplemented`。
     Playback,
@@ -223,6 +232,7 @@ impl RouteId {
             Self::SettingsTestTts => "settings.test_tts",
             Self::ChatPost => "chat.post",
             Self::ChatStop => "chat.stop",
+            Self::DeskPetMode => "desk_pet.mode",
             Self::Playback => "playback",
             Self::LogsGet => "logs.get",
             Self::LogsLevels => "logs.levels",
@@ -284,6 +294,10 @@ pub fn match_route(method: &Method, path: &str) -> RouteId {
         RouteId::ChatPost
     } else if path == "/api/v1/chat/stop" {
         RouteId::ChatStop
+    } else if path == desk_pet_mode::DESK_PET_MODE_PATH {
+        // method 校验放 handler 内（与 /api/v1/chat 同款）：非 POST 返 405，
+        // 不落到 NotImplemented 误报 501。
+        RouteId::DeskPetMode
     } else if path == "/api/v1/playback" && *method == Method::Post {
         // 0.3.14：浏览器播放忙上报。**只映射 POST**——其它 method 不命中，
         // 按既有口径落回 `NotImplemented`（与 `settings/test/*` 等 POST-only
@@ -571,6 +585,8 @@ pub fn start_server(ctx: ServerContext, port: u16) -> std::io::Result<tiny_http:
     // （只有生产 `--desk-pet` 进程会 arm）。非 Windows 是空实现；窗口失败只记
     // `tracing::error!`，HTTP 服务继续、退出码不变。**真实窗口未验**。
     crate::desk_pet::start_if_armed();
+    // 「回到网页」要用真实绑定端口拼 /app/ 地址；窗线程拿不到 ctx，故存一份。
+    crate::desk_pet::set_http_port(port);
 
     // **D-P0B**：把监听端口注入 ctx.security；`allow_no_origin` 走环境变量
     // `LIVE2D_AI_ALLOW_NO_ORIGIN`（caller 已在 ctx 里设的 flag 保留）。

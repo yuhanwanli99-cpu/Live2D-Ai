@@ -20,21 +20,37 @@ pub fn arm() {
     ARMED.store(true, Ordering::SeqCst);
 }
 
+/// `cmd /C start "" <url>`：`start` 把第一个带引号参数当窗口标题，
+/// 空标题才能保证 URL 被当成目标。返回是否成功 spawn（不等待浏览器退出）。
+fn spawn_start(url: &str) -> bool {
+    match std::process::Command::new("cmd")
+        .args(["/C", "start", "", url])
+        .spawn()
+    {
+        Ok(child) => {
+            tracing::info!(pid = child.id(), %url, "已用系统默认浏览器打开页面");
+            true
+        }
+        Err(err) => {
+            tracing::warn!(%url, "打开默认浏览器失败（{err}）；请手动访问该地址");
+            false
+        }
+    }
+}
+
 /// 监听成功后用默认浏览器打开启动器页（未 arm → 什么都不做）。
 pub fn open_launcher_after_listen(port: u16) {
     if !ARMED.load(Ordering::SeqCst) {
         return;
     }
-    let url = crate::host_layout::launcher_url(port);
-    match std::process::Command::new("cmd")
-        .args(["/C", "start", "", &url])
-        .spawn()
-    {
-        Ok(child) => {
-            tracing::info!(pid = child.id(), %url, "已用系统默认浏览器打开启动器页");
-        }
-        Err(err) => {
-            tracing::warn!(%url, "打开默认浏览器失败（{err}）；请手动访问该地址");
-        }
-    }
+    let _ = spawn_start(&crate::host_layout::launcher_url(port));
+}
+
+/// 「回到网页」：右键菜单 / `mode=web` 触发，**不带 ARMED 门控**
+/// （ARMED 是启动期一次性语义，这里是运行时的用户动作）。
+/// 刻意用 `/app/` 而不是 `GET /`：不重跑启动器的 Mod 预加载。
+/// 单元测试里 `desk_pet::mode::apply` 走纯决策分支，不会调到它。
+#[cfg_attr(test, allow(dead_code))]
+pub fn open_app(port: u16) {
+    let _ = spawn_start(&crate::host_layout::app_url(port));
 }
