@@ -421,15 +421,15 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
     let ex_style = ex_style_for(&config);
     let mut window = PetWindow::create(width, height, Point { x, y }, ex_style)?;
     crate::desk_pet::set_hwnd(window.hwnd);
-    // 命中态必须在第一帧上屏之前装好：窗口一出现就可能收到 WM_NCHITTEST。
     if config.hit == HitMode::Window {
         // 分层窗 alpha=0 的像素系统级穿透：抬到 1 才能「整矩形吃鼠标」（调试）。
         crate::desk_pet::raise_alpha_floor_for_window_mode(&mut first);
     }
+    crate::desk_pet::live::publish(config);
     hit::install(config, Point { x, y });
     let mut companion = super::companion::Companion::new(); // 窗开好后才分配事件通道
     hit::refresh_map(&first);
-    window.present(&first, config.opacity)?;
+    window.present(&first, crate::desk_pet::live::opacity())?;
     unsafe {
         ShowWindow(window.hwnd, SW_SHOWNOACTIVATE);
     }
@@ -471,7 +471,7 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
             }
             companion.tick(&mut frame); // 气泡画进同一帧（上屏前）
             hit::refresh_map(&frame); // 命中表读最近一帧，含气泡像素
-            window.present(&frame, config.opacity)?;
+            window.present(&frame, crate::desk_pet::live::opacity())?;
             render_time += started.elapsed();
             frames += 1;
         }

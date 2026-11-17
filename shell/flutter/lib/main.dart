@@ -536,7 +536,12 @@ class _ShellRootState extends State<ShellRoot> {
         if (_enteredDeskPet) {
           // 占位页先上屏再尝试关窗；wasm 的 rAF 已随 iframe 卸载停掉。
           return const Scaffold(
-            body: Center(child: Text('已进入桌宠，请关闭此页')),
+            body: Center(
+              child: Text(
+                '已进入桌宠。右键角色可以置顶、调节透明度，或打开对话。\n请关闭此页。',
+                textAlign: TextAlign.center,
+              ),
+            ),
           );
         }
         // 统一「停止」的判据只算一次：圆键停止态与 Esc 共用它。

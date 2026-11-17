@@ -1,31 +1,139 @@
-//! 桌宠窗右键菜单：只有一项「回到网页」（2026-11-17）。
+//! 桌宠窗右键菜单。
 //!
-//! - 只在 `WM_RBUTTONUP` 且**点落在角色或气泡像素上**时弹；空像素不弹，
-//!   照旧穿透（命中判定由 `hit.rs` 用同一张 `HitMap` 给出）。
-//! - 用 `TPM_RETURNCMD` 同步拿命令 ID：不必改 `wnd_proc` 去接 `WM_COMMAND`
-//!   的 `wparam`（`hit::handle` 签名里没有 wparam），`window.rs` 也一行不用加。
-//! - 菜单是模态的，会重入窗口过程；调用方（`hit.rs`）务必在**释放
-//!   `STATE` 锁之后**再进本模块，否则重入消息取锁会自锁。
-//! - 这次右键不进 `talk::on_down/on_move/on_up`：右键消息从不落到
-//!   `start_drag`，所以既不拖拽也不开始录音。
+//! 角色或气泡上右键弹出。空像素不弹，仍然穿透。
+//! 菜单是模态的；调用方必须先放开 `STATE` 锁再进来。
+//! 用 `TPM_RETURNCMD` 取命令号，按编号分发，不改 `wnd_proc`。
 
 #![allow(unsafe_code)]
 
+use super::config::PetConfig;
+use super::live;
 use super::win32::*;
 use crate::desk_pet::mode::{Mode, apply};
 
-/// 唯一的菜单项 ID。
 const ID_BACK_TO_WEB: usize = 1;
+const ID_OPEN_CHAT: usize = 2;
+const ID_TOPMOST: usize = 3;
+const ID_FADE: usize = 4;
+const ID_SOLID: usize = 5;
 
-/// `on_pet` = 右键点是否落在角色/气泡上（由 `hit.rs` 判定）。
+struct Entry {
+    id: usize,
+    label: &'static str,
+    /// 分隔线。`label` 忽略。
+    separator: bool,
+    checked: bool,
+}
+
+fn entries(config: &PetConfig) -> Vec<Entry> {
+    vec![
+        Entry {
+            id: ID_BACK_TO_WEB,
+            label: "回到网页",
+            separator: false,
+            checked: false,
+        },
+        Entry {
+            id: ID_OPEN_CHAT,
+            label: "打开对话（宠物留在桌面）",
+            separator: false,
+            checked: false,
+        },
+        Entry {
+            id: 0,
+            label: "",
+            separator: true,
+            checked: false,
+        },
+        Entry {
+            id: ID_TOPMOST,
+            label: "置顶",
+            separator: false,
+            checked: config.always_on_top,
+        },
+        Entry {
+            id: ID_FADE,
+            label: "淡一点",
+            separator: false,
+            checked: false,
+        },
+        Entry {
+            id: ID_SOLID,
+            label: "浓一点",
+            separator: false,
+            checked: false,
+        },
+    ]
+}
+
+fn remember(config: PetConfig) {
+    live::publish(config);
+    super::manifest::save_config(
+        &crate::web_api::cli_entry::mods_path_for_web(),
+        &config,
+    );
+}
+
+fn apply_topmost(hwnd: Hwnd, on: bool) {
+    let after = if on { HWND_TOPMOST } else { HWND_NOTOPMOST };
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            after,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+}
+
+fn dispatch(hwnd: Hwnd, cmd: usize) {
+    match cmd {
+        ID_BACK_TO_WEB => {
+            let outcome = apply(Mode::Web);
+            tracing::info!(
+                target: "desk_pet",
+                ok = outcome.ok,
+                reason = outcome.reason.as_deref().unwrap_or(""),
+                "右键「回到网页」"
+            );
+        }
+        ID_OPEN_CHAT => {
+            crate::browser::open_app(crate::desk_pet::http_port());
+            tracing::info!(target: "desk_pet", "右键「打开对话」宠物窗保持");
+        }
+        ID_TOPMOST => {
+            let next = !live::get().always_on_top;
+            apply_topmost(hwnd, next);
+            let updated = live::set_always_on_top(next);
+            remember(updated);
+            tracing::info!(target: "desk_pet", on = next, "右键「置顶」");
+        }
+        ID_FADE => {
+            let updated = live::nudge_opacity(-0.1);
+            remember(updated);
+            tracing::info!(target: "desk_pet", opacity = updated.opacity, "右键「淡一点」");
+        }
+        ID_SOLID => {
+            let updated = live::nudge_opacity(0.1);
+            remember(updated);
+            tracing::info!(target: "desk_pet", opacity = updated.opacity, "右键「浓一点」");
+        }
+        _ => {}
+    }
+}
+
+/// `on_pet` = 右键是否落在角色或气泡上。
 pub fn show(hwnd: Hwnd, cx: i32, cy: i32, on_pet: bool) -> Lresult {
     if !on_pet {
         return 0;
     }
-    let label = wide("回到网页");
+    let config = live::get();
+    let rows = entries(&config);
+    let labels: Vec<Vec<u16>> = rows.iter().map(|row| wide(row.label)).collect();
     let mut at = Point { x: cx, y: cy };
-    // SAFETY: 句柄全部由本函数创建并按反序销毁；`at` 是栈上 8 字节 POINT；
-    // label 的 Vec<u16> 在整个 TrackPopupMenu 调用期间存活。
     unsafe {
         if ClientToScreen(hwnd, &mut at) == 0 {
             return 0;
@@ -34,8 +142,16 @@ pub fn show(hwnd: Hwnd, cx: i32, cy: i32, on_pet: bool) -> Lresult {
         if menu.is_null() {
             return 0;
         }
-        let appended = AppendMenuW(menu, MF_STRING, ID_BACK_TO_WEB, label.as_ptr());
-        // 本窗带 WS_EX_NOACTIVATE，弹菜单前先置前台，否则菜单可能不随外部点击消失。
+        for (row, label) in rows.iter().zip(labels.iter()) {
+            let flags = if row.separator {
+                MF_SEPARATOR
+            } else if row.checked {
+                MF_STRING | MF_CHECKED
+            } else {
+                MF_STRING
+            };
+            let _ = AppendMenuW(menu, flags, row.id, label.as_ptr());
+        }
         let _ = SetForegroundWindow(hwnd);
         let cmd = TrackPopupMenu(
             menu,
@@ -47,17 +163,29 @@ pub fn show(hwnd: Hwnd, cx: i32, cy: i32, on_pet: bool) -> Lresult {
             std::ptr::null(),
         );
         DestroyMenu(menu);
-        // MSDN 建议：NOACTIVATE 窗在菜单关闭后补一条空消息。
         PostMessageW(hwnd, WM_NULL, 0, 0);
-        if appended != 0 && cmd as usize == ID_BACK_TO_WEB {
-            let outcome = apply(Mode::Web);
-            tracing::info!(
-                target: "desk_pet",
-                ok = outcome.ok,
-                reason = outcome.reason.as_deref().unwrap_or(""),
-                "右键「回到网页」"
-            );
-        }
+        dispatch(hwnd, cmd as usize);
     }
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn menu_lists_the_product_actions_and_marks_topmost() {
+        let mut config = PetConfig::default();
+        config.always_on_top = true;
+        let rows = entries(&config);
+        let labels: Vec<_> = rows.iter().map(|row| row.label).collect();
+        assert!(labels.contains(&"回到网页"));
+        assert!(labels.contains(&"打开对话（宠物留在桌面）"));
+        assert!(labels.contains(&"置顶"));
+        assert!(labels.contains(&"淡一点"));
+        assert!(labels.contains(&"浓一点"));
+        assert!(rows.iter().any(|row| row.id == ID_TOPMOST && row.checked));
+        config.always_on_top = false;
+        assert!(entries(&config).iter().any(|row| row.id == ID_TOPMOST && !row.checked));
+    }
 }

@@ -78,8 +78,13 @@ pub(super) const HTCLIENT: Lresult = 1;
 pub(super) const SWP_NOSIZE: u32 = 0x0001;
 pub(super) const SWP_NOZORDER: u32 = 0x0004;
 pub(super) const SWP_NOACTIVATE: u32 = 0x0010;
-/// `SetWindowPos` 的 `hWndInsertAfter` 占位（配合 `SWP_NOZORDER` 时 z 序不变）。
+/// `SetWindowPos` 的 `hWndInsertAfter`：置顶 / 取消置顶。
 pub(super) const HWND_TOPMOST: Hwnd = -1_isize as Hwnd;
+pub(super) const HWND_NOTOPMOST: Hwnd = -2_isize as Hwnd;
+pub(super) const SWP_NOMOVE: u32 = 0x0002;
+/// `AppendMenuW`：勾选当前项、画分隔线。
+pub(super) const MF_CHECKED: u32 = 0x0008;
+pub(super) const MF_SEPARATOR: u32 = 0x0800;
 
 // ── DPI（建窗前设进程感知；失败退线程级，再失败就用系统虚拟化坐标） ──
 /// `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2`（值 -4）。

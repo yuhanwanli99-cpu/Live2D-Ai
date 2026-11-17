@@ -46,6 +46,8 @@ mod config;
 mod hit;
 /// rc.2：`mods.json` 的 `mods.desk-pet.config` 读取 + 开窗判定（纯函数 + 读文件边界）。
 mod manifest;
+/// 右键菜单改透明度 / 置顶时，帧循环读的就是这份运行配置。
+mod live;
 /// 2026-11-17「先进网页，再切桌宠」：窗的运行态、重复开关、HWND 与端口槽。
 /// 抽成独立文件是为了 `mod.rs` / `window.rs` 都不越过 500 行。
 mod runtime;
@@ -61,7 +63,7 @@ pub(crate) mod bubble;
 /// 窗线程每帧编排（气泡 + 按住说话收在一处，`window.rs` 只多两行）。
 #[cfg(windows)]
 mod companion;
-/// 右键菜单（只有「回到网页」一项）；`window.rs` 已满 500 行，逻辑不写进它。
+/// 右键菜单：回到网页、打开对话、置顶、透明度。逻辑不写进已满的 `window.rs`。
 #[cfg(windows)]
 mod menu;
 /// 2026-11-17「先进网页，再切桌宠」：模式切换（路由与右键菜单共用）。

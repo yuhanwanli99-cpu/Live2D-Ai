@@ -39,6 +39,57 @@ pub fn config_from_manifest(manifest: &Value) -> PetConfig {
         .unwrap_or_default()
 }
 
+/// 把当前宠物配置写回 `mods.desk-pet.config`，其它键保留。
+/// 文件不存在或不是对象时，写成只含这一段的 JSON。写失败只忽略（菜单不能因此卡住）。
+pub fn save_config(path: &Path, config: &PetConfig) {
+    let mut root = read_manifest(path);
+    if !root.is_object() {
+        root = serde_json::json!({});
+    }
+    let mut mods = root.get("mods").cloned().unwrap_or_else(|| serde_json::json!({}));
+    if !mods.is_object() {
+        mods = serde_json::json!({});
+    }
+    let mut pet = mods
+        .get(DESK_PET_ID)
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !pet.is_object() {
+        pet = serde_json::json!({});
+    }
+    let mut cfg = pet
+        .get("config")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !cfg.is_object() {
+        cfg = serde_json::json!({});
+    }
+    if let Some(object) = cfg.as_object_mut() {
+        object.insert("hit".to_string(), serde_json::json!(config.hit.as_str()));
+        object.insert("opacity".to_string(), serde_json::json!(config.opacity));
+        object.insert(
+            "always_on_top".to_string(),
+            serde_json::json!(config.always_on_top),
+        );
+        object.insert(
+            "height_ratio".to_string(),
+            serde_json::json!(config.height_ratio),
+        );
+    }
+    if let Some(pet_object) = pet.as_object_mut() {
+        pet_object.insert("config".to_string(), cfg);
+    }
+    if let Some(mods_object) = mods.as_object_mut() {
+        mods_object.insert(DESK_PET_ID.to_string(), pet);
+    }
+    if let Some(root_object) = root.as_object_mut() {
+        root_object.insert("mods".to_string(), mods);
+    }
+    if let Ok(text) = serde_json::to_string_pretty(&root) {
+        let _ = std::fs::write(path, text);
+    }
+}
+
 /// manifest 里 `mods.desk-pet.enabled` 是否为真（缺 id / 类型不对 → false）。
 pub fn manifest_enabled(manifest: &Value) -> bool {
     manifest
