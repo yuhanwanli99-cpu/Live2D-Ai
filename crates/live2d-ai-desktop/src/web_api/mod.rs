@@ -62,6 +62,9 @@ use crate::web_api::app_routes::{CapabilitiesContext, StatusContext};
 pub mod a2a_gate;
 /// Web API 子模块。
 pub mod app_routes;
+pub mod chat_draft;
+#[cfg(test)]
+mod chat_draft_tests;
 pub mod chat_routes;
 pub mod cli_entry;
 /// HTTP 派发（method+path → RouteId → handler；D-P0B 安全校验 + D-P0C
@@ -84,6 +87,10 @@ pub mod external_queue;
 pub mod external_routes;
 /// Flutter Web 前端托管（`/app` 与 `/app/*`；2026-09-10 点火轮）。
 pub mod flutter_app;
+/// 外挂资料读盘（2026-11-16 热槽记忆 M5）：只在「查」时读，说话路径不碰磁盘。
+pub mod hot_material;
+#[cfg(test)]
+mod hot_material_tests;
 /// 启动器页（0.3.11）：`GET /` / `GET /index.html` 的这一页 + 同源字体。
 /// 页面逻辑全在 `assets/launcher.html` 的内联 CSS/JS 里，不新增 API 路由。
 pub mod launcher;
@@ -442,6 +449,20 @@ impl ServerContext {
     }
 
     /// **新**（D-P0C）：从槽位借出当前 supervisor 句柄的 Arc 克隆。
+    /// **外挂资料块**（2026-11-16 热槽记忆 M5）：读 `[hotmem].material_path`，
+    /// 失败 / 没配 → 空表（不报错、不缓存、不重试）。
+    ///
+    /// 为什么在 ServerContext 上：草稿端点要它，而它由**配置**决定（不是
+    /// supervisor 的状态）；读盘只发生在「查」时，说话路径不碰磁盘。
+    pub fn hotmem_material(&self) -> Vec<String> {
+        let settings = self.status_ctx.settings_snapshot();
+        crate::web_api::hot_material::load_material(
+            &self.status_ctx.config_path,
+            &settings.hotmem.material_path,
+        )
+        .unwrap_or_default()
+    }
+
     pub fn try_get_supervisor(&self) -> Option<Arc<SupervisorHandle>> {
         self.supervisor_slot.try_get()
     }
@@ -671,6 +692,22 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
         // L1 基座（2026-09-15）：会话 id 宿主能力
         // （GET|POST /api/v1/chat/session）。前置于 dispatch，自身完成
         // loopback + json 校验（详见 chat_routes 头注）。
+        // 2026-11-16（热槽记忆 M3）：草稿端点——客户端停顿后发，换热卡。
+        // 前置于 dispatch：它像 chat/session 一样自带 Origin/CT 校验，且路径
+        // 以 /api/v1/chat/ 开头（不走 `/api/v1/*` 的 501 兜底）。
+        if let Some(resp) = crate::web_api::chat_draft::handle_chat_draft(
+            ctx.try_get_supervisor().as_deref().map(|h| h.hot_slot()),
+            &ctx.hotmem_material(),
+            &method,
+            &path,
+            &body_str,
+            origin.as_deref(),
+            content_type.as_deref(),
+            &ctx.security,
+        ) {
+            respond_and_log(request, &method, &path, "chat.draft", resp);
+            continue;
+        }
         if let Some(resp) = crate::web_api::chat_routes::handle_chat_session(
             &ctx,
             &method,

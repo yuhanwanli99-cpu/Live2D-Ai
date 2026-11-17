@@ -116,6 +116,24 @@ fn compose_slots(slots: &Slots) -> Option<String> {
     )
 }
 
+/// 说话路径**不读**的来源槽（已退休的两条 Mod 产品路径）。
+///
+/// 与 `live2d_ai_mod_system` 的常量同名同值；这里写字符串字面量是为了让
+/// 「这条路径硬编码地不读谁」在文件里一眼可见。改这里必须连同
+/// `SESSION_PROMPT_OWNER_PERSONA` / `SESSION_PROMPT_OWNER_MEMORY` 一起改
+/// （`session_scope` 的单测会比对两边）。
+const RETIRED_OWNERS: [&str; 2] = ["persona", "memory"];
+
+/// 组合**说话用**的槽：剔除 [RETIRED_OWNERS] 后按固定顺序拼。
+fn compose_slots_filtered(slots: &Slots) -> Option<String> {
+    compose_session_prompt(
+        slots
+            .iter()
+            .filter(|(owner, _)| !RETIRED_OWNERS.contains(&owner.as_str()))
+            .map(|(owner, text)| (owner.as_str(), text.as_str())),
+    )
+}
+
 /// 删掉一个槽；会话因此空了就整条删掉（sessions() / len() 才干净）。
 fn remove_slot(inner: &mut Inner, id: &str, owner: &str) -> bool {
     let mut removed = false;
@@ -158,11 +176,36 @@ impl SessionScopeStore {
         self.guard().prompts.len()
     }
 
-    /// 归一化 + 取某会话的**组合结果**；非法 id / 没有 → None。
+    /// 归一化 + 取某会话的**组合结果**（**全槽**）；非法 id / 没有 → None。
+    ///
+    /// 面板 / 诊断口径：它回答「这张表里到底有什么」。**说话路径不要用它**——
+    /// 见 [Self::speak_prompt_for]。
+    ///
+    /// 2026-11-16（M2）起说话路径不再调它，生产构建里暂无调用方；它是这张表的
+    /// 全槽读点（诊断 / 测试 / 将来面板），**不删**——退休的是「说话路径读它」，
+    /// 不是「这张表还能不能被完整读出来」。
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn prompt_for(&self, session: Option<&str>) -> Option<String> {
         let id = session.and_then(sanitize_session_id)?;
         let inner = self.guard();
         compose_slots(inner.prompts.get(&id)?)
+    }
+
+    /// **说话路径**的会话文本：与 [Self::prompt_for] 同一张表，但**剔除已退休的
+    /// 来源槽**（`persona` / `memory`）。
+    ///
+    /// # 为什么要剔除（2026-11-16 热槽记忆 M2）
+    ///
+    /// 这两条产品路径已退休：说话模型的系统文本只由「系统句 + 钉住的事 + 最近
+    /// 对话 + 热卡」四块组成（见 `live2d_ai_runtime::hotmem`）。用户 `mods.json`
+    /// 里若还留着这两项 `enabled: true`，宿主**忽略**它们对系统提示词的写入——
+    /// 不报错、不清表、不删旧文件，只是不读。
+    ///
+    /// 其余 owner（含匿名槽）**本步保持原样**（计划 §6 M2 的明确要求）。
+    pub fn speak_prompt_for(&self, session: Option<&str>) -> Option<String> {
+        let id = session.and_then(sanitize_session_id)?;
+        let inner = self.guard();
+        compose_slots_filtered(inner.prompts.get(&id)?)
     }
 
     // ---------------------------------------------------------- baseline（V10/O8）
@@ -525,6 +568,47 @@ mod tests {
         // 幂等：再清一次不动 B。
         s.clear_owner(SESSION_PROMPT_OWNER_MEMORY);
         assert_eq!(s.get("B").as_deref(), Some("还有人设"));
+    }
+
+    /// **2026-11-16（热槽记忆 M2）**：说话路径不读已退休的两条来源槽。
+    ///
+    /// 这条测试的名字就是计划 §8 要的交付证据——
+    /// `retired_owners_never_reach_the_spoken_prompt`。
+    #[test]
+    fn retired_owners_never_reach_the_spoken_prompt() {
+        let s = SessionScopeStore::new();
+        s.set_owned(SESSION_PROMPT_OWNER_PERSONA, "A", "角色卡正文");
+        s.set_owned(SESSION_PROMPT_OWNER_MEMORY, "A", "记忆块正文");
+        s.set_owned(SESSION_PROMPT_OWNER_DEFAULT, "A", "匿名槽正文");
+
+        // 面板口径（prompt_for）仍看得见全部槽 —— 表没被清。
+        assert_eq!(
+            s.prompt_for(Some("A")).as_deref(),
+            Some("匿名槽正文\n\n角色卡正文\n\n记忆块正文")
+        );
+        // 说话口径只剩匿名槽。
+        assert_eq!(s.speak_prompt_for(Some("A")).as_deref(), Some("匿名槽正文"));
+        assert_eq!(s.len(), 1, "剔读 ≠ 删表");
+
+        // 只有退休槽的会话 → 说话路径得到 None（回落全局系统句）。
+        let s = SessionScopeStore::new();
+        s.set_owned(SESSION_PROMPT_OWNER_PERSONA, "B", "角色卡正文");
+        s.set_owned(SESSION_PROMPT_OWNER_MEMORY, "B", "记忆块正文");
+        assert!(s.prompt_for(Some("B")).is_some());
+        assert_eq!(s.speak_prompt_for(Some("B")), None);
+
+        // 没有会话 / 非法 id 仍回 None（同一道归一化闸）。
+        assert_eq!(s.speak_prompt_for(None), None);
+        assert_eq!(s.speak_prompt_for(Some("../etc")), None);
+    }
+
+    /// 常量与 `live2d_ai_mod_system` 的定义必须逐字一致（否则过滤会静默失效）。
+    #[test]
+    fn retired_owner_literals_match_the_mod_system_constants() {
+        assert_eq!(
+            RETIRED_OWNERS,
+            [SESSION_PROMPT_OWNER_PERSONA, SESSION_PROMPT_OWNER_MEMORY]
+        );
     }
 
     #[test]

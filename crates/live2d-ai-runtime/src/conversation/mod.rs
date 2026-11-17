@@ -150,9 +150,14 @@ impl ConversationConfig {
     pub const DEFAULT_TTS_QUEUE_CAPACITY: usize = 4;
 
     /// 以给定 system 提示创建配置（其余字段取 [`Default`]）。
+    ///
+    /// **空串 = 出厂系统句**（2026-11-16 热槽记忆 M2）：`[persona].system_prompt`
+    /// 没写过时，说话模型的系统句是 [crate::hotmem::SYSTEM_PROMPT_FACTORY]，
+    /// 而不是「没有 system 消息」。用户保存过的**非空**句子原样使用。
     pub fn new(system_prompt: impl Into<String>) -> Self {
+        let user = system_prompt.into();
         Self {
-            system_prompt: system_prompt.into(),
+            system_prompt: crate::hotmem::system_sentence(&user).to_string(),
             ..Self::default()
         }
     }

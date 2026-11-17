@@ -117,6 +117,12 @@ mod platform;
 /// 见 mod_count_is_zero）。缺省核心（对话 / 导演 motion_bias / TTS / 前端）不受影响。
 pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &[];
 
+/// **主链热槽记忆**（2026-11-16）：把 `live2d_ai_runtime::hotmem` 的纯函数接进
+/// 主链——每轮组装四块、草稿换热卡、轮后记事实。见模块头注的边界。
+mod hot_recall;
+#[cfg(test)]
+mod hot_recall_tests;
+mod hot_slot;
 /// 0.3.12：工作目录 `mods/<目录名>/mod.toml` 的**只读清单预检**。
 ///
 /// 只读校验、不执行 entry / program、不把文件夹写进 `AVAILABLE_MOD_FACTORIES`。

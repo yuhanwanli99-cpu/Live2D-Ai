@@ -71,8 +71,19 @@ channels = 1
 model = "cosyvoice3-0.5b"
 # 本机 sidecar 不鉴权：**不设 api_key_env**（出厂不带 TTS 密钥）。
 
+
+# 主链热槽（2026-11-16）：外挂资料。**整段省略 = 不查资料**（出厂状态）。
+# 要开就把下面这段取消注释并填一个路径：--
+#   [hotmem]
+#   material_path = "notes.md"   # 相对路径按**本文件所在目录**解析
+# `查`（POST /api/v1/chat/draft）时按空行分段取候选，压成热卡里的 `[资料]` 行，
+# 原文留在文件里；**不是 Mod**，没有索引、不参与遗忘。
+
 [persona]
-# 固定注入每轮的 system 提示；空串或整段省略 = 不发 system 消息。
+# 固定注入每轮的系统句；**空串 = 出厂句**（2026-11-16 起不再是「不发 system」）：
+# 「你是长期陪伴的对方。只根据钉住的事、本轮热卡和最近几轮说话。清楚的可以自然
+# 提起；模糊的用不确定的说法，对方否认就放下。没有写在这两处的旧事不要编。」
+# 用户保存过的非空句原样使用。
 #
 # rc.4 M5：主链只留 system_prompt + max_history_pairs。酒馆卡字段
 # （name/description/personality/scenario/first）与导入 UI 已迁出主链，

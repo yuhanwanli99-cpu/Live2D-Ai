@@ -79,6 +79,9 @@ pub mod config;
 pub mod conversation;
 pub mod dialogue;
 pub mod error;
+/// **主链热槽记忆**（2026-11-16）：遗忘曲线、热卡、钉住块、四块拼接。
+/// 纯函数，无 IO / 无人模型 / 无时钟。见模块头注。
+pub mod hotmem;
 pub mod llm;
 /// A2A 上游的正文收集（0.3.8 rc.1）：一路 `chat_stream` → 一段正文，
 /// 思考（`ReasoningDelta`）丢弃。与句子装配/TTS/口型无关。

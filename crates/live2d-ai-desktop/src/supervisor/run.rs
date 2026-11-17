@@ -42,6 +42,10 @@ pub(super) async fn run_forever(
     reload_ack: Arc<std::sync::Mutex<Option<ReloadAck>>>,
     // 3.0 队首第一片（2026-10-17）：一轮在飞标志（外部文本忙时合并用）。
     turn_in_flight: Arc<std::sync::atomic::AtomicBool>,
+    // 2026-11-16（热槽记忆 M2/M3）：主链热槽（与 handle 共用同一个句柄）。
+    hot_slot: crate::hot_slot::HotSlot,
+    // 2026-11-16（M4）：轮后「记」开关（缺省关，生产装配打开）。
+    hot_recall: Arc<std::sync::atomic::AtomicBool>,
 ) {
     let SupervisorConfig {
         client,
@@ -74,6 +78,9 @@ pub(super) async fn run_forever(
     // 装配。测试 / 手工装配用 `LlmConfig::new` → clean_tts=false → 这里 `None`，
     // 引擎走确定性清洗 + 规则表。
     let cleaner = build_sentence_cleaner(&client, &motion_bias, motion_rate);
+    // 2026-11-16（热槽记忆 M4）：「记」要发一次抽取请求，用**同一个** client
+    // （它的 clone 只是 Arc 化的连接池）。必须在 client 移进引擎之前取。
+    let recall_client = client.clone();
     let mut engine = ConversationEngine::new(client, conversation);
     engine.set_cleaner(cleaner);
     // ---- 整段表演层装配（T8，2026-10-07；2026-10-08 起显式 opt-in）----
@@ -190,9 +197,27 @@ pub(super) async fn run_forever(
                     //
                     // 表里没有该会话 → None → 引擎回落配置里的全局
                     // `persona.system_prompt`（降级语义，见 session_scope 头注）。
-                    engine.set_system_prompt_override(
-                        session_scopes.prompt_for(session.as_deref()),
-                    );
+                    // **2026-11-16（热槽记忆 M2）**：说话用的 system 文本 = 四块
+                    // （系统句 + 钉住的事 + 最近对话 + 热卡）。最近对话走历史，
+                    // 另外三块在这里拼：
+                    // - 系统句来自 `[persona].system_prompt`（空 → 出厂句）；
+                    // - 钉住 / 热卡来自热槽（`POST /api/v1/chat/draft` 写）；
+                    // - 会话槽只贡献**未退休** owner 的文本（`speak_prompt_for`）。
+                    // 四块只进这一轮请求：不写 toml、不写会话槽、不打 marker。
+                    let user_text_for_memory = text.clone();
+                    let base_prompt = engine.config().system_prompt.clone();
+                    let blocks = hot_slot.compose(&base_prompt, session.as_deref());
+                    let spoken = session_scopes.speak_prompt_for(session.as_deref());
+                    let system_text = match spoken {
+                        Some(extra) if !extra.trim().is_empty() => {
+                            format!("{}\n\n{extra}", blocks.system)
+                        }
+                        _ => blocks.system.clone(),
+                    };
+                    engine.set_system_prompt_override(Some(system_text));
+                    // 本轮钉住条目的 id：这一轮说完之后记为「已说」，下一轮跳过
+                    // （条目仍在库里，只是渲染时不再重复）。
+                    let pinned_ids = hot_slot.pinned_ids_now(session.as_deref());
                     // 对话历史按会话换桶（前为进程一份，换会话会串上一会话轮次）。
                     histories.install(&mut engine, session.as_deref());
                     // P1WS-1：开轮前镜像 epoch。Stop 事务推进 epoch 后会再次
@@ -215,6 +240,62 @@ pub(super) async fn run_forever(
                     // AssistantReplied 之前置位，因为那些是「轮末准备下一轮」）。
                     // 消费者已随 `external-input` Mod 移出主仓，见上方置位处注释。
                     turn_in_flight.store(false, Ordering::Release);
+                    // **2026-11-16（热槽记忆 M2/M4）**：本轮说了哪些钉住条目 →
+                    // 记为「已说」（下一轮渲染跳过，条目不删）。
+                    hot_slot.note_spoken(session.as_deref(), pinned_ids);
+                    // **M4：轮后「记」= 后台任务**（计划 §3「说的 HTTP 响应不等它」）。
+                    //
+                    // 这里**只派生**、不 await：抽取发一次短 JSON 请求，成功写事实、
+                    // 失败记 episode 原文（不重试）。后台任务失败只打日志，绝不让
+                    // 这一轮失败——它连 `AppEvent` 都不碰。
+                    //
+                    // 只在「正常收口」时记：被打断 / stop 的轮次不进记忆。
+                    if hot_recall.load(Ordering::Acquire)
+                        && !close.interrupted
+                        && !close.assistant_text.trim().is_empty()
+                    {
+                        let slot = hot_slot.clone();
+                        let client = recall_client.clone();
+                        let user_text = user_text_for_memory.clone();
+                        let assistant_text = close.assistant_text.clone();
+                        let session_for_recall = session.clone();
+                        let turn_id = next_turn_id;
+                        // **M4 摘要**：这一轮生效之后，「掉出历史窗口」的轮次折进
+                        // 该会话的滚动摘要（替换上一条，≤300 字）。
+                        //
+                        // 为什么在这里折而不是在后台任务里：`histories` 与引擎都归
+                        // supervisor 线程独有，后台任务拿不到；而折叠本身是纯函数
+                        // （`hotmem::fold_summary`），微秒级，不构成「拖住说话」。
+                        let dropped = engine.take_evicted_turns();
+                        if !dropped.is_empty() {
+                            let previous = hot_slot.summary(session.as_deref());
+                            let folded =
+                                live2d_ai_runtime::hotmem::fold_summary(&previous, &dropped);
+                            hot_slot.set_summary(session.as_deref(), &folded);
+                        }
+                        tokio::spawn(async move {
+                            let recalled =
+                                crate::hot_recall::recall_once(&client, &user_text, &assistant_text)
+                                    .await;
+                            let written = match recalled {
+                                crate::hot_recall::Recalled::Items(items) => {
+                                    // 抽成功就**只**记抽出的事实：计划 §3 的兜底
+                                    // episode 是「抽失败时」的替代路径，不是附加项。
+                                    // 成功路径再塞一条用户原话，会让每轮都多一条
+                                    // 新鲜 episode 挤进热卡候选（复核指出）。
+                                    slot.record(items)
+                                }
+                                crate::hot_recall::Recalled::Failed(reason) => {
+                                    // 计划 §3：抽失败就只把这一轮原文记成 episode，
+                                    // **不再调用第二次**。
+                                    tracing::debug!(turn = turn_id, %reason, "hotmem recall failed");
+                                    slot.record_fallback_episode(&user_text)
+                                }
+                            };
+                            tracing::debug!(turn = turn_id, written, "hotmem recorded after turn");
+                            let _ = session_for_recall;
+                        });
+                    }
                     // **Wave 3（2026-09-21）**：助手侧正文 → AssistantReplied。
                     //
                     // 这是「记忆摘要含助手侧」的唯一入口（见 topics.rs 该主题头注）：

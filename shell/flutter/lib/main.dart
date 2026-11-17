@@ -73,6 +73,7 @@ import 'audio/audio_player.dart';
 import 'audio/epoch_gate.dart';
 import 'audio/stage_clock.dart';
 import 'chat/chat_controller.dart';
+import 'chat/draft_probe.dart';
 import 'chat/turn_liveness.dart';
 import 'data/background_hydration.dart';
 import 'data/background_reorder.dart';
@@ -122,6 +123,7 @@ part 'app/shell_background_scale_wiring.dart';
 part 'app/shell_section_wiring.dart';
 part 'app/shell_app_root.dart';
 part 'app/shell_lifecycle_wiring.dart';
+part 'app/shell_draft_wiring.dart';
 part 'app/shell_playback_wiring.dart';
 
 /// Mod 列表里某个 id 的启停；**不在册**（极简装配 / 自定义注册表）→ `true`。
@@ -162,6 +164,9 @@ class _ShellRootState extends State<ShellRoot> {
   final GlobalKey<Live2DStageState> _stageKey = GlobalKey<Live2DStageState>();
   final GlobalKey<AppShellState> _shellKey = GlobalKey<AppShellState>();
   final TextEditingController _input = TextEditingController();
+
+  /// 草稿防抖探针：输入停顿后换热卡（生命周期见 `shell_draft_wiring.dart`）。
+  DraftProbe? _draftProbe;
 
   late final ApiClient _api;
   late final WsClient _ws;

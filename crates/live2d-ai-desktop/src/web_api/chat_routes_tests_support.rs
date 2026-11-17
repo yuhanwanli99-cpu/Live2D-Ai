@@ -8,14 +8,14 @@ use std::io::Read as _;
 
 use super::*;
 
-pub(super) fn body(resp: Response<Cursor<Vec<u8>>>) -> String {
+pub(crate) fn body(resp: Response<Cursor<Vec<u8>>>) -> String {
     let mut s = String::new();
     let _ = resp.into_reader().read_to_string(&mut s);
     s
 }
 
 /// 构造一个**带 supervisor** 的 ServerContext（会话表住在 supervisor 里）。
-pub(super) fn ctx_with_supervisor() -> (
+pub(crate) fn ctx_with_supervisor() -> (
     crate::web_api::ServerContext,
     std::sync::Arc<SupervisorHandle>,
 ) {
@@ -49,7 +49,7 @@ pub(super) fn ctx_with_supervisor() -> (
 }
 
 /// 建一个 broadcaster + 订阅端，用来读**实际广播的帧原文**。
-pub(super) fn broadcaster_with_rx() -> (
+pub(crate) fn broadcaster_with_rx() -> (
     crate::web_api::ws::Broadcaster,
     std::sync::mpsc::Receiver<String>,
 ) {
@@ -60,8 +60,8 @@ pub(super) fn broadcaster_with_rx() -> (
 }
 
 /// 会话 A 的 baseline（三字段表达面之一）。
-pub(super) const BASELINE_A: &str =
+pub(crate) const BASELINE_A: &str =
     r#"{"field":"expression","id":"smile","intensity":1,"at":"now","hold":true}"#;
 /// 会话 B 的 baseline（另一条，保证 A/B 可区分）。
-pub(super) const BASELINE_B: &str =
+pub(crate) const BASELINE_B: &str =
     r#"{"field":"head","y":-0.4,"intensity":2,"at":"now","hold":true}"#;
