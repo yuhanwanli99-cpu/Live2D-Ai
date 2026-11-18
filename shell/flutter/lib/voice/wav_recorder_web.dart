@@ -76,7 +76,12 @@ extension type _ProcessEvent._(JSObject _) implements JSObject {
 extension type _AudioBuffer._(JSObject _) implements JSObject {
   external int get numberOfChannels;
   external int get length;
-  external Float32List getChannelData(int channel);
+  // `Float32Array` 是 JS 类型：interop 的**返回类型**必须是 [JSFloat32Array]，
+  // 不能直接写 Dart 的 [Float32List]（dart2js 报
+  // 「External JS interop member contains invalid types in its function signature」，
+  // 2026-11-18 实测整包构建因此失败）。取到之后按 SDK 的
+  // `JSFloat32ArrayToFloat32List.toJS`/`.toDart` 约定转成 Dart 视图。
+  external JSFloat32Array getChannelData(int channel);
 }
 
 /// Web：`getUserMedia` 可用就返回实现，否则 `null`。
@@ -135,7 +140,7 @@ class _WebWavRecorder implements WavRecorder {
       final _ProcessEvent e = _ProcessEvent._(event);
       final _AudioBuffer buffer = e.inputBuffer;
       if (buffer.numberOfChannels < 1) return;
-      final Float32List channel = buffer.getChannelData(0);
+      final Float32List channel = buffer.getChannelData(0).toDart;
       for (int i = 0; i < channel.length && i < buffer.length; i++) {
         _samples.add(channel[i]);
       }
