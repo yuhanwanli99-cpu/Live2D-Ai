@@ -376,14 +376,28 @@ fn user_line_emits_exactly_one_input_line_event() {
         ec.lock().expect("poison").push(ev);
     });
 
-    handlers::emit_user_line(&emit, 7, "弹幕消息：吾***：（其实我今天也刷着来着）");
+    handlers::emit_user_line(
+        &emit,
+        7,
+        "弹幕消息：吾***：（其实我今天也刷着来着）",
+        Some("session-a"),
+    );
 
     let events = collector.lock().expect("poison");
     assert_eq!(events.len(), 1, "恰好一条 user_line 事件");
     match &events[0] {
-        AppEvent::Conversation(ConversationUiEvent::UserLine { epoch, text }) => {
+        AppEvent::Conversation(ConversationUiEvent::UserLine {
+            epoch,
+            text,
+            session,
+        }) => {
             assert_eq!(*epoch, 7);
             assert_eq!(text, "弹幕消息：吾***：（其实我今天也刷着来着）");
+            assert_eq!(
+                session.as_deref(),
+                Some("session-a"),
+                "本轮会话 id 必须原样透传（#19：前端按它路由）"
+            );
         }
         _ => panic!("必须是 Conversation(UserLine)"),
     }

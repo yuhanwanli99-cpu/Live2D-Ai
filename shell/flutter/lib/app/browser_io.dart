@@ -5,8 +5,9 @@
 /// 都属于**平台适配**，与组合根「谁持有谁、哪个回调接哪个方法」的职责无关；
 /// 而它们需要 `package:web`，留在入口会把 web 依赖渗进整个组合根。
 ///
-/// **纯搬移，零行为变化**：下面每个函数的实现与注释都与原来逐字相同
-/// （包括「任何异常都回落默认 / 失败静默」这两条纪律）。
+/// 各函数仍然「**任何异常都回落默认**」（坏存储不该让页面打不开），但**落盘
+/// 失败不再静默**：聊天会话存档的写入会返回 bool 并在 store 上留提示（#9，
+/// 2026-11-18），偏好写入也早已返回 bool——静默失败是本项目最贵的 bug 类型。
 library;
 
 import 'dart:async';
@@ -26,6 +27,14 @@ const String kDisplayPrefsKey = 'live2d-ai.display-prefs';
 /// 与 `kDisplayPrefsKey` 分开：偏好是「小而常变」，会话是「大而不常变」。
 /// 混在一个键里会让每次拖音量滑杆都重写整份聊天记录。
 const String kChatSessionsKey = 'live2d-ai.chat-sessions';
+
+/// 逐会话条目的键前缀（v2 格式，见 `chat/chat_session.dart` 的存档格式说明）：
+/// `live2d-ai.chat-sessions.<会话 id>`。
+///
+/// 拆键的理由写在纯逻辑层：v1 一个键装全量，一条坏记录就吃掉整份历史（#10）。
+/// 键名放在这层（而不是纯逻辑层）是因为只有这里允许 `package:web`；纯逻辑层
+/// 只认「id → JSON 原文」这个抽象，于是能在 VM 上单测。
+const String kChatSessionEntryPrefix = '$kChatSessionsKey.';
 
 /// 读取本地显示偏好：**任何异常都回落默认**（坏存储不该让舞台渲染不出来）。
 ///
@@ -62,33 +71,98 @@ bool saveDisplayPrefs(DisplayPrefs prefs) {
   }
 }
 
-/// 读取聊天会话存档：**任何异常都回落空 store**。
+/// 读取聊天会话存档：**任何异常都回落空 store**（但会带上「读不出来」的提示）。
 ///
-/// 与 `loadDisplayPrefs` 同一条纪律：一份被改坏 / 版本不符的存储不该让
-/// 聊天区打不开——最坏情况是「历史没了」，而不是「页面崩了」。
+/// v2（#10）：先读索引，再**逐条**读每个会话自己的键。一条坏记录只丢它自己，
+/// 不再像 v1 那样「一个坏字节 → 整份存档读不出来」。索引本身坏掉时无从知道
+/// 该读哪些条目，只能返回空 store——但会标
+/// [ChatSessionStore.markArchiveUnreadable]，让界面说「存档读不出来」而不是
+/// 假装「从没有过会话」。
+///
+/// JSON 结构判据全在 `chat/chat_session.dart` 的纯函数里（VM 可测）；本函数
+/// 只做 localStorage I/O。
 ChatSessionStore loadChatSessions() {
   try {
     final String? raw = web.window.localStorage.getItem(kChatSessionsKey);
-    if (raw == null || raw.isEmpty) return ChatSessionStore.empty();
-    return ChatSessionStore.fromJson(jsonDecode(raw));
+    final ChatSessionLoadPlan plan = decodeChatSessionIndex(raw);
+    // v1：索引键里装着全量会话，decode 已在内存里迁移成 store（下次保存写 v2）。
+    final ChatSessionStore? legacy = plan.legacyStore;
+    if (legacy != null) return legacy;
+    if (plan.indexCorrupt) {
+      return ChatSessionStore.empty()..markArchiveUnreadable();
+    }
+    if (plan.ids.isEmpty) return ChatSessionStore.empty();
+    // 逐条读：缺失的键保持 null，由纯逻辑层按「坏条目」计数跳过。
+    final Map<String, String?> entries = <String, String?>{};
+    for (final String id in plan.ids) {
+      entries[id] = web.window.localStorage.getItem(
+        kChatSessionEntryPrefix + id,
+      );
+    }
+    return loadChatSessionEntries(plan, entries);
   } catch (_) {
-    return ChatSessionStore.empty();
+    // localStorage 不可用（隐私模式 / 站点存储被禁）：不是「没有历史」，
+    // 但也做不了更多——带提示回落空 store。
+    return ChatSessionStore.empty()..markArchiveUnreadable();
   }
 }
 
-/// 写入聊天会话存档（失败静默：无痕模式 / 配额满都会抛）。
+/// 写入聊天会话存档；返回**是否真的写进去了**（#9）。
+///
+/// 失败不再静默：无痕模式 / 配额满 / 站点存储被禁都会抛。以前返回 `void` 并
+/// 吞掉异常，用户会以为记录还在，刷新后才发现全没了。现在：
+/// ① 如实返回 `false`；② 在 store 上置 [ChatSessionStore.markSaveFailed]，
+/// 由 UI 显示 `kSessionsNotPersistedNote`。
 ///
 /// **配额满不是假设**：localStorage 常见上限 5 MB，而 `ChatSessionStore`
-/// 用 `maxSessions` × `kMaxMessagesPerSession` 双重夹持把体积压在配额内。
+/// 用 `maxSessions` × `kMaxMessagesPerSession` 双重夹持把体积压在配额内——
 /// 即便如此，写失败也只丢「这次之后的新记录」，不该影响正在进行的对话。
-void saveChatSessions(ChatSessionStore store) {
+///
+/// v2 写入顺序（#10）：**先逐条、后索引**。索引是提交点——顺序反过来的话，
+/// 中途失败会留下「索引指向不存在的条目」，那些会话在加载时就成了幽灵。
+/// 最后按前缀清扫索引里已不存在的旧条目键：删掉的会话不能只从索引里消失，
+/// 否则条目键会永久占着配额。
+bool saveChatSessions(ChatSessionStore store) {
   try {
-    web.window.localStorage.setItem(
-      kChatSessionsKey,
-      jsonEncode(store.toJson()),
-    );
+    final web.Storage storage = web.window.localStorage;
+    for (final ChatSession session in store.sessions) {
+      storage.setItem(
+        kChatSessionEntryPrefix + session.id,
+        encodeChatSessionEntry(session),
+      );
+    }
+    // 提交点：索引写成功之后，这份存档才算「完整更新」。
+    storage.setItem(kChatSessionsKey, encodeChatSessionIndex(store));
+    _removeStaleSessionEntries(storage, store);
+    store.migratedFromLegacy = false;
+    store.clearSaveFailure();
+    return true;
   } catch (_) {
-    // 忽略：存储不可用不影响本次会话。
+    store.markSaveFailed();
+    return false;
+  }
+}
+
+/// 清掉索引里已经没有的逐会话键（v2）。
+///
+/// **先收集再删**：边遍历边 `removeItem` 会让下标前移、跳过一项。
+/// 必须在索引写成功之后调用：索引是「活着的 id 列表」的唯一真源。
+void _removeStaleSessionEntries(web.Storage storage, ChatSessionStore store) {
+  final Set<String> live = <String>{
+    for (final ChatSession session in store.sessions)
+      kChatSessionEntryPrefix + session.id,
+  };
+  final List<String> stale = <String>[];
+  for (int i = 0; i < storage.length; i++) {
+    final String? key = storage.key(i);
+    if (key != null &&
+        key.startsWith(kChatSessionEntryPrefix) &&
+        !live.contains(key)) {
+      stale.add(key);
+    }
+  }
+  for (final String key in stale) {
+    storage.removeItem(key);
   }
 }
 

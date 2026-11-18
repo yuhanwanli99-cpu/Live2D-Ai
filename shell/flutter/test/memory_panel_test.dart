@@ -1,11 +1,12 @@
-/// `memory` 产品面板（2026-10-08 人话版）的 Flutter 回归。
+/// `memory` 产品面板的 Flutter 回归（2026-11-18：会话绑定已停用 → 全局一条路径）。
 ///
-/// 覆盖：概览只剩条数、「记忆列表」两条上屏、导入/编辑/删除的 onCommand args、
-/// 删除二次确认、`activeSessionId == null` 的降级文案、清空、带码失败文案、
-/// 「压缩过的记忆」块（有正文才画）、11 个 hiddenKeys。
+/// 覆盖：概览只剩条数、「记忆列表」两条上屏、导入/编辑/删除的 onCommand args
+/// （**一律不带 `session_id`**）、删除二次确认、清空、带码失败文案、
+/// 「压缩过的记忆」块（有正文才画）、hiddenKeys / devKeys；以及那句诚实的
+/// 「这里的记忆不进模型提示词」。
 ///
-/// 契约真源：`crates/live2d-ai-mod-memory/src/commands.rs`（命令 args/返回）
-/// + `src/lib.rs` 的 `state_json` + `docs/architecture/memory-mod-v0.md`。
+/// 契约真源：memory Mod 的命令 args/返回 + 其 `state_json`；「会话分桶不再生效」
+/// 的真源是 `session_scope.rs::speak_prompt_for` 与 2026-11-16 热槽记忆 M2。
 
 library;
 
@@ -88,8 +89,10 @@ Map<String, Object?> memoryState() => const <String, Object?>{
   'last_hits': 2,
 };
 
-typedef CommandHandler =
-    Future<ModCommandResult> Function(String command, [Map<String, Object?> args]);
+typedef CommandHandler = Future<ModCommandResult> Function(
+  String command, [
+  Map<String, Object?> args,
+]);
 
 /// 一次 `onCommand` 调用的记录（断言 args 用）。
 class RecordedCall {
@@ -133,8 +136,10 @@ ModPanelContext panelContext({
   onRefreshState: onRefreshState ?? () async {},
   onCommand:
       onCommand ??
-      (String command, [Map<String, Object?> args = const <String, Object?>{}]) async =>
-          listReply(),
+      (
+        String command, [
+        Map<String, Object?> args = const <String, Object?>{},
+      ]) async => listReply(),
 );
 
 Widget _wrap(Widget child) => MaterialApp(
@@ -152,11 +157,19 @@ CommandHandler recordingHandler(
   List<RecordedCall> calls, {
   List<Map<String, Object?>> records = const <Map<String, Object?>>[],
   ModCommandResult? reply,
-}) => (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-  calls.add(RecordedCall(command, args));
-  if (command == 'list') return listReply(records: records);
-  return reply ?? const ModCommandResult(ok: true, result: <String, Object?>{'records': 0});
-};
+}) =>
+    (
+      String command, [
+      Map<String, Object?> args = const <String, Object?>{},
+    ]) async {
+      calls.add(RecordedCall(command, args));
+      if (command == 'list') return listReply(records: records);
+      return reply ??
+          const ModCommandResult(
+            ok: true,
+            result: <String, Object?>{'records': 0},
+          );
+    };
 
 void main() {
   group('纯函数：计数 / 摘要 / 桶说明 / args / 失败码文案', () {
@@ -177,20 +190,18 @@ void main() {
       }
     });
 
-    test('memoryBucketNotice：没有对话说清「记在总文件、不写提示词、不拆进以后」，有对话说「只看这次」；不出现「桶」', () {
-      final String fallback = memoryBucketNotice(null);
-      expect(
-        fallback,
-        '还没有对话。这些内容记在总文件里，不会写进提示词，也不会自动拆进以后的某次对话。',
-      );
-      final String scoped = memoryBucketNotice('  s-1  ');
-      expect(scoped, '只看这次对话记住的内容。');
-      for (final String banned in <String>['桶', '全局桶']) {
-        expect(fallback.contains(banned), isFalse, reason: '不得出现「$banned」');
-        expect(scoped.contains(banned), isFalse, reason: '不得出现「$banned」');
+    test('kMemoryScopeNotice：说清「不进模型提示词、与当前会话无关」，不出现「桶」', () {
+      expect(kMemoryScopeNotice, contains('不会写进模型提示词'));
+      expect(kMemoryScopeNotice, contains('当前会话'));
+      expect(kMemoryScopeNotice, contains('已停用'));
+      for (final String banned in <String>['桶', '只看这次对话']) {
+        expect(
+          kMemoryScopeNotice.contains(banned),
+          isFalse,
+          reason: '不得再出现「$banned」——那是已停用的会话绑定口径',
+        );
       }
     });
-
 
     test('memorySummaryState / text：非对象与空正文都按「没有」处理', () {
       expect(memorySummaryState(null), isNull);
@@ -215,18 +226,6 @@ void main() {
       //（面板只画正文）。这三条断言随之删除——留着一个没人渲染的格式化函数
       // 只会让人以为那块 UI 还在。
     });
-    test('memoryCommandArgs：没有会话就不带 session_id，有就 trim 后带上', () {
-      expect(memoryCommandArgs().containsKey('session_id'), isFalse);
-      expect(
-        memoryCommandArgs(sessionId: '   ').containsKey('session_id'),
-        isFalse,
-        reason: '空白 id 等于没有会话',
-      );
-      final Map<String, Object?> scoped =
-          memoryCommandArgs(sessionId: ' s-1 ', extra: <String, Object?>{'limit': 50});
-      expect(scoped['session_id'], 's-1');
-      expect(scoped['limit'], 50);
-    });
 
     test('memoryRecordText：压平空白 + 截断 + 空记录兜底', () {
       expect(memoryRecordText('第一行\n第二行'), '第一行 第二行');
@@ -243,8 +242,9 @@ void main() {
       expect(memoryParseRecords(null), isEmpty);
       expect(memoryParseRecords('不是数组'), isEmpty);
       expect(memoryParseRecords(<Object?>[1, 'x', null]), isEmpty);
-      final List<Map<String, Object?>> parsed =
-          memoryParseRecords(<Object?>[<Object?, Object?>{'id': 'a', 'text': 'x'}]);
+      final List<Map<String, Object?>> parsed = memoryParseRecords(<Object?>[
+        <Object?, Object?>{'id': 'a', 'text': 'x'},
+      ]);
       expect(parsed.length, 1);
       expect(parsed.first['id'], 'a');
     });
@@ -257,7 +257,10 @@ void main() {
         'not_found',
       ]) {
         expect(
-          memoryCommandErrorMessage(ApiException(code, '原因', status: 503), '导入'),
+          memoryCommandErrorMessage(
+            ApiException(code, '原因', status: 503),
+            '导入',
+          ),
           contains(code),
         );
       }
@@ -278,7 +281,7 @@ void main() {
   });
 
   group('面板元数据', () {
-    test('modId 与 stateLabels（含 records 与会话三键）', () {
+    test('modId 与 stateLabels（会话三键必须标注已停用 / 仅显示）', () {
       const MemoryPanel panel = MemoryPanel();
       expect(panel.modId, 'memory');
       final Map<String, String> labels = panel.stateLabels;
@@ -286,23 +289,27 @@ void main() {
       expect(labels['hits'], '命中次数');
       expect(labels['injects'], '注入轮数');
       expect(labels['enabled_injection'], '注入开关');
-      expect(labels['active_session'], '当前会话');
-      expect(labels['bucket_path'], '生效记忆库');
-      expect(labels['session_scoped'], '会话分桶');
+      expect(labels['active_session'], contains('仅显示'));
+      expect(labels['bucket_path'], '记忆库文件');
+      expect(labels['session_scoped'], contains('已停用'));
     });
   });
 
   group('运行态渲染：只剩「记住了 N 条」', () {
-    testWidgets('条数上屏；命中 / 注入 / 淘汰 / 上轮命中 一个都不在', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('条数上屏；命中 / 注入 / 淘汰 / 上轮命中 一个都不在', (WidgetTester tester) async {
       await tester.pumpWidget(
         _wrap(panelWidget(panelContext(state: memoryState()))),
       );
       await tester.pumpAndSettle();
       expect(find.text('记忆概览'), findsOneWidget);
       expect(find.textContaining('记住了 12 条'), findsOneWidget);
-      for (final String banned in <String>['累计命中', '注入', '已淘汰', '上轮命中', '记忆条数']) {
+      for (final String banned in <String>[
+        '累计命中',
+        '注入',
+        '已淘汰',
+        '上轮命中',
+        '记忆条数',
+      ]) {
         expect(
           find.textContaining(banned),
           findsNothing,
@@ -322,7 +329,8 @@ void main() {
         _wrap(
           panelWidget(
             panelContext(
-              stateError: '运行态暂时读不到（未启用 / 未实现 state_json / worker 正忙，'
+              stateError:
+                  '运行态暂时读不到（未启用 / 未实现 state_json / worker 正忙，'
                   '503 state_unavailable）',
             ),
           ),
@@ -334,7 +342,7 @@ void main() {
   });
 
   group('记忆列表：进入面板即 list + 两行渲染 + 无会话降级', () {
-    testWidgets('list 返回两条 → 两行都渲染，args 带 session_id 与 limit', (
+    testWidgets('list 返回两条 → 两行都渲染；args 只有 limit（不再带 session_id）', (
       WidgetTester tester,
     ) async {
       final List<RecordedCall> calls = <RecordedCall>[];
@@ -361,39 +369,54 @@ void main() {
       expect(find.text('第一条记忆'), findsOneWidget);
       expect(find.text('第二条记忆'), findsOneWidget);
       expect(find.textContaining('共 2 条'), findsOneWidget);
-      expect(find.textContaining('生效记忆库：'), findsOneWidget);
+      expect(find.textContaining('记忆库文件：'), findsOneWidget);
+      // 2026-11-18：会话分桶已停用——列表是全局的，那句诚实话必须上屏。
+      expect(find.text(kMemoryScopeNotice), findsOneWidget);
 
       expect(calls, isNotEmpty);
       expect(calls.first.command, 'list');
       expect(calls.first.args['limit'], 50);
-      expect(calls.first.args['session_id'], 'session-a');
+      expect(
+        calls.first.args.containsKey('session_id'),
+        isFalse,
+        reason: '切会话不再影响记忆列表（会话绑定已停用）',
+      );
     });
 
-    testWidgets('activeSessionId = null：不传 session_id + 全局桶降级文案', (
+    testWidgets('有没有活动会话都不影响面板：命令不带 session_id、文案是同一句', (
       WidgetTester tester,
     ) async {
       final List<RecordedCall> calls = <RecordedCall>[];
-      await tester.pumpWidget(
-        _wrap(
-          panelWidget(
-            panelContext(activeSessionId: null, onCommand: recordingHandler(calls)),
+      Future<void> pumpPanel(String? session) async {
+        await tester.pumpWidget(
+          _wrap(
+            panelWidget(
+              panelContext(
+                activeSessionId: session,
+                onCommand: recordingHandler(calls),
+              ),
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
+      }
 
+      await pumpPanel(null);
       expect(calls.first.command, 'list');
       expect(
         calls.first.args.containsKey('session_id'),
         isFalse,
-        reason: '没有会话就不该带 session_id（落到全局桶）',
+        reason: '会话绑定已停用：任何情况下都不再带 session_id',
       );
-      expect(find.textContaining('还没有对话'), findsOneWidget);
-      expect(find.textContaining('记在总文件里'), findsOneWidget);
-      expect(find.textContaining('不会写进提示词'), findsOneWidget);
-      expect(find.textContaining('不会自动拆进以后的某次对话'), findsOneWidget);
+      expect(find.text(kMemoryScopeNotice), findsOneWidget);
       expect(find.textContaining('还没有记住任何内容'), findsOneWidget);
       expect(find.textContaining('桶'), findsNothing, reason: '产品面上不出现「桶」');
+
+      // 宿主给了一个活动会话：面板 State 被复用，不该因此再取一次数或改口。
+      final int before = calls.length;
+      await pumpPanel('session-a');
+      expect(calls.length, before, reason: '切会话不再触发列表取数');
+      expect(find.text(kMemoryScopeNotice), findsOneWidget);
     });
 
     testWidgets('list 失败：显示带码文案，不谎报有记录', (WidgetTester tester) async {
@@ -403,16 +426,19 @@ void main() {
             panelContext(
               activeSessionId: 'session-a',
               onCommand:
-                  (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-                if (command == 'list') {
-                  throw const ApiException(
-                    'command_unavailable',
-                    '忙',
-                    status: 503,
-                  );
-                }
-                return const ModCommandResult(ok: true);
-              },
+                  (
+                    String command, [
+                    Map<String, Object?> args = const <String, Object?>{},
+                  ]) async {
+                    if (command == 'list') {
+                      throw const ApiException(
+                        'command_unavailable',
+                        '忙',
+                        status: 503,
+                      );
+                    }
+                    return const ModCommandResult(ok: true);
+                  },
             ),
           ),
         ),
@@ -456,10 +482,15 @@ void main() {
       await tester.tap(find.byKey(const Key('memory-import-button')));
       await tester.pumpAndSettle();
 
-      final RecordedCall importCall =
-          calls.firstWhere((RecordedCall c) => c.command == 'import');
+      final RecordedCall importCall = calls.firstWhere(
+        (RecordedCall c) => c.command == 'import',
+      );
       expect(importCall.args['text'], '我喜欢薄荷');
-      expect(importCall.args['session_id'], 'session-a');
+      expect(
+        importCall.args.containsKey('session_id'),
+        isFalse,
+        reason: '导入是全局动作（会话绑定已停用）',
+      );
       expect(find.textContaining('已导入一条记忆'), findsOneWidget);
       expect(notified, isNotEmpty, reason: '成功后必须通知宿主');
       expect(notified.last, contains('已导入一条记忆'));
@@ -512,24 +543,20 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('编辑记忆'), findsOneWidget);
 
-      await tester.enterText(
-        find.byKey(const Key('memory-edit-field')),
-        '新正文',
-      );
+      await tester.enterText(find.byKey(const Key('memory-edit-field')), '新正文');
       await tester.tap(find.text('保存'));
       await tester.pumpAndSettle();
 
-      final RecordedCall updateCall =
-          calls.firstWhere((RecordedCall c) => c.command == 'update');
+      final RecordedCall updateCall = calls.firstWhere(
+        (RecordedCall c) => c.command == 'update',
+      );
       expect(updateCall.args['id'], 'id-1');
       expect(updateCall.args['text'], '新正文');
-      expect(updateCall.args['session_id'], 'session-a');
+      expect(updateCall.args.containsKey('session_id'), isFalse);
       expect(find.textContaining('已更新这条记忆'), findsOneWidget);
     });
 
-    testWidgets('删除：先确认；取消不发命令，确认才发 delete', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('删除：先确认；取消不发命令，确认才发 delete', (WidgetTester tester) async {
       final List<RecordedCall> calls = <RecordedCall>[];
       await tester.pumpWidget(
         _wrap(
@@ -567,10 +594,11 @@ void main() {
       await tester.tap(find.text('确认删除'));
       await tester.pumpAndSettle();
 
-      final RecordedCall deleteCall =
-          calls.firstWhere((RecordedCall c) => c.command == 'delete');
+      final RecordedCall deleteCall = calls.firstWhere(
+        (RecordedCall c) => c.command == 'delete',
+      );
       expect(deleteCall.args['id'], 'id-9');
-      expect(deleteCall.args['session_id'], 'session-a');
+      expect(deleteCall.args.containsKey('session_id'), isFalse);
       expect(find.textContaining('已删除这条记忆'), findsOneWidget);
     });
   });
@@ -587,19 +615,22 @@ void main() {
               state: memoryState(),
               activeSessionId: 'session-a',
               onCommand:
-                  (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-                calls.add(RecordedCall(command, args));
-                if (command == 'list') return listReply();
-                return const ModCommandResult(
-                  ok: true,
-                  result: <String, Object?>{
-                    'records': 0,
-                    'cleared': true,
-                    'removed': 3,
-                    'residue': false,
+                  (
+                    String command, [
+                    Map<String, Object?> args = const <String, Object?>{},
+                  ]) async {
+                    calls.add(RecordedCall(command, args));
+                    if (command == 'list') return listReply();
+                    return const ModCommandResult(
+                      ok: true,
+                      result: <String, Object?>{
+                        'records': 0,
+                        'cleared': true,
+                        'removed': 3,
+                        'residue': false,
+                      },
+                    );
                   },
-                );
-              },
             ),
           ),
         ),
@@ -609,9 +640,10 @@ void main() {
       await tester.tap(find.text('清空记忆库'));
       await tester.pumpAndSettle();
 
-      final RecordedCall clearCall =
-          calls.firstWhere((RecordedCall c) => c.command == 'clear');
-      expect(clearCall.args['session_id'], 'session-a');
+      final RecordedCall clearCall = calls.firstWhere(
+        (RecordedCall c) => c.command == 'clear',
+      );
+      expect(clearCall.args.containsKey('session_id'), isFalse);
       expect(find.textContaining('已清空记忆库'), findsOneWidget);
       expect(find.textContaining('清掉 3 条'), findsOneWidget);
       expect(find.textContaining('现存 0 条'), findsOneWidget);
@@ -624,18 +656,21 @@ void main() {
             panelContext(
               state: memoryState(),
               onCommand:
-                  (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-                if (command == 'list') return listReply();
-                return const ModCommandResult(
-                  ok: true,
-                  result: <String, Object?>{
-                    'records': 0,
-                    'cleared': true,
-                    'removed': 2,
-                    'residue': true,
+                  (
+                    String command, [
+                    Map<String, Object?> args = const <String, Object?>{},
+                  ]) async {
+                    if (command == 'list') return listReply();
+                    return const ModCommandResult(
+                      ok: true,
+                      result: <String, Object?>{
+                        'records': 0,
+                        'cleared': true,
+                        'removed': 2,
+                        'residue': true,
+                      },
+                    );
                   },
-                );
-              },
             ),
           ),
         ),
@@ -653,10 +688,17 @@ void main() {
             panelContext(
               state: memoryState(),
               onCommand:
-                  (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-                if (command == 'list') return listReply();
-                throw const ApiException('command_failed', '存储不可写', status: 409);
-              },
+                  (
+                    String command, [
+                    Map<String, Object?> args = const <String, Object?>{},
+                  ]) async {
+                    if (command == 'list') return listReply();
+                    throw const ApiException(
+                      'command_failed',
+                      '存储不可写',
+                      status: 409,
+                    );
+                  },
             ),
           ),
         ),
@@ -729,7 +771,10 @@ void main() {
       // 版本号 / 覆盖位点 / 桶占比 / 回滚按钮整块不再上屏。
       expect(find.textContaining('v2'), findsNothing);
       expect(find.textContaining('90%'), findsNothing);
-      expect(find.byKey(const Key('memory-summary-rollback-button')), findsNothing);
+      expect(
+        find.byKey(const Key('memory-summary-rollback-button')),
+        findsNothing,
+      );
       expect(find.textContaining('回滚'), findsNothing);
       expect(
         calls.where((RecordedCall c) => c.command == 'summary_rollback'),
@@ -737,9 +782,7 @@ void main() {
       );
     });
 
-    testWidgets('有摘要对象但没有正文：整块不画（空摘要 = 没有）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('有摘要对象但没有正文：整块不画（空摘要 = 没有）', (WidgetTester tester) async {
       await tester.pumpWidget(
         _wrap(
           panelWidget(
@@ -770,7 +813,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('压缩过的记忆'), findsNothing);
       expect(find.text('记忆摘要'), findsNothing);
-      expect(find.byKey(const Key('memory-summary-rollback-button')), findsNothing);
+      expect(
+        find.byKey(const Key('memory-summary-rollback-button')),
+        findsNothing,
+      );
     });
   });
 
@@ -820,9 +866,7 @@ void main() {
       expect(panel.fieldHelp, isEmpty);
     });
 
-    testWidgets('真泵卡片（产品面）：只留「聊天时用上这些记忆」一个键', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('真泵卡片（产品面）：只留「聊天时用上这些记忆」一个键', (WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildAppTheme(),
@@ -894,9 +938,7 @@ void main() {
   });
 
   group('刷新锁（2026-10-08）：list 失败后「刷新」仍可点', () {
-    testWidgets('读取失败：留下错误、刷新按钮可点、写操作仍锁住', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('读取失败：留下错误、刷新按钮可点、写操作仍锁住', (WidgetTester tester) async {
       final List<String> commands = <String>[];
       await tester.pumpWidget(
         _wrap(
@@ -904,13 +946,20 @@ void main() {
             panelContext(
               activeSessionId: 'session-a',
               onCommand:
-                  (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-                commands.add(command);
-                if (command == 'list') {
-                  throw const ApiException('command_unavailable', '忙', status: 503);
-                }
-                return const ModCommandResult(ok: true);
-              },
+                  (
+                    String command, [
+                    Map<String, Object?> args = const <String, Object?>{},
+                  ]) async {
+                    commands.add(command);
+                    if (command == 'list') {
+                      throw const ApiException(
+                        'command_unavailable',
+                        '忙',
+                        status: 503,
+                      );
+                    }
+                    return const ModCommandResult(ok: true);
+                  },
             ),
           ),
         ),
@@ -921,11 +970,7 @@ void main() {
       final TextButton refresh = tester.widget<TextButton>(
         find.byKey(const Key('memory-refresh-button')),
       );
-      expect(
-        refresh.onPressed,
-        isNotNull,
-        reason: '列表读失败后没有出路 —— 刷新必须仍然可点',
-      );
+      expect(refresh.onPressed, isNotNull, reason: '列表读失败后没有出路 —— 刷新必须仍然可点');
       // 写操作仍要求「快照 == 当前会话」：这一次失败没有改快照，所以行不存在，
       // 但导入按钮必须看得到且不被取数窗口额外锁死。
       expect(find.byKey(const Key('memory-import-button')), findsOneWidget);
@@ -941,4 +986,3 @@ void main() {
     });
   });
 }
-

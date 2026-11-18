@@ -2,13 +2,13 @@
 //!
 //! # 端点（D1 §1.1 + W2 任务）
 //!
-//! - `POST /api/v1/chat` body `{"text": "...", "session_id"?: "..."}` → 调
-//!   `SupervisorHandle::say_scoped`（容量 1 通道；满则 429 busy）。
-//!   `session_id` 是 **L1 会话绑定**的入口：同一句话带上会话 id 后，本轮 LLM
-//!   请求的 system_prompt 取该会话的覆盖（persona / memory 按会话写），没有覆盖
-//!   则回落全局 `persona.system_prompt`。id 归一化规则见
-//!   `live2d_ai_mod_system::sanitize_session_id`；**非法 id 视为不带会话**
-//!   （不报错——那会让前端多一条只在特定字符下才出现的失败路径）。
+//! - `POST /api/v1/chat` body `{"text", "session_id"?, "history"?}` → 调
+//!   `say_scoped_with_history`（容量 1 通道；满则 429 busy）。
+//!   `history`（#14）：本会话最近几轮，只拼进**本轮** prompt、服务端不持久化；
+//!   上限见 `sanitize_history`（8 对 / 单条 2000 字符 / 只认 user·assistant）。
+//!   `session_id` 仍是 L1 绑定入口，但 persona / memory 的会话槽**已停用**
+//!   （`session_scope.rs` 的 `RETIRED_OWNERS`）：只决定当前活动会话 / 注入归属 /
+//!   baseline / 热槽键，不再改写本轮 prompt；非法 id 仍视为不带会话。
 //! - `POST /api/v1/chat/stop` → 调 `SupervisorHandle::stop`（幂等）。
 //! - `GET|POST /api/v1/chat/session` → **会话 id 宿主能力**（L1 基座）：
 //!   GET 读「当前活动会话 + 已绑定的会话数/列表 + 该会话的 baseline」，POST 设
@@ -63,6 +63,7 @@ use serde::{Deserialize, Serialize};
 use tiny_http::{Method, Response, StatusCode};
 
 use live2d_ai_mod_system::SessionPromptSink as _;
+use live2d_ai_runtime::ChatMessage;
 
 use crate::supervisor::SupervisorHandle;
 use crate::web_api::dto::{ErrorDetail, ErrorResponse};
@@ -86,6 +87,52 @@ pub struct ChatBody {
     /// 容忍未知额外字段（serde 默认忽略），所以旧前端 / 第三方客户端照常可用。
     #[serde(default)]
     pub session_id: Option<String>,
+    /// **客户端本地会话历史**（2026-11-18，可选，协议 `history`）。
+    /// 形状 `[{role:"user"|"assistant", text:"…"}]`；缺省 = 老客户端不带历史（逐字
+    /// 同旧协议）。解析走宽松口径（见 [sanitize_history]）：坏历史只丢条目，绝不
+    /// 把「历史没拼对」升级成用户这句话发不出去（400）。
+    #[serde(default)]
+    pub history: Option<serde_json::Value>,
+}
+
+/// 协议 `history` 的硬上限：8 对（user + assistant）= 16 条。
+pub const MAX_CHAT_HISTORY_MESSAGES: usize = 16;
+/// 单条历史的字符上限（按字符截断；与前端 `kChatHistoryMaxTextChars` 同值）。
+pub const MAX_CHAT_HISTORY_TEXT_CHARS: usize = 2000;
+
+/// 把请求体里的 `history` 收成引擎可注入的 [ChatMessage] 列表：只保留
+/// `user` / `assistant` 与非空正文——`system`、未知角色、非对象条目、缺 `text`
+/// 的一律忽略（`history` 是上下文增强，不是身份声明；系统句只能由引擎拼，
+/// 见 `ConversationEngine::build_messages_with_history`）。
+/// 单条按字符截到上限、整体只留**最近** [MAX_CHAT_HISTORY_MESSAGES] 条（客户端
+/// 已裁过一遍；这里只是防第三方客户端塞整本记录的兜底界）。
+fn sanitize_history(raw: Option<serde_json::Value>) -> Vec<ChatMessage> {
+    let Some(serde_json::Value::Array(items)) = raw else {
+        return Vec::new();
+    };
+    let mut kept: std::collections::VecDeque<ChatMessage> = std::collections::VecDeque::new();
+    for item in items {
+        let Some(entry) = item.as_object() else {
+            continue;
+        };
+        let role = match entry.get("role").and_then(|v| v.as_str()) {
+            Some("user") => live2d_ai_runtime::Role::User,
+            Some("assistant") => live2d_ai_runtime::Role::Assistant,
+            _ => continue,
+        };
+        let Some(text) = entry.get("text").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if text.trim().is_empty() {
+            continue;
+        }
+        let capped: String = text.chars().take(MAX_CHAT_HISTORY_TEXT_CHARS).collect();
+        kept.push_back(ChatMessage::new(role, capped));
+        if kept.len() > MAX_CHAT_HISTORY_MESSAGES {
+            kept.pop_front();
+        }
+    }
+    kept.into()
 }
 
 /// `POST /api/v1/chat` 响应。
@@ -181,7 +228,7 @@ pub fn handle_chat_with_supervisor(
     let revocation = return_to_session_baseline(handle, broadcaster, "new-message");
     // L1：非法 id 的结局是「这句话按全局桶处理」，而不是 400——前端的会话 id 是
     // 本地生成的，出现非法值属于「客户端版本不匹配」，不该让用户发不出消息。
-    if handle.say_scoped(text, session) {
+    if handle.say_scoped_with_history(text, session, sanitize_history(parsed.history)) {
         // P1WS-1：从 supervisor 读取**真实**当前 epoch（root.epoch 镜像）。
         // `Acquire` 与 supervisor 写入的 `Release` 配对；这是无锁快速路径。
         let epoch = handle.current_epoch();

@@ -52,7 +52,15 @@ extension _ShellChatWiring on _ShellRootState {
     // 判据用 `_chat.sendFailedLocally` 而**不是** `_chat.error != null`：
     // 服务端推来一条非致命 `error` 帧（本轮仍在飞、语音还要播完）时后者**也为真**，
     // 那样会把一条正常进行的轮次提前说成结束。
-    if (_chat.sendFailedLocally) _ui.markTurnFailed();
+    if (_chat.sendFailedLocally) {
+      // #17：服务端已有别的轮在跑时这句话**没有发出去**（ChatController 只给
+      // 了一行原因）。把用户刚打的字还回输入框——否则他看到的是一行错误，
+      // 字却没了；而「先停止它」需要他再打一遍。
+      if (_chat.errorCode == kTurnElsewhereCode && _input.text.isEmpty) {
+        _input.text = text;
+      }
+      _ui.markTurnFailed();
+    }
     _syncLiveRegion();
   }
 

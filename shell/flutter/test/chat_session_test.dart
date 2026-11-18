@@ -211,28 +211,31 @@ void main() {
       expect(ChatSessionStore.kMaxMessagesPerSession, 500);
     });
 
-    test('pruneEmpty 清理空会话，但**保留当前那个**（哪怕它是空的）', () {
+    test('空会话**不会自动消失**：建了几个就还在几个，只有显式删除才删（#12）', () {
+      // 以前 `newSession()` 会调 `store.pruneEmpty()`，把其他空会话静默删掉：
+      // 用户点了两三次「新建」、还没开始打字，回头就只剩最后一个。那些是用户
+      // 自己建的会话，不是垃圾——#12 之后空会话只由 `delete` 移除。
       final ChatSessionStore store = ChatSessionStore.empty();
-      final ChatSession staleEmpty = store.create(now: at(0));
-      final ChatSession withMsg = store.create(now: at(1));
-      // `append` 落到**当时**的活动会话，也就是 withMsg。
-      store.append(user('有内容'), now: at(2));
-      final ChatSession currentEmpty = store.create(now: at(3));
+      final ChatSession a = store.create(now: at(0));
+      final ChatSession b = store.create(now: at(1));
+      final ChatSession c = store.create(now: at(2));
+      expect(store.sessions.length, 3);
 
-      expect(withMsg.messages.length, 1);
-      expect(currentEmpty.messages, isEmpty);
-      expect(store.activeId, currentEmpty.id);
+      // 再新建一个（旧实现会在这里把 a/b 清掉）并让当前会话有内容。
+      final ChatSession d = store.create(now: at(3));
+      store.append(user('开始聊了'), now: at(4));
 
-      final int removed = store.pruneEmpty();
-
-      expect(removed, 1, reason: '只该清掉 staleEmpty 那一个');
-      expect(store.sessions.contains(staleEmpty), isFalse);
-      expect(store.sessions.contains(withMsg), isTrue, reason: '非空的不该动');
       expect(
-        store.sessions.contains(currentEmpty),
+        <ChatSession>[a, b, c, d].every(store.sessions.contains),
         isTrue,
-        reason: '当前选中的空会话要留着 —— 用户正看着它',
+        reason: '空会话不许被任何「顺手清理」删掉：用户自己建的要留着',
       );
+      expect(d.messages.length, 1, reason: '消息落到当前（新建）会话');
+
+      // 只有显式删除才会减少。
+      expect(store.delete(a.id), isTrue);
+      expect(store.sessions.contains(a), isFalse);
+      expect(store.sessions.length, 3);
     });
   });
 

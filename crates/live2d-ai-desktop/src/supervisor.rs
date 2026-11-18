@@ -87,7 +87,7 @@ pub(crate) fn root_apply(root: &mut RootState, event: RootEvent) -> Vec<RootEffe
     live2d_ai_core::apply(root, event)
 }
 use live2d_ai_runtime::performance::PerformanceStats;
-use live2d_ai_runtime::{ConversationConfig, OpenAiClient};
+use live2d_ai_runtime::{ChatMessage, ConversationConfig, OpenAiClient};
 
 /// 表演层计数槽：**当前**运行时的 `Arc<PerformanceStats>`（换运行时即换表）。
 ///
@@ -142,6 +142,12 @@ pub struct SayRequest {
     pub text: String,
     /// 该输入所属的会话（已归一化）；`None` = 不带会话（全局桶）。
     pub session: Option<String>,
+    /// **客户端本地会话历史**（协议 `history` 的一次性注入；空 = 老客户端 / 第一轮）。
+    ///
+    /// 只随这一次 say 拼进本轮请求，**不**进引擎自己的历史窗口
+    /// （见 `ConversationEngine::build_messages_with_history`）；因此切换本地
+    /// 会话时，模型上下文由**这一份历史**决定，而不是宿主进程里的某个桶。
+    pub history: Vec<ChatMessage>,
 }
 
 /// REPL/控制命令（无界通道：控制命令不允许被 Say 积压饿死，D14）。
@@ -265,6 +271,7 @@ impl SupervisorHandle {
             .try_send(SayRequest {
                 text: text.into(),
                 session,
+                history: Vec::new(),
             })
             .is_ok()
     }
@@ -273,13 +280,31 @@ impl SupervisorHandle {
     ///
     /// 同时把宿主的活动会话游标推到该 id（`None` 也显式推——「这次没带会话」
     /// 是一个事实，不该悄悄沿用上一个）。
+    /// 生产 HTTP 入口已改用带 `history` 的 [Self::say_scoped_with_history]；
+    /// 本方法是不带历史的语义入口（测试 / 将来其它只带会话的调用点）。
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn say_scoped(&self, text: impl Into<String>, session: Option<String>) -> bool {
+        self.say_scoped_with_history(text, session, Vec::new())
+    }
+
+    /// 与 [Self::say_scoped] 相同，另带**客户端本地会话历史**（协议 `history`）。
+    ///
+    /// 为什么另开一个入口而不是改 [Self::say_scoped] 的签名：后者是几十个既有
+    /// 调用点（stdin / 测试 / Mod 注入）的关键路径，`Vec::new()` 让它们逐字不变；
+    /// `history` 只影响本轮请求体，容量 1 的 Say 通道与忙碌语义都没动。
+    pub fn say_scoped_with_history(
+        &self,
+        text: impl Into<String>,
+        session: Option<String>,
+        history: Vec<ChatMessage>,
+    ) -> bool {
         let normalized = session.and_then(|s| live2d_ai_mod_system::sanitize_session_id(&s));
         self.session_scopes.set_active(normalized.as_deref());
         self.say_tx
             .try_send(SayRequest {
                 text: text.into(),
                 session: normalized,
+                history,
             })
             .is_ok()
     }

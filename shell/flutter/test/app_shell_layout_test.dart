@@ -10,6 +10,7 @@ import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/design/breakpoints.dart';
 import 'package:live2d_ai_shell/live2d/live2d_bridge.dart';
 import 'package:live2d_ai_shell/settings/settings_sections.dart';
+import 'package:live2d_ai_shell/chat/chat_session.dart';
 import 'package:live2d_ai_shell/ui/stage_host.dart';
 import 'package:live2d_ai_shell/state/ui_phase.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
@@ -49,6 +50,8 @@ class _ShellHost extends StatefulWidget {
     this.onEnsureSectionLoaded,
     this.settingsChanges = const NeverNotifies(),
     this.devMode = false,
+    this.sessions = const <ChatSession>[],
+    this.activeSessionId,
   });
 
   final UiPhase phase;
@@ -61,6 +64,10 @@ class _ShellHost extends StatefulWidget {
   final VoidCallback? onEnsureSectionLoaded;
   final Listenable settingsChanges;
   final bool devMode;
+
+  /// 会话快照（2026-11-18：左侧会话栏与聊天列头都读它）。
+  final List<ChatSession> sessions;
+  final String? activeSessionId;
 
   /// 默认 `ready`：**不是** `loading`。
   ///
@@ -103,6 +110,12 @@ class _ShellHostState extends State<_ShellHost> {
     onEnsureSectionLoaded: widget.onEnsureSectionLoaded,
     settingsChanges: widget.settingsChanges,
     devMode: widget.devMode,
+    sessions: widget.sessions,
+    activeSessionId: widget.activeSessionId,
+    onSelectSession: (_) {},
+    onNewSession: () {},
+    onRenameSession: (_, _) {},
+    onDeleteSession: (_) {},
     sectionBuilder: (BuildContext context, SettingsSection s) =>
         Text('PANE:${s.label}'),
   );
@@ -121,6 +134,8 @@ Widget shellUnderTest({
   Live2DBridgePhase stagePhase = Live2DBridgePhase.ready,
   VoidCallback? onRetryStage,
   bool devMode = false,
+  List<ChatSession> sessions = const <ChatSession>[],
+  String? activeSessionId,
 }) => MaterialApp(
   theme: buildAppTheme(),
   home: _ShellHost(
@@ -135,6 +150,8 @@ Widget shellUnderTest({
     onSectionChanged: onSectionChanged,
     onEnsureSectionLoaded: onEnsureSectionLoaded,
     settingsChanges: settingsChanges,
+    sessions: sessions,
+    activeSessionId: activeSessionId,
     stagePhase: stagePhase,
     onRetryStage: onRetryStage,
     devMode: devMode,
@@ -160,6 +177,8 @@ Future<void> pumpShell(
   double volume = 0.8,
   Live2DBridgePhase stagePhase = Live2DBridgePhase.ready,
   VoidCallback? onRetryStage,
+  List<ChatSession> sessions = const <ChatSession>[],
+  String? activeSessionId,
 }) async {
   await tester.binding.setSurfaceSize(Size(width, 800));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -172,6 +191,8 @@ Future<void> pumpShell(
       onSectionChanged: onSectionChanged,
       onEnsureSectionLoaded: onEnsureSectionLoaded,
       settingsChanges: settingsChanges,
+      sessions: sessions,
+      activeSessionId: activeSessionId,
       muted: muted,
       volume: volume,
       stagePhase: stagePhase,
@@ -220,12 +241,12 @@ void main() {
 
           final SizeClass sc = Breakpoints.sizeClassOf(entry.value);
 
-          // 非 compact：body 只有「舞台 | 聊天」两列 ⇒ **恰好一条竖分隔线**。
-          // 左侧 rail 若偷偷长回来，这里会变成两条。
+          // 非 compact：「会话栏 | 舞台 | 聊天」三列 ⇒ **恰好两条竖分隔线**。
+          // compact 是「舞台 / 聊天」上下两段，没有竖分隔线。
           expect(
             find.byType(VerticalDivider),
-            sc.isCompact ? findsNothing : findsOneWidget,
-            reason: '左侧不该再有第二列（rail 已删，宽度留给舞台）',
+            sc.isCompact ? findsNothing : findsNWidgets(2),
+            reason: '左侧第一列是会话栏（2026-11-18）；设置 rail 仍然不存在',
           );
 
           // 设置入口只有一个，且是**文字**按钮（不是齿轮图标）。
@@ -239,25 +260,6 @@ void main() {
       );
     }
 
-    testWidgets('rail 让出来的宽度**真的**给了舞台（非 compact）', (
-      WidgetTester tester,
-    ) async {
-      // 1280 下删掉 rail 之前，舞台列 = 1280 - 168(rail) - 1 - 340(chat) ≈ 771；
-      // 删掉之后应当 ≈ 1280 - 1 - 340 = 939。这里直接按「宽度 - 聊天 - 分隔线」
-      // 断言，rail 一旦回来就会红。
-      for (final double width in <double>[1280, 1400, 1000]) {
-        await pumpShell(tester, width: width);
-        final SizeClass sc = Breakpoints.sizeClassOf(width);
-        final double chat = sc.isExpanded
-            ? NavMetrics.chatWidthExpanded
-            : NavMetrics.chatWidthMedium;
-        expect(
-          tester.getSize(find.byType(StageHost)).width,
-          closeTo(width - chat - 1, 1.5),
-          reason: 'width=$width：舞台列必须拿到除聊天列与 1 px 分隔线之外的全部宽度',
-        );
-      }
-    });
   });
 
   group('常驻元件（规格 §6.4：连接态常驻可见）', () {

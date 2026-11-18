@@ -1,23 +1,26 @@
-/// persona 的产品面板（2026-10-08：角色卡导入回到扩展卡片）。
+/// persona 的产品面板（2026-11-18：只剩**全局**一条诚实路径）。
 ///
-/// # 为什么导入在这里
+/// # 为什么删掉「按会话导入」（本次修复）
 ///
-/// T6（2026-10-07）把导入接回了「人设」页，于是同一个动作两套入口。2026-10-08
-/// 维护者口径：底座 = 系统提示词 + 记住几轮；**角色卡属扩展**——导入、清除、
-/// PNG 选择全部回到本卡片，「人设」页只留主链两项。
+/// 旧面板默认把角色卡绑到「当前会话」（`import_card` + `session_id`），依赖宿主
+/// 会话作用域表进说话请求。2026-11-16 起说话模型的 system 文本只由「系统句 +
+/// 钉住的事 + 最近对话 + 热卡」四块组成，`session_scope.rs` 的
+/// `speak_prompt_for` **剔除** persona / memory 两条来源槽；树内 persona Mod 也
+/// 默认不注册（`AVAILABLE_MOD_FACTORIES` 为空）。再留着那两个按钮，就是让用户
+/// 以为「这个会话换人设了」而模型其实没收到——所以本波删掉会话入口，只留全局
+/// 路径，并在卡片上把生效范围写清。
 ///
-/// # 命令契约（与 Rust `command.rs` 的头注逐字对应）
+/// # 命令契约（与 Mod 的 `command.rs` 头注对应）
 ///
 /// | 按钮 | 命令 | args |
 /// | --- | --- | --- |
-/// | 导入并生效 | `import_card` | `card_json` 或 `data_base64` + 当前 `session_id` |
-/// | 导入为全局人设 | `import_card` | 只给卡，**不给** `session_id` |
-/// | 清除当前会话的卡 | `clear_import` | 带 `session_id` |
-/// | 清除全局导入卡 | `clear_import` | 不带 `session_id` |
+/// | 导入并生效 | `import_card` | `card_json` 或 `data_base64`（**不带** `session_id`） |
+/// | 选择 PNG 角色卡文件 | `import_card` | `data_base64`（同上） |
+/// | 清除导入卡 | `clear_import` | 无（不带 `session_id`） |
 ///
 /// 三条不变量：
-/// 1. **没有活动会话时绝不偷偷全局导入**：按钮禁用 + 就地写明原因，代码里还有
-///    一道守卫（见 [_importForSession]）；
+/// 1. 导入是**显式全局动作**：不再有「没有会话时偷偷走全局 / 必须先发一条消息」
+///    的分支——那条分支的前提（按会话生效）已经不存在；
 /// 2. 命令通道走 [ModPanelContext.onCommand]（宿主接线一次，测试注入 fake）；
 /// 3. PNG 选择走 [ModPanelContext.pickCardFile]——组合根注入，
 ///    本文件**不** import `app/browser_io.dart`（那会把 `package:web` 拖进
@@ -25,10 +28,9 @@
 ///
 /// # 8 个配置键经 [hiddenKeys] 从产品面整体消失
 ///
-/// 与 `crates/live2d-ai-mod-persona/src/factory.rs` 的
-/// `persona_settings_spec()` **逐键对应**（一个不多、一个不少）。它们不进
-/// 「高级」折叠，也不渲染；键仍被解析、`mods.json` 里已有的值保存时原样带走
-/// （见 `dev_tools_mod_config.dart` 的 `_buildConfig`）。
+/// 与 persona 的 `persona_settings_spec()` **逐键对应**（一个不多、一个不少）。
+/// 它们不进「高级」折叠，也不渲染；键仍被解析、`mods.json` 里已有的值保存时
+/// 原样带走（见 `dev_tools_mod_config.dart` 的 `_buildConfig`）。
 ///
 /// 本文件由 persona 轨道独占，其他轨道不要改。
 library;
@@ -50,6 +52,14 @@ const String kPersonaTakeoverNotice =
     // 2026-10-09：设置页一级从「人设」改名「模型对话」——这句指回那一页，
     // 必须跟着改（按钮「导入为全局人设」是另一个词，保持不变）。
     '打开后，用导入的角色卡说话。关掉会回到「模型对话」里写的提示词。';
+
+/// **2026-11-18 诚实说明**：会话绑定已停用，角色卡只走全局路径。
+///
+/// 必须写在卡片上（不是只写在代码注释里）：用户上一版点过「导入并生效」以为
+/// 只换了当前会话，而模型其实从来收不到按会话的卡——这句话就是纠正那件事。
+const String kPersonaGlobalPathNotice =
+    '角色卡只走全局路径：导入后改写主链提示词，对所有会话生效。'
+    '旧版「按会话导入」已停用——模型不再读取会话人设卡。';
 
 /// 一次导入里 dataURL 的字符上限。
 ///
@@ -76,9 +86,12 @@ String personaCardFormatLabel(String format) => switch (format) {
   _ => '未知',
 };
 
-/// 当前人设作用域的稳定取值 → 中文（Mod 的 state_json.scope）。**纯函数**。
+/// 人设作用域的稳定取值 → 中文（Mod 的 state_json.scope）。**纯函数**。
+///
+/// `session` 值仍可能出现（旧 Mod / 旧档案里的历史字段），但**不再生效**：
+/// 文案必须说「已停用」，不能再说「只对当前会话生效」——那是谎报能力。
 String personaScopeLabel(String scope) => switch (scope) {
-  'session' => '会话绑定（只对当前会话生效）',
+  'session' => '会话绑定（已停用，不影响模型）',
   'global' => '全局（所有会话）',
   _ => '未知',
 };
@@ -101,8 +114,8 @@ class PersonaPanel extends ModPanel {
   /// 8 个配置键：产品界面不渲染，**也不进「高级」**。
   ///
   /// 与 `persona_settings_spec()` 逐键对应：卡文件路径 / 卡 JSON / 附加纪律 /
-  /// 开场白 / 四个覆盖项。卡走的是下面的导入命令，这四个覆盖项由导入的
-  /// 卡本身提供——都不该再让用户手填。
+  /// 开场白 / 四个覆盖项。卡走下面的导入命令，这四个覆盖项由导入的卡本身提供
+  /// ——都不该再让用户手填。
   @override
   Set<String> get hiddenKeys => const <String>{
     'card_path',
@@ -126,9 +139,9 @@ class PersonaPanel extends ModPanel {
     'include_discipline': '附加对话纪律',
     'say_first_mes': '朗读开场白',
     'config_has_card': '配置里有卡',
-    'session_bound': '会话绑定可用',
-    'sessions': '已绑定会话',
-    'active_session': '当前活动会话',
+    'session_bound': '会话绑定（已停用）',
+    'sessions': '旧会话绑定数（已停用）',
+    'active_session': '当前会话（仅显示）',
     'scope': '当前作用域',
   };
 
@@ -166,39 +179,6 @@ class _PersonaBodyState extends State<_PersonaBody> {
     super.dispose();
   }
 
-  bool get _hasSession {
-    final String? id = _ctx.activeSessionId;
-    return id != null && id.isNotEmpty;
-  }
-
-  /// 会话导入：把 `session_id` 拼进入参；没有活动会话就**就地拒绝**。
-  ///
-  /// 守卫与禁用的按钮**都**在：按钮禁用是体验，这里是契约——将来接线错了也
-  /// **不会**静默退化成全局导入（那正是这一波要根除的串人设）。
-  Future<void> _importForSession(
-    Map<String, Object?> args, {
-    String command = 'import_card',
-  }) async {
-    final String? session = _ctx.activeSessionId;
-    if (session == null || session.isEmpty) {
-      setState(() {
-        _isError = true;
-        _message = '还没有会话：先发一条消息（会自动建会话）再导入；'
-            '要让所有会话都换人设，请用「导入为全局人设」。';
-      });
-      return;
-    }
-    await _run(
-      <String, Object?>{...args, 'session_id': session},
-      session: true,
-      command: command,
-    );
-  }
-
-  /// 全局导入：**不带** `session_id`（服务端按全局作用域处理）。
-  Future<void> _importGlobally(Map<String, Object?> args) =>
-      _run(args, session: false);
-
   /// 粘贴框里的文本；空 → 就地报错（不发请求）。
   String? _pastedCard() {
     final String text = _card.text.trim();
@@ -212,29 +192,18 @@ class _PersonaBodyState extends State<_PersonaBody> {
     return text;
   }
 
-  /// 粘贴框 → `import_card(card_json)`，**绑定当前会话**（主路径）。
+  /// 粘贴框 → `import_card(card_json)`，**全局**（不带 session_id）。
   Future<void> _importPasted() async {
     final String? text = _pastedCard();
     if (text == null) return;
-    await _importForSession(<String, Object?>{'card_json': text});
+    await _run(<String, Object?>{'card_json': text});
   }
-
-  /// 粘贴框 → `import_card(card_json)`，**不给 session_id** = 全局行为。
-  Future<void> _importPastedGlobally() async {
-    final String? text = _pastedCard();
-    if (text == null) return;
-    await _importGlobally(<String, Object?>{'card_json': text});
-  }
-
-  /// 清除**当前会话**绑定的角色卡（其他会话不受影响）。
-  Future<void> _clearSession() =>
-      _importForSession(const <String, Object?>{}, command: 'clear_import');
 
   /// 清除**全局**导入卡（主链回到它自己的基线来源）。
-  Future<void> _clearGlobal() =>
-      _run(const <String, Object?>{}, session: false, command: 'clear_import');
+  Future<void> _clearImport() =>
+      _run(const <String, Object?>{}, command: 'clear_import');
 
-  /// 选一张 PNG 卡 → `import_card(data_base64)`，同样绑当前会话（前缀由 Mod 剥）。
+  /// 选一张 PNG 卡 → `import_card(data_base64)`（同样全局；前缀由 Mod 剥）。
   Future<void> _pickAndImport() async {
     final PersonaCardFilePicker? pick = _ctx.pickCardFile;
     if (pick == null) {
@@ -275,7 +244,7 @@ class _PersonaBodyState extends State<_PersonaBody> {
       });
       return;
     }
-    await _importForSession(<String, Object?>{'data_base64': dataUrl});
+    await _run(<String, Object?>{'data_base64': dataUrl});
   }
 
   /// 跑一条导入 / 清除，并把结果如实转成一句话（失败带**错误码**）。
@@ -284,7 +253,6 @@ class _PersonaBodyState extends State<_PersonaBody> {
   /// 提示）——人设是运行行为，界面不该假装它立刻无痕生效。
   Future<void> _run(
     Map<String, Object?> args, {
-    required bool session,
     String command = 'import_card',
   }) async {
     if (_busy) return;
@@ -304,8 +272,8 @@ class _PersonaBodyState extends State<_PersonaBody> {
         return;
       }
       final String message = command == 'clear_import'
-          ? _clearMessage(result, session: session)
-          : _successMessage(result, session: session);
+          ? _clearMessage(result)
+          : _successMessage(result);
       setState(() {
         _busy = false;
         _isError = false;
@@ -329,30 +297,19 @@ class _PersonaBodyState extends State<_PersonaBody> {
     }
   }
 
-  /// 成功结果 → 一句话（**作用域不同，文案不同**，不许混）。
-  String _successMessage(ModCommandResult result, {required bool session}) {
+  /// 成功结果 → 一句话（**只有全局作用域**，不能再出现「只对当前会话」）。
+  String _successMessage(ModCommandResult result) {
     final String name = _str(result.result['card_name']);
     final String format = personaCardFormatLabel(
       _str(result.result['card_format']),
     );
     final String card = name.isEmpty ? '这张卡' : '「$name」（$format）';
-    if (!session) {
-      return '已导入$card为全局人设（所有会话生效）：它改写的是主链提示词';
-    }
-    final String id = _str(result.result['session_id']);
-    final String target = id.isEmpty ? '当前会话' : '会话 $id';
-    return '已导入$card并绑定到$target：只对当前会话生效';
+    return '已导入$card为全局人设：它改写主链提示词，对所有会话生效';
   }
 
-  /// 清除成功 → 一句话（**作用域不同，文案不同**，不许混）。
-  String _clearMessage(ModCommandResult result, {required bool session}) {
+  /// 清除成功 → 一句话（全局语义）。
+  String _clearMessage(ModCommandResult result) {
     final bool cleared = result.result['cleared'] == true;
-    if (session) {
-      final String id = _str(result.result['session_id']);
-      final String target = id.isEmpty ? '当前会话' : '会话 $id';
-      if (!cleared) return '$target 本来就没有绑定角色卡，不用清除';
-      return '已清除$target 的角色卡（其他会话不受影响）';
-    }
     if (!cleared) return '本来就没有导入的角色卡，不用清除';
     final String source = personaCardSourceLabel(
       _str(result.result['card_source']),
@@ -386,7 +343,6 @@ class _PersonaBodyState extends State<_PersonaBody> {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final bool base = !_busy;
-    final bool sessionReady = _hasSession && base;
     final bool hasPicker = _ctx.pickCardFile != null;
     final String cardName = _cardName;
     return Column(
@@ -420,32 +376,20 @@ class _PersonaBodyState extends State<_PersonaBody> {
           runSpacing: Space.s1,
           children: <Widget>[
             FilledButton.tonal(
-              key: const Key('persona-import-session'),
-              onPressed: sessionReady ? () => unawaited(_importPasted()) : null,
+              key: const Key('persona-import'),
+              onPressed: base ? () => unawaited(_importPasted()) : null,
               child: Text(_busy ? '处理中…' : '导入并生效'),
-            ),
-            OutlinedButton(
-              key: const Key('persona-import-global'),
-              onPressed: base ? () => unawaited(_importPastedGlobally()) : null,
-              child: const Text('导入为全局人设'),
             ),
             if (hasPicker)
               OutlinedButton(
                 key: const Key('persona-import-file'),
-                onPressed: sessionReady
-                    ? () => unawaited(_pickAndImport())
-                    : null,
+                onPressed: base ? () => unawaited(_pickAndImport()) : null,
                 child: const Text('选择 PNG 角色卡文件'),
               ),
             TextButton(
-              key: const Key('persona-clear-session'),
-              onPressed: sessionReady ? () => unawaited(_clearSession()) : null,
-              child: const Text('清除当前会话的卡'),
-            ),
-            TextButton(
-              key: const Key('persona-clear-global'),
-              onPressed: base ? () => unawaited(_clearGlobal()) : null,
-              child: const Text('清除全局导入卡'),
+              key: const Key('persona-clear'),
+              onPressed: base ? () => unawaited(_clearImport()) : null,
+              child: const Text('清除导入卡'),
             ),
           ],
         ),
@@ -454,20 +398,9 @@ class _PersonaBodyState extends State<_PersonaBody> {
           child: InlineNotice(
             severity: NoticeSeverity.info,
             dense: true,
-            message: '「导入并生效」只绑定当前会话；'
-                '「导入为全局人设」写主链、对所有会话生效。',
+            message: kPersonaGlobalPathNotice,
           ),
         ),
-        if (!_hasSession)
-          const Padding(
-            padding: EdgeInsets.only(top: Space.s1),
-            child: InlineNotice(
-              severity: NoticeSeverity.warning,
-              dense: true,
-              message: '还没有会话：「导入并生效」不可用——先发一条消息会自动建会话。'
-                  '要让所有会话都换人设，用「导入为全局人设」。',
-            ),
-          ),
         if (!hasPicker)
           const Padding(
             padding: EdgeInsets.only(top: Space.s1),

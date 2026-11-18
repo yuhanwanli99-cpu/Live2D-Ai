@@ -11,6 +11,7 @@ import '../design/tokens.dart';
 import '../state/ui_phase.dart';
 import 'audio_bar.dart';
 import 'error_banner.dart';
+import 'inline_notice.dart';
 import 'message_bubble.dart';
 import 'streaming_indicator.dart';
 import 'theme.dart';
@@ -48,6 +49,11 @@ class ChatPanel extends StatelessWidget {
     this.onEnableSound,
     this.onOpenSettings,
     this.onOpenSessions,
+    this.sessionTitle,
+    this.sessionSubtitle,
+    this.sessionsNotice,
+    this.sessionsNoticeIsError = false,
+    this.onDismissSessionsNotice,
     this.onRetryLast,
     this.announcement,
     this.playingSentenceSeq,
@@ -98,8 +104,34 @@ class ChatPanel extends StatelessWidget {
   /// 设置入口（compact 断点在面板头给一个齿轮按钮）。
   final VoidCallback? onOpenSettings;
 
-  /// 会话列表入口（只有 compact 传；非 compact 的入口在 AppBar）。
+  /// 会话列表入口（**所有断点都传**）。
+  ///
+  /// 2026-11-18：非 compact 也把入口放在这里。顶栏不再有「会话」——那一排
+  /// （状态胶囊 + 连接徽标 + 会话 + 设置）在 900–1000 档会把「会话」挤出黄黑条，
+  /// 而聊天列的头没有第二条出路（那正是审计里的现场）。
   final VoidCallback? onOpenSessions;
+
+  /// 当前会话的标题（**头部的第一行**）。`null` = 外壳没接会话（旧测试的裸泵）。
+  ///
+  /// 它解决的是「不打开底部浮层就不知道这栏字属于哪一次对话」：宽屏只有顶栏
+  /// 一个「会话」按钮、设置侧板一收起，聊天列里没有标题也没有条数。
+  final String? sessionTitle;
+
+  /// 当前会话的副标题（「N 条 · 5 分钟前」）；`null` = 不显示。
+  final String? sessionSubtitle;
+
+  /// 会话存档的一条大白话警告（2026-11-18）。
+  ///
+  /// 两个来源：① 裁掉了会话 / 消息（超上限，以前**静默**丢）；② 写 localStorage
+  /// 失败（无痕 / 配额满，以前整份存档悄悄没了）。两者都在这里上屏——用户至少
+  /// 知道「重开可能不在」，而不是刷新之后才发现对话消失。
+  /// `null` = 没有要说的事。
+  final String? sessionsNotice;
+
+  /// [sessionsNotice] 是不是**失败**（红）而不是「被裁剪」（黄）。
+  final bool sessionsNoticeIsError;
+
+  final VoidCallback? onDismissSessionsNotice;
 
   /// 失败气泡的「重试」= **重发上一条用户消息**。
   ///
@@ -180,7 +212,16 @@ class ChatPanel extends StatelessWidget {
             // 规格 §6.3 硬规则 1 明确禁止（同类项目的原病就是 6 个状态共用 1 种
             // 视觉，以及反过来一个状态散成多处）。测试里有一条断言
             // 「AppBar 只有 1 个状态胶囊」把这个重复钉死。
-            // ── 头部：会话 / 设置 ──
+            // ── 头部：**当前会话** + 会话 / 设置 ──
+            //
+            // 2026-11-18：头部必须有当前会话标题。审计现场：宽屏只有顶栏一个
+            // 「会话」按钮（`onOpenSessions: compact ? … : null` 让非 compact 连
+            // 头都不渲染），设置侧板一收起，聊天列里既没有标题也没有条数——
+            // 用户看不出这栏字属于哪一次对话。
+            //
+            // 入口分工仍是「一处」：compact 的会话 / 设置都在这里（AppBar 太窄），
+            // 非 compact 的「设置」在 AppBar，而「会话」**只在这里**（顶栏不再放，
+            // 少一个按钮就不会在 900–1000 档把它挤出去）。
             //
             // 2026-09-27：头部**不再是一行裸 widget**，而是「面板自己的标题区」——
             // 一条 hairline 把标题区与内容区分开，两侧的面是**同一张**
@@ -190,7 +231,9 @@ class ChatPanel extends StatelessWidget {
             // 为什么之前看不出来是头部：它和内容共用一个 `ColoredBox`，
             // 中间什么都没有，于是一眼看过去是「聊天面板顶部有一排按钮」，
             // 而不是「这个面板有标题区」。
-            if (onOpenSettings != null || onOpenSessions != null)
+            if (sessionTitle != null ||
+                onOpenSettings != null ||
+                onOpenSessions != null)
               DecoratedBox(
                 decoration: BoxDecoration(
                   border: Border(bottom: BorderSide(color: appColors.hairline)),
@@ -204,7 +247,36 @@ class ChatPanel extends StatelessWidget {
                   ),
                   child: Row(
                     children: <Widget>[
-                      const Spacer(),
+                      Expanded(
+                        child: sessionTitle == null
+                            ? const SizedBox.shrink()
+                            : InkWell(
+                                // 标题本身就是「打开会话列表」的入口：IM 的常规，
+                                // 也让「不点按钮就不知道这栏属于哪段」不再成立。
+                                onTap: onOpenSessions,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: <Widget>[
+                                    Text(
+                                      sessionTitle!,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.titleSmall,
+                                    ),
+                                    if (sessionSubtitle != null)
+                                      Text(
+                                        sessionSubtitle!,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: appColors.contentMuted,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                      ),
                       // 文字按钮（与 AppBar 里那两个同源同文案）——用户裁决
                       // 「尽量少用图片，用文字做按钮」。
                       //
@@ -224,8 +296,17 @@ class ChatPanel extends StatelessWidget {
                   ),
                 ),
               ),
+            if (sessionsNotice != null)
+              InlineNotice(
+                message: sessionsNotice!,
+                severity: sessionsNoticeIsError
+                    ? NoticeSeverity.danger
+                    : NoticeSeverity.warning,
+                onDismiss: onDismissSessionsNotice,
+              ),
             if (error != null)
               ErrorBanner(
+
                 message: error!,
                 onDismiss: onDismissError,
                 actions: errorActions,

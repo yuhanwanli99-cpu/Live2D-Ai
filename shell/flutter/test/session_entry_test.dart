@@ -1,12 +1,18 @@
-/// 会话入口的**接线**（2026-09-11；2026-10-08 补「浮层听 store」）。
+/// 会话入口的**接线**（2026-09-11；2026-10-08 补「浮层听 store」；2026-11-18 补
+/// 「会话栏 + 聊天列头常驻标题」）。
 ///
 /// `session_sheet_test.dart` 验的是浮层自己的行为；本文件验的是
 /// **外壳真的把入口画出来了、并且真的把回调接上了**——那两件事分开验，
 /// 是因为 2026-09-11 修「设置面板是空壳」时学到的教训：
 /// 组件写好了但没人接线，测试全绿而界面上根本点不到。
 ///
-/// 2026-10-08 追加：浮层必须**听 store**——删掉一行后浮层不关、该行立刻消失
-/// （旧实现把列表快照抄进闭包，而 `showModalBottomSheet` 的 builder 只跑一次）。
+/// 2026-11-18 的关键变化：入口**不再只在 compact 的聊天列头**。宽屏（≥900）
+/// 的顶栏删掉了「会话」（那一排会把它挤出黄黑条），改成：
+/// - 左侧会话栏常驻（expanded 248 px 列表 / 其余窄轨，窄轨留当前会话名字）；
+/// - 聊天列头**所有断点**都有当前会话标题 + 条数 + 「会话」按钮。
+///
+/// 本文件的断言按「同一段文字会在哪几处出现」逐条写死，正是为了防它悄悄退回
+/// 「不打开浮层就不知道在哪段对话」。
 library;
 
 import 'package:flutter/material.dart';
@@ -15,22 +21,32 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:live2d_ai_shell/settings/display_prefs.dart';
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/app/app_shell.dart';
+import 'package:live2d_ai_shell/chat/chat_message.dart';
 import 'package:live2d_ai_shell/chat/chat_session.dart';
 import 'package:live2d_ai_shell/live2d/live2d_bridge.dart';
 import 'package:live2d_ai_shell/settings/settings_sections.dart';
 import 'package:live2d_ai_shell/state/ui_phase.dart';
+import 'package:live2d_ai_shell/ui/session_rail.dart';
 import 'package:live2d_ai_shell/ui/session_sheet.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
-ChatSession session(String id, String title, {int minute = 0}) => ChatSession(
-  id: id,
-  title: title,
-  createdAt: DateTime(2026, 9, 11, 12, minute),
-  updatedAt: DateTime(2026, 9, 11, 12, minute),
-);
+ChatSession session(String id, String title, {int minute = 0, int messages = 0}) {
+  final ChatSession s = ChatSession(
+    id: id,
+    title: title,
+    createdAt: DateTime(2026, 9, 11, 12, minute),
+    updatedAt: DateTime(2026, 9, 11, 12, minute),
+  );
+  for (int i = 0; i < messages; i++) {
+    s.messages.add(ChatMessage(role: ChatRole.user, text: '第 $i 条'));
+  }
+  return s;
+}
 
-/// 会话宿主的**最小替身**：与 `main.dart` 的 `ChatController` 同形——
-/// 一个 `ChangeNotifier`，改完 store 就 `notifyListeners()`。
+/// 浮层里的文本（rail / 聊天列头也有同名文字，不能直接 find.text）。
+Finder inSheet(String text) =>
+    find.descendant(of: find.byType(SessionSheet), matching: find.text(text));
+
 class _SessionHost extends ChangeNotifier {
   _SessionHost(List<ChatSession> sessions, String? activeId)
     : store = ChatSessionStore(
@@ -88,7 +104,6 @@ Widget shell({
       stagePhase: Live2DBridgePhase.ready,
       sessions: host.store.byRecency,
       activeSessionId: host.store.activeId,
-      // 浮层在**自己的 builder 里**读这两样（见 ui/session_sheet.dart）。
       sessionsListenable: host,
       readSessions: () => host.store.byRecency,
       readActiveSessionId: () => host.store.activeId,
@@ -114,29 +129,91 @@ Future<void> pumpAt(WidgetTester tester, double width, Widget widget) async {
 }
 
 void main() {
-  group('入口位置：非 compact 在 AppBar，compact 在聊天头', () {
-    testWidgets('expanded：AppBar 有「会话」', (WidgetTester tester) async {
-      await pumpAt(tester, 1400, shell(sessions: const <ChatSession>[]));
+  group('入口位置：顶栏不再有「会话」；会话栏 + 聊天列头常驻标题', () {
+    testWidgets('expanded：会话栏展开、聊天头有标题、顶栏没有「会话」', (
+      WidgetTester tester,
+    ) async {
+      await pumpAt(
+        tester,
+        1400,
+        shell(
+          sessions: <ChatSession>[
+            session('a', '甲会话', minute: 0),
+            session('b', '乙会话', minute: 1),
+          ],
+          activeId: 'b',
+        ),
+      );
+
+      expect(find.byType(SessionRail), findsOneWidget);
+      expect(
+        tester.getSize(find.byType(SessionRail)).width,
+        kSessionRailExpandedWidth,
+      );
+      expect(
+        find.descendant(of: find.byType(AppBar), matching: find.text('会话')),
+        findsNothing,
+        reason: '顶栏那一排（胶囊/徽标/会话/设置）会在 900–1000 档把「会话」挤出黄黑条',
+      );
+      // 聊天列头一个「会话」按钮 + 当前标题两处（会话栏一行 + 列头）。
       expect(find.text('会话'), findsOneWidget);
+      expect(find.text('乙会话'), findsNWidgets(2));
       expect(find.text('设置'), findsOneWidget, reason: '设置入口不该被挤掉');
     });
 
-    testWidgets('medium：AppBar 也有「会话」', (WidgetTester tester) async {
-      await pumpAt(tester, 1000, shell(sessions: const <ChatSession>[]));
-      expect(find.text('会话'), findsOneWidget);
+    testWidgets('medium：只有 52 px 窄轨，窄轨上仍是当前会话名字', (
+      WidgetTester tester,
+    ) async {
+      await pumpAt(
+        tester,
+        1000,
+        shell(
+          sessions: <ChatSession>[
+            session('a', '甲会话', minute: 0),
+            session('b', '乙会话', minute: 1),
+          ],
+          activeId: 'b',
+        ),
+      );
+
+      expect(
+        tester.getSize(find.byType(SessionRail)).width,
+        kSessionRailCollapsedWidth,
+      );
+      expect(
+        find.descendant(of: find.byType(AppBar), matching: find.text('会话')),
+        findsNothing,
+      );
+      expect(find.text('乙会话'), findsNWidgets(2), reason: '窄轨竖排 + 列头');
     });
 
-    testWidgets('compact：入口在聊天面板头（AppBar 太窄，不放）', (WidgetTester tester) async {
-      await pumpAt(tester, 500, shell(sessions: const <ChatSession>[]));
-      // AppBar 里**不**放（那一屏还要塞状态胶囊与连接徽标）。
-      // 但聊天头里有，所以总数仍是 1。
+    testWidgets('compact：没有会话栏；入口与标题都在聊天列头', (
+      WidgetTester tester,
+    ) async {
+      await pumpAt(
+        tester,
+        500,
+        shell(
+          sessions: <ChatSession>[session('a', '乙会话')],
+          activeId: 'a',
+        ),
+      );
+
+      expect(find.byType(SessionRail), findsNothing);
+      expect(
+        find.descendant(of: find.byType(AppBar), matching: find.text('会话')),
+        findsNothing,
+      );
       expect(find.text('会话'), findsOneWidget);
+      expect(find.text('乙会话'), findsOneWidget);
       expect(find.text('设置'), findsOneWidget);
     });
   });
 
   group('入口真的接上了回调（不是画了个死按钮）', () {
-    testWidgets('点「会话」→ 浮层打开，列出外壳传进来的会话', (WidgetTester tester) async {
+    testWidgets('点「会话」→ 浮层打开，列出外壳传进来的会话', (
+      WidgetTester tester,
+    ) async {
       await pumpAt(
         tester,
         1400,
@@ -153,8 +230,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(SessionSheet), findsOneWidget);
-      expect(find.text('甲会话'), findsOneWidget);
-      expect(find.text('乙会话'), findsOneWidget);
+      expect(inSheet('甲会话'), findsOneWidget);
+      expect(inSheet('乙会话'), findsOneWidget);
     });
 
     testWidgets('在建浮层里点一行 → onSelectSession 收到那个 id', (
@@ -176,7 +253,7 @@ void main() {
 
       await tester.tap(find.text('会话'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('甲会话'));
+      await tester.tap(inSheet('甲会话'));
       await tester.pumpAndSettle();
 
       expect(picked, <String>['a']);
@@ -187,18 +264,23 @@ void main() {
       await pumpAt(
         tester,
         1400,
-        shell(sessions: const <ChatSession>[], onNewSession: () => created++),
+        shell(
+          sessions: <ChatSession>[],
+          onNewSession: () => created++,
+        ),
       );
 
       await tester.tap(find.text('会话'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('新建'));
+      await tester.tap(inSheet('新建'));
       await tester.pumpAndSettle();
 
       expect(created, 1);
     });
 
-    testWidgets('重命名回调贯通（浮层 → 外壳 → 宿主）', (WidgetTester tester) async {
+    testWidgets('重命名回调贯通（浮层 → 外壳 → 宿主）', (
+      WidgetTester tester,
+    ) async {
       final List<(String, String)> renamed = <(String, String)>[];
       await pumpAt(
         tester,
@@ -212,11 +294,8 @@ void main() {
 
       await tester.tap(find.text('会话'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('改名'));
+      await tester.tap(inSheet('改名'));
       await tester.pumpAndSettle();
-      // **必须限定在浮层内**：聊天面板自己也有一个 `TextField`（输入框），
-      // `find.byType(TextField)` 会匹配到两个 —— 这正是「测试要像真界面一样
-      // 精确」的一个小例子。
       await tester.enterText(
         find.descendant(
           of: find.byType(SessionSheet),
@@ -224,7 +303,7 @@ void main() {
         ),
         '新名',
       );
-      await tester.tap(find.text('确定'));
+      await tester.tap(inSheet('确定'));
       await tester.pumpAndSettle();
 
       expect(renamed, <(String, String)>[('a', '新名')]);
@@ -244,9 +323,9 @@ void main() {
 
       await tester.tap(find.text('会话'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('删除'));
+      await tester.tap(inSheet('删除'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('删除').last);
+      await tester.tap(inSheet('删除').last);
       await tester.pumpAndSettle();
 
       expect(deleted, <String>['a']);
@@ -271,18 +350,17 @@ void main() {
 
       await tester.tap(find.text('会话'));
       await tester.pumpAndSettle();
-      expect(find.text('要删的'), findsOneWidget);
+      expect(inSheet('要删的'), findsOneWidget);
 
-      // 两行各有一个「删除」：先按行定位，再在该行里点（浮层有两行）。
       final Finder targetRow = find.ancestor(
-        of: find.text('要删的'),
+        of: inSheet('要删的'),
         matching: find.byType(ListTile),
       );
       await tester.tap(
         find.descendant(of: targetRow, matching: find.text('删除')),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('删除').last);
+      await tester.tap(inSheet('删除').last);
       await tester.pumpAndSettle();
 
       expect(
@@ -291,11 +369,11 @@ void main() {
         reason: '删一行不该把浮层关掉（用户可能还要继续删）',
       );
       expect(
-        find.text('要删的'),
+        inSheet('要删的'),
         findsNothing,
         reason: '浮层读的还是打开那一刻的快照 —— 删掉的行还在',
       );
-      expect(find.text('留着的'), findsOneWidget);
+      expect(inSheet('留着的'), findsOneWidget);
     });
 
     testWidgets('重命名之后行标题跟着变（同一个 builder 重跑）', (
@@ -312,7 +390,7 @@ void main() {
 
       await tester.tap(find.text('会话'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('改名'));
+      await tester.tap(inSheet('改名'));
       await tester.pumpAndSettle();
       await tester.enterText(
         find.descendant(
@@ -321,11 +399,11 @@ void main() {
         ),
         '新名',
       );
-      await tester.tap(find.text('确定'));
+      await tester.tap(inSheet('确定'));
       await tester.pumpAndSettle();
 
-      expect(find.text('新名'), findsOneWidget);
-      expect(find.text('旧名'), findsNothing);
+      expect(inSheet('新名'), findsOneWidget);
+      expect(inSheet('旧名'), findsNothing);
     });
   });
 }

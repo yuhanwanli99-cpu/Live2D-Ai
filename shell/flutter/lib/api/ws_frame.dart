@@ -92,7 +92,7 @@ class TextDeltaEvent extends WsEvent {
 ///    才发），思考没有声音可对；
 /// 2. **不能混**：若把思考当正文追加到气泡里，界面会把内心独白当回复显示。
 ///
-/// 它只进气泡的「思考」折叠区，**不落盘**（见 `ChatMessage.reasoning`）。
+/// 它只进气泡的「思考」折叠区；落盘时按 `ChatMessage.reasoning` 的上限截断。
 class ReasoningDeltaEvent extends WsEvent {
   const ReasoningDeltaEvent({this.epoch, this.text, super.seq, super.ts});
 
@@ -128,14 +128,30 @@ class TextFallbackEvent extends WsEvent {
 /// 形状（`seq`/`ts` 由 per-connection 包装加在**根**上，与 [TextFallbackEvent]
 /// 同构）：`{"type":"user_line","data":{"epoch":N,"text":"…"}}`。
 /// 旧页面遇到不认识的 type 会落到 [UnknownWsEvent] 并忽略——向后兼容。
+///
+/// **2026-11-18（#19）新增可选 `session_id`**：这一轮**属于哪个会话**。
+/// 帧是异步到达的，用户完全可能在它到达前已经切走——不带这个字段时，前端只能
+/// 把 A 的那句话写进「当时的活动会话」B（历史串台）。可选 = 双向兼容：旧前端
+/// 忽略未知键，旧服务端缺这个键时前端回落活动会话。
 class UserLineEvent extends WsEvent {
-  const UserLineEvent({required this.epoch, this.text, super.seq, super.ts});
+  const UserLineEvent({
+    required this.epoch,
+    this.text,
+    this.sessionId,
+    super.seq,
+    super.ts,
+  });
 
   /// 该轮的业务代次（与 `turn_state` / `text_delta` 同源）。
   final int epoch;
 
   /// **本轮输入正文**；缺字段 / 非字符串 → `null`（调用方据此不写空话）。
   final String? text;
+
+  /// 这一轮**所属会话 id**（可选；缺字段 / 非字符串 → `null` = 全局桶）。
+  ///
+  /// 前端按它把用户句写回**真正发起这一轮的会话**，而不是「现在的活动会话」。
+  final String? sessionId;
 }
 
 /// 一条导演动作 cue（action_cue.payload.cues[] 的元素）。
@@ -501,9 +517,12 @@ WsEvent? parseWsFrame(String raw) {
 
     case 'user_line':
       // 同 reasoning_delta / text_fallback：新增 type，旧客户端忽略 = 兼容。
+      // session_id 是 2026-11-18（#19）新增的**可选**字段：缺失 = 旧服务端 /
+      // 全局桶，调用方回落活动会话（与缺 epoch 的宽容口径一致）。
       return UserLineEvent(
         epoch: _int(data['epoch']),
         text: _str(data['text']),
+        sessionId: _str(data['session_id']),
         seq: seq,
         ts: ts,
       );

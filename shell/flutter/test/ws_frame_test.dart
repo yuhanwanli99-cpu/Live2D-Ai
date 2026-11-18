@@ -99,9 +99,11 @@ void main() {
     });
 
     test('text_delta：sentence_seq 与音频帧同源', () {
-      final TextDeltaEvent e = parseWsFrame(
-        '{"type":"text_delta","data":{"epoch":2,"ts_ms":10,"sentence_seq":3,"text":"第二句。"}}',
-      )! as TextDeltaEvent;
+      final TextDeltaEvent e =
+          parseWsFrame(
+                '{"type":"text_delta","data":{"epoch":2,"ts_ms":10,"sentence_seq":3,"text":"第二句。"}}',
+              )!
+              as TextDeltaEvent;
       expect(e.sentenceSeq, 3);
       expect(e.text, '第二句。');
     });
@@ -584,8 +586,7 @@ void _userLineFrameTests() {
       expect(noEpoch.epoch, 0, reason: '缺 epoch 按 0（与 turn_state 同一约定）');
 
       final UserLineEvent badData =
-          parseWsFrame('{"type":"user_line","data":"oops"}')!
-              as UserLineEvent;
+          parseWsFrame('{"type":"user_line","data":"oops"}')! as UserLineEvent;
       expect(badData.epoch, 0);
       expect(badData.text, isNull);
     });
@@ -613,6 +614,41 @@ void _userLineFrameTests() {
       expect(ev, isA<UserLineEvent>());
       expect(ev, isNot(isA<TextDeltaEvent>()), reason: '退化成 delta 会被当正文追加');
       expect(ev, isNot(isA<UnknownWsEvent>()), reason: '认得它才谈得上写进会话');
+    });
+  });
+
+  /// **#19（2026-11-18）**：帧上**可选**的 `session_id` = 这一轮属于哪个会话。
+  ///
+  /// 帧是异步到达的，用户完全可能在它到达前已经切走——前端按它把用户句写回
+  /// 真正发起这一轮的会话，而不是「当时的活动会话」。缺字段 = 旧服务端 / 全局桶
+  /// → `null`，调用方回落活动会话（向后兼容）。
+  group('user_line 的可选 session_id（#19）', () {
+    test('带了就解析出来（与 epoch/text 同一个 data 对象）', () {
+      final UserLineEvent u =
+          parseWsFrame(
+                '{"type":"user_line","data":{"epoch":3,"text":"x",'
+                '"session_id":"session-a"}}',
+              )!
+              as UserLineEvent;
+      expect(u.sessionId, 'session-a');
+      expect(u.epoch, 3);
+      expect(u.text, 'x');
+    });
+
+    test('缺字段 → null（旧服务端 / 全局桶，回落活动会话）', () {
+      final UserLineEvent u =
+          parseWsFrame('{"type":"user_line","data":{"epoch":1,"text":"x"}}')!
+              as UserLineEvent;
+      expect(u.sessionId, isNull);
+    });
+
+    test('非字符串 → null，不抛（宽容解析，绝不把 JSON 当会话 id）', () {
+      final UserLineEvent u =
+          parseWsFrame(
+                '{"type":"user_line","data":{"epoch":1,"session_id":42}}',
+              )!
+              as UserLineEvent;
+      expect(u.sessionId, isNull);
     });
   });
 }

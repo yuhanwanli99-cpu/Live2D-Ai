@@ -149,7 +149,11 @@ pub(super) async fn run_forever(
             // 子系统仍保留但**无驱动方**（待机生命体征 `IdleState` 是另一套机制）。
             request = say_rx.recv() => match request {
                 Some(request) => {
-                    let SayRequest { text, session } = request;
+                    let SayRequest {
+                        text,
+                        session,
+                        history,
+                    } = request;
                     // 3.0 队首第一片（2026-10-17）：一轮在飞标志。2026-10-19 起
                     // 消费者（外部文本端点的忙时合并窗口）已随 `external-input`
                     // Mod 移出主仓，标志暂时无人读；仍按原语义在本轮任何事件之前
@@ -185,7 +189,8 @@ pub(super) async fn run_forever(
                         f(ModEventTopic::TurnPrompt, &text, session.as_deref());
                     }
                     // 本轮输入正文先于任何 text_delta 给前端（执行单 2026-10-14 §3）。
-                    handlers::emit_user_line(&emit, epoch, &text);
+                    // 带上会话 id（#19）：前端按它把用户句写回真正发起这一轮的会话。
+                    handlers::emit_user_line(&emit, epoch, &text, session.as_deref());
 
                     // **L1 会话绑定**：本轮 system_prompt 的**唯一**决议点。
                     //
@@ -233,7 +238,7 @@ pub(super) async fn run_forever(
                     let close = turn::run_one_turn(
                         &mut root, &mut engine, &mut audio, &mut say_rx, &mut control_rx,
                         &mut finish_rx, current_epoch.as_ref(), next_turn_id, epoch, text,
-                        &mut quitting, &emit,
+                        &history, &mut quitting, &emit,
                     )
                     .await;
                     // 本轮收口：清零「一轮在飞」标志（在 TurnEnded /

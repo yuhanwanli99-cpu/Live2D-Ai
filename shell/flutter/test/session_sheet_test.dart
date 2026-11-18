@@ -45,6 +45,9 @@ Widget harness({
   void Function(String id, String title)? onRename,
   ValueChanged<String>? onDelete,
   VoidCallback? onClose,
+  String? trimNotice,
+  String? loadWarning,
+  bool saveFailed = false,
 }) => MaterialApp(
   theme: buildAppTheme(),
   home: Scaffold(
@@ -56,6 +59,9 @@ Widget harness({
       onRename: onRename ?? (_, _) {},
       onDelete: onDelete ?? (_) {},
       onClose: onClose,
+      trimNotice: trimNotice,
+      loadWarning: loadWarning,
+      saveFailed: saveFailed,
     ),
   ),
 );
@@ -104,7 +110,7 @@ void main() {
         harness(sessions: <ChatSession>[session('a', '甲')], activeId: 'a'),
       );
       await tester.pump();
-      expect(find.text('空会话'), findsOneWidget);
+      expect(find.textContaining('空会话'), findsOneWidget);
     });
 
     testWidgets('一个会话都没有时给说明 + 指向「新建」（不是一片空白）', (WidgetTester tester) async {
@@ -402,6 +408,154 @@ void main() {
       );
       // 内容确实在浮层里。
       expect(find.textContaining('还没有会话'), findsOneWidget);
+    });
+  });
+
+  group('窄屏不溢出 + 会话 id 短提示（#6 / #7）', () {
+    testWidgets('320 px 宽：长标题 + 两个动作按钮，整行**不溢出**', (WidgetTester tester) async {
+      // #6：动作按钮以前放在 `ListTile.trailing` 里——320 px 时标题被挤成省略号、
+      // 按钮组还可能溢出。现在按钮在 subtitle 第二行右对齐。窄屏就是这条改动的
+      // 理由，所以直接在最窄的 320 px 上验「没有 RenderFlex overflow」。
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      final ChatSession longTitle = session(
+        '1757654321123456-1',
+        '一个很长很长的会话标题用来挤压这一行',
+        messages: 12,
+      );
+      await tester.pumpWidget(
+        harness(sessions: <ChatSession>[longTitle], activeId: longTitle.id),
+      );
+      await tester.pump();
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: '窄屏下出现了 RenderFlex overflow',
+      );
+      expect(find.text('一个很长很长的会话标题用来挤压这一行'), findsOneWidget);
+      expect(find.text('改名'), findsOneWidget);
+      expect(find.text('删除'), findsOneWidget);
+    });
+
+    testWidgets('副标题带「编号 + id 末尾几位」：标题相同也能对上号', (WidgetTester tester) async {
+      final ChatSession s = session('1757654321123456-7', '甲', messages: 2);
+      await tester.pumpWidget(
+        harness(sessions: <ChatSession>[s], activeId: s.id),
+      );
+      await tester.pump();
+      expect(find.textContaining('编号 3456-7'), findsOneWidget);
+      expect(find.textContaining('2 条'), findsOneWidget, reason: '原来的条数信息要留着');
+    });
+
+    testWidgets('空会话的副标题也带编号（不是只有「空会话」）', (WidgetTester tester) async {
+      final ChatSession s = session('abc-12', '甲');
+      await tester.pumpWidget(
+        harness(sessions: <ChatSession>[s], activeId: s.id),
+      );
+      await tester.pump();
+      expect(find.textContaining('空会话 · 编号 abc-12'), findsOneWidget);
+    });
+  });
+
+  group('重命名的空标题语义显式化（#13）', () {
+    testWidgets('hint 明说「留空 = 恢复自动标题」', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        harness(sessions: <ChatSession>[session('a', '')], activeId: 'a'),
+      );
+      await tester.pump();
+      await tester.tap(find.text('改名'));
+      await tester.pump();
+      expect(find.text('留空 = 恢复自动标题（用第一条消息）'), findsOneWidget);
+    });
+
+    testWidgets('清空后提交：行内确认「已恢复自动标题：<自动标题>」，不新开 overlay', (
+      WidgetTester tester,
+    ) async {
+      final ChatSession s = session('a', '旧名字');
+      s.messages.add(user('原始内容'));
+      await tester.pumpWidget(
+        harness(
+          sessions: <ChatSession>[s],
+          activeId: 'a',
+          // 模拟真实宿主：回调把标题写回 store（空串 = 恢复自动标题）。
+          onRename: (String id, String title) => s.title = title.trim(),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('改名'));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), '   ');
+      await tester.tap(find.text('确定'));
+      await tester.pump();
+
+      expect(find.text('已恢复自动标题：原始内容'), findsOneWidget);
+      // 确认语必须是**行内**的：Dialog / SnackBar 都是新的 overlay entry，
+      // 压在舞台上会看得见点不着（见文件头注）。
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(Dialog), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
+    testWidgets('填了新名字就不出现「已恢复」提示', (WidgetTester tester) async {
+      final ChatSession s = session('a', '旧名字');
+      await tester.pumpWidget(
+        harness(
+          sessions: <ChatSession>[s],
+          activeId: 'a',
+          onRename: (String id, String title) => s.title = title.trim(),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('改名'));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), '新名字');
+      await tester.tap(find.text('确定'));
+      await tester.pump();
+
+      expect(find.text('新名字'), findsOneWidget);
+      expect(find.textContaining('已恢复自动标题'), findsNothing);
+    });
+  });
+
+  group('存档状态提示（#8 / #9 / #10）：只说事实', () {
+    testWidgets('落盘失败：说「会话只保留在本次页面里」', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        harness(
+          sessions: <ChatSession>[session('a', '甲')],
+          activeId: 'a',
+          saveFailed: true,
+        ),
+      );
+      await tester.pump();
+      expect(find.textContaining('只保留在本次页面里'), findsOneWidget);
+    });
+
+    testWidgets('裁剪 / 读取损坏提示能显示出来', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        harness(
+          sessions: <ChatSession>[session('a', '甲')],
+          activeId: 'a',
+          trimNotice: '会话超过上限，已自动删除 1 个。',
+          loadWarning: '有 2 条会话存档读不出来，已跳过。',
+        ),
+      );
+      await tester.pump();
+      expect(find.textContaining('已自动删除 1 个'), findsOneWidget);
+      expect(find.textContaining('有 2 条会话存档读不出来'), findsOneWidget);
+    });
+
+    testWidgets('没有提示时不显示（不占地方）', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        harness(sessions: <ChatSession>[session('a', '甲')], activeId: 'a'),
+      );
+      await tester.pump();
+      expect(find.textContaining('只保留在本次页面里'), findsNothing);
+      expect(find.textContaining('读不出来'), findsNothing);
     });
   });
 }

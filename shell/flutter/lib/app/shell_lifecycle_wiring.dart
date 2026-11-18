@@ -264,11 +264,56 @@ extension _ShellLifecycleWiring on _ShellRootState {
   }
 }
 
-/// 已切到桌宠后的占位页：一句提示，整棵外壳（含 /render iframe）离树。
+/// 已切到桌宠后的**模式页**（2026-11-18）。
+///
+/// 从前这里只有一句「已进入桌宠，请关闭此页」：会话列表、当前标题、输入框一起
+/// 卸掉，而浏览器那页（`window.close()` 对非脚本打开的窗口无效，通常还开着）就
+/// 停在一句占位文案上——用户既看不出在哪段对话里，也不能切换会话。
+///
+/// 现在整棵 `AppShell` 仍然离树（避免网页 iframe 与宠物窗两只皮套同时跑），但那
+/// 份状态**没有丢**：会话在宿主的 `ChatSessionStore` 里，本页是同一份数据的第二个
+/// 视图，切换 / 新建走同一条回调；「返回工作台」先让服务端回到 web 模式（= 关掉
+/// 宠物窗），再把外壳挂回来——否则回去以后又是两只皮套。
+///
 /// 放在 part 里让 `main.dart` 不越过 800 行棘轮。
-Widget deskPetExitPage() => const Scaffold(
-  body: Center(child: Text('已进入桌宠，请关闭此页')),
-);
+extension _ShellDeskPetModeView on _ShellRootState {
+Widget _deskPetModeView() {
+  final String? activeId = _chat.sessions.activeId;
+  String? activeTitle;
+  String? activeMeta;
+  for (final ChatSession s in _chat.sessions.byRecency) {
+    if (s.id != activeId) continue;
+    activeTitle = s.displayTitle;
+    activeMeta = s.messages.isEmpty
+        ? '空会话'
+        : '${s.messages.length} 条 · ${relativeTime(s.updatedAt, now: DateTime.now())}';
+    break;
+  }
+  return DeskPetModePage(
+    sessions: _chat.sessions.byRecency,
+    activeId: activeId,
+    activeTitle: activeTitle,
+    activeMeta: activeMeta,
+    onSelect: _chat.selectSession,
+    onNew: _chat.newSession,
+    onBack: () => unawaited(_leaveDeskPetMode()),
+  );
+}
+
+/// 「返回工作台」：先回 web 模式（关宠物窗），再把外壳挂回来。
+///
+/// 服务端调用失败也照常返回（浏览器这一页不该被一扇关不掉的窗锁死）；失败时
+/// 页面上那句提示就是出路（宠物窗右键「回到 web 版本」）。
+Future<void> _leaveDeskPetMode() async {
+  try {
+    await _api.setDeskPetMode('web');
+  } catch (_) {
+    // 静默：返回工作台是用户意图，不能因为一次 HTTP 失败把人钉在占位页上。
+  }
+  if (!mounted) return;
+  _rebuild(() => _enteredDeskPet = false);
+}
+}
 
 /// 「先进网页，再切桌宠」的按钮回调（2026-11-17）。
 ///

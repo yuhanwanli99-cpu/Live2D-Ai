@@ -7,6 +7,13 @@ class AppShellState extends State<AppShell> {
   /// 内联侧板是否展开（expanded 专用；浮层宿主由路由自己管生命周期）。
   bool settingsOpen = false;
 
+  /// 左侧会话栏是否展开（`null` = 跟随断点：expanded 默认展开，medium 永远窄轨）。
+  ///
+  /// 2026-11-18：会话栏常驻在舞台左边（会话导航），与 2026-09-11 删掉的设置
+  /// rail 不是同一件事——设置仍只有面板内 chip 行一个真身。medium 不允许展开：
+  /// 248 + 舞台 + 320 会把舞台压到 `NavMetrics.stageMinWidth` 以下。
+  bool? _sessionRailExpanded;
+
   /// **内部**分区状态。
   ///
   /// 为什么需要它，而不是直接读 `widget.section`：
@@ -109,6 +116,51 @@ class AppShellState extends State<AppShell> {
     widget.onSectionChanged?.call(section);
   }
 
+  /// 会话存档要上屏的一句话（裁剪 / 读档损坏 / 写盘失败）。
+  ///
+  /// 2026-11-18：这三件事以前**全是静默的**——超上限丢会话、一条坏数据整份回空、
+  /// localStorage 写失败吞掉；用户刷新之后发现东西没了，界面一句解释都没有。
+  /// 优先级：写盘失败（最严重，下一次刷新就没了）> 读档损坏 > 裁剪。
+  String? get _sessionsNotice {
+    final ChatSessionStore? store = widget.sessionStore;
+    if (store == null) return null;
+    if (store.saveFailed) return kSessionsNotPersistedNote;
+    return store.loadWarning ?? store.trimNotice;
+  }
+
+  bool get _sessionsNoticeIsError => widget.sessionStore?.saveFailed ?? false;
+
+  /// 关掉这条提示（清掉对应标记；下一次真的再发生会重新出现）。
+  void _dismissSessionsNotice() {
+    final ChatSessionStore? store = widget.sessionStore;
+    if (store == null) return;
+    setState(() {
+      store.clearSaveFailure();
+      store.clearLoadWarning();
+      store.clearTrimNotice();
+    });
+  }
+
+  /// 当前活动会话（外壳只读快照；会话数据的真身在 `ChatSessionStore`）。
+  ChatSession? get _activeSession {
+    final String? id = widget.activeSessionId;
+    if (id == null) return null;
+    for (final ChatSession s in widget.sessions) {
+      if (s.id == id) return s;
+    }
+    return null;
+  }
+
+  /// 会话列头部第二行：「N 条 · 5 分钟前」/「空会话」。
+  String? get _activeSessionSubtitle {
+    final ChatSession? session = _activeSession;
+    if (session == null) return null;
+    final int n = session.messages.length;
+    final DateTime? at = session.lastMessageAt;
+    if (n == 0 || at == null) return '空会话';
+    return '$n 条 · ${relativeTime(at, now: DateTime.now())}';
+  }
+
   /// 打开会话列表（底部浮层）。
   ///
   /// 与设置浮层同一套宿主约定：`showModalBottomSheet` + 指针垫层
@@ -125,6 +177,11 @@ class AppShellState extends State<AppShell> {
     onRename: (String id, String title) =>
         widget.onRenameSession?.call(id, title),
     onDelete: (String id) => widget.onDeleteSession?.call(id),
+    // 会话存档的三条警告也带进浮层：用户正是在这里管理会话，
+    // 「刚被裁掉的那条」必须在这一屏说得清。
+    trimNotice: widget.sessionStore?.trimNotice,
+    loadWarning: widget.sessionStore?.loadWarning,
+    saveFailed: widget.sessionStore?.saveFailed ?? false,
   );
 
   /// 「设置」按钮 / compact 聊天面板头的入口 → 打开设置。
@@ -345,11 +402,39 @@ class AppShellState extends State<AppShell> {
 
           // ── 关键：三种断点共用同一个 Flex，只换 direction 与子项 flex。
           //    子树形状不变 ⇒ 舞台 Element 不被反激活 ⇒ iframe 不重建。 ──
+          final bool sessionRailExpanded =
+              _sessionRailExpanded ?? sizeClass.isExpanded;
+
           final Widget body = Flex(
             direction: compact ? Axis.vertical : Axis.horizontal,
             children: <Widget>[
+              // 左侧会话栏（2026-11-18）：常驻导航，不是浮层。
+              //
+              // 它解决「宽屏上会话信息只挂在顶栏两个字上」：展开时是一列会话，
+              // 收起 / medium 时留 52 px 窄轨 + **当前会话名字**（竖排）。
+              // 它在 Flex 里 ⇒ 不压舞台、不用指针垫层；舞台列让出固定宽度，
+              // 由 `sessionRailWidthFor` 一处算（测试同样读它）。
+              if (!compact)
+                SessionRail(
+                  sessions: widget.sessions,
+                  activeId: widget.activeSessionId,
+                  expanded: sessionRailExpanded,
+                  canExpand: sizeClass.isExpanded,
+                  onToggle: () => setState(
+                    () => _sessionRailExpanded = !sessionRailExpanded,
+                  ),
+                  onSelect: (String id) => widget.onSelectSession?.call(id),
+                  onNew: () => widget.onNewSession?.call(),
+                  onManageSessions: () => unawaited(openSessions()),
+                ),
+              if (!compact)
+                VerticalDivider(
+                  width: 1,
+                  color: appColorsOf(context).hairline,
+                ),
               Flexible(
                 flex: compact ? 3 : 1,
+
                 child: Stack(
                   children: <Widget>[
                     Positioned.fill(child: stage),
@@ -478,16 +563,14 @@ class AppShellState extends State<AppShell> {
                 // compact 不在这里放：它把整个工作台换成了设置页
                 // （`PageCrossFade`），入口在聊天面板头部（那一屏本来就窄，
                 // AppBar 上再挤一个按钮会跟两个徽标打架）。
-                if (!compact) ...<Widget>[
-                  TextButton(
-                    onPressed: () => unawaited(openSessions()),
-                    child: const Text('会话'),
-                  ),
+                // 2026-11-18：顶栏**不再有「会话」**。入口在左侧会话栏与会话列头
+                // （见 `ui/session_rail.dart` / `ui/chat_panel.dart`）——顶栏那一排
+                // （胶囊 + 徽标 + 会话 + 设置）在 900–1000 档会把「会话」挤出黄黑条。
+                if (!compact)
                   TextButton(
                     onPressed: () => openSettings(sizeClass: sizeClass),
                     child: const Text('设置'),
                   ),
-                ],
                 const SizedBox(width: Space.s2),
               ],
             ),
@@ -592,8 +675,17 @@ class AppShellState extends State<AppShell> {
     serverMuted: widget.serverMuted,
     audioUnlocked: widget.audioUnlocked,
     onEnableSound: widget.onEnableSound,
+    // 当前会话标题 / 条数 = 头部的第一行（2026-11-18）。不打开底部浮层也能
+    // 看出「这栏字属于哪一次对话」。
+    sessionTitle: _activeSession?.displayTitle,
+    sessionSubtitle: _activeSessionSubtitle,
     onOpenSettings: compact ? () => openSettings() : null,
-    onOpenSessions: compact ? () => unawaited(openSessions()) : null,
+    // 会话入口**所有断点都传**（顶栏那个按钮已删）。
+    onOpenSessions: () => unawaited(openSessions()),
+    // 会话存档的警告（裁剪 / 写盘失败）：不打开设置也要看得见。
+    sessionsNotice: _sessionsNotice,
+    sessionsNoticeIsError: _sessionsNoticeIsError,
+    onDismissSessionsNotice: _dismissSessionsNotice,
     onRetryLast: widget.onRetryLast,
     announcement: widget.announcement,
     // 朗读高亮（纯转发；判据与状态都在 chat/ 那一层）。

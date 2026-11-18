@@ -137,17 +137,29 @@ pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
                 "text": text,
             }));
         }
-        AppEvent::Conversation(ConversationUiEvent::UserLine { epoch, text }) => {
+        AppEvent::Conversation(ConversationUiEvent::UserLine {
+            epoch,
+            text,
+            session,
+        }) => {
             // **本轮输入正文**（2026-10-14）。弹幕 / 语音这类「浏览器没参加发送」
             // 的一轮，前端只能靠这一帧知道用户那一句是什么（自行补用户气泡 +
             // 存档）。发点在 supervisor 的 say 分支、先于该轮任何 `text_delta`。
             // 未知 type 在旧客户端被忽略（`default: break`），所以这是向后兼容
             // 的新增。
+            // `session_id`（2026-11-18，#19）是**可选**字段：这一轮属于哪个
+            // 会话。帧是异步到达的，用户可能已经切走——前端按它把用户句写回
+            // 真正发起这一轮的会话。为空（全局桶）时**不写这个键**：帧形状与旧版
+            // 逐字相同；旧前端忽略未知键，双向兼容。
             frame.set_type("user_line");
-            frame.set_data(serde_json::json!({
+            let mut data = serde_json::json!({
                 "epoch": epoch,
                 "text": text,
-            }));
+            });
+            if let Some(session) = session {
+                data["session_id"] = Value::String(session.clone());
+            }
+            frame.set_data(data);
         }
         AppEvent::Conversation(ConversationUiEvent::ActionCue {
             epoch,
@@ -303,13 +315,13 @@ mod tests {
     use super::*;
 
     /// `user_line`（2026-10-14 执行单 §3）：本轮**用户侧**输入正文。
-    /// 只有 type+data，data 只有 epoch 与 text；旧前端遇未知 type 忽略，
-    /// 所以是向后兼容的新增。
+    /// data 是 epoch + text；旧前端遇未知 type 忽略，所以是向后兼容的新增。
     #[test]
-    fn user_line_frame_carries_only_epoch_and_text() {
+    fn user_line_frame_carries_epoch_and_text() {
         let ev = AppEvent::Conversation(ConversationUiEvent::UserLine {
             epoch: 42,
             text: "弹幕消息：吾***：（其实我今天也刷着来着）".to_string(),
+            session: None,
         });
         let frame = app_event_to_ws_frame(&ev).expect("必须投影成帧");
         assert_eq!(frame["type"], "user_line");
@@ -319,12 +331,39 @@ mod tests {
             "弹幕消息：吾***：（其实我今天也刷着来着）"
         );
         let data = frame["data"].as_object().expect("data 必须是对象");
-        assert_eq!(data.len(), 2, "data 只允许 epoch + text");
+        assert_eq!(data.len(), 2, "没有会话时 data 只允许 epoch + text");
+        assert!(
+            !data.contains_key("session_id"),
+            "全局桶不写 session_id（旧帧形状逐字不变）"
+        );
         assert!(frame.get("payload").is_none(), "字段名必须是 data");
         assert!(
             frame.get("seq").is_none() && frame.get("ts").is_none(),
             "seq/ts 由 per-connection 包装层加，投影层不写"
         );
+    }
+
+    /// **#19（2026-11-18）**：`user_line` 带上这一轮的会话 id（**可选**字段）。
+    ///
+    /// 前端按它把用户句写回**真正发起这一轮的会话**：帧是异步到达的，用户完全
+    /// 可能在它到达前已经切走；不带 id 就只能写进「当时的活动会话」= 历史串台。
+    #[test]
+    fn user_line_frame_carries_optional_session_id() {
+        let ev = AppEvent::Conversation(ConversationUiEvent::UserLine {
+            epoch: 7,
+            text: "操作者说的一句".to_string(),
+            session: Some("session-a".to_string()),
+        });
+        let frame = app_event_to_ws_frame(&ev).expect("必须投影成帧");
+        assert_eq!(frame["type"], "user_line");
+        assert_eq!(frame["data"]["epoch"], 7);
+        assert_eq!(frame["data"]["text"], "操作者说的一句");
+        assert_eq!(
+            frame["data"]["session_id"], "session-a",
+            "会话 id 必须原样透传（前端据此路由 append）"
+        );
+        let data = frame["data"].as_object().expect("data 必须是对象");
+        assert_eq!(data.len(), 3, "有会话时 data = epoch + text + session_id");
     }
 
     /// action_cue 帧必须是 type + data（前端 parseWsFrame 只读 data）。

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../chat/chat_history.dart';
 import 'settings_models.dart';
 
 /// `POST /api/v1/chat` 受理响应（字段对齐 `chat_routes.rs::ChatAccepted`）。
@@ -94,10 +95,23 @@ class ApiClient {
   ///
   /// 服务端对 id 做归一化（`sanitize_session_id`）：非法值按「不带会话」处理，
   /// **不会**因此报错——前端不该因为一个本地生成的 id 形状异常就发不出消息。
-  Future<ChatAccepted> sendChat(String text, {String? sessionId}) async {
-    final Map<String, String> payload = <String, String>{'text': text};
+  ///
+  /// [history] 是**当前本地会话**的最近几轮（见 `chat/chat_history.dart`）：
+  /// 服务端只把它一次性拼进本轮请求，于是切换本地会话真的会切换模型上下文。
+  /// 空表 / null = 不发 `history` 字段（老协议逐字不变）。
+  Future<ChatAccepted> sendChat(
+    String text, {
+    String? sessionId,
+    List<ChatHistoryEntry>? history,
+  }) async {
+    final Map<String, Object?> payload = <String, Object?>{'text': text};
     if (sessionId != null && sessionId.isNotEmpty) {
       payload['session_id'] = sessionId;
+    }
+    if (history != null && history.isNotEmpty) {
+      payload['history'] = <Object?>[
+        for (final ChatHistoryEntry entry in history) entry.toJson(),
+      ];
     }
     final response = await _guard(
       () => _client.post(

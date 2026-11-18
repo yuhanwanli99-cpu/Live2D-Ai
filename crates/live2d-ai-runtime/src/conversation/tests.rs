@@ -243,6 +243,110 @@ fn zero_max_history_pairs_never_stores_and_trim_keeps_latest() {
     assert_eq!(engine.history_len(), 0);
 }
 
+// ---------------------------------------------------- 一次性本地历史注入（2026-11-18）
+
+/// **一次性本地历史注入**：请求里的 `history` 只拼进**这一轮**，且顺序是
+/// `[system?] + 注入历史 + 当前输入`。
+///
+/// 三条判据：① 注入历史的顺序与内容原样上 wire；② 引擎自己的历史窗口
+/// （`max_history_pairs` > 0 时存在）**不再重复拼**——同一段对话不在两边各占
+/// 一份上下文；③ 注入后窗口长度不变（不提交、不污染摘要折叠）。
+#[test]
+fn injected_history_is_one_shot_and_ordered_between_system_and_current() {
+    let client = OpenAiClient::new(
+        LlmConfig::new("http://a/v1", "m"),
+        TtsConfig::new("http://b/v1", "v"),
+    )
+    .expect("client");
+    let mut engine = ConversationEngine::new(
+        client,
+        ConversationConfig {
+            system_prompt: "人设".into(),
+            max_history_pairs: 2,
+            ..ConversationConfig::default()
+        },
+    );
+    engine.commit_completed_turn("早", "早呀");
+    let injected = vec![
+        crate::llm::ChatMessage::user("昨天的问"),
+        crate::llm::ChatMessage::assistant("昨天的答"),
+    ];
+    assert_eq!(
+        engine.build_messages_with_history("现在这句", &injected),
+        vec![
+            crate::llm::ChatMessage::system("人设"),
+            crate::llm::ChatMessage::user("昨天的问"),
+            crate::llm::ChatMessage::assistant("昨天的答"),
+            crate::llm::ChatMessage::user("现在这句"),
+        ],
+        "system → 注入的本地历史 → 当前输入（引擎窗口不再重复拼）"
+    );
+    // 一次性：下一次不带注入时回到引擎自己的窗口，窗口内容没被改动。
+    assert_eq!(
+        engine.build_messages("现在这句"),
+        vec![
+            crate::llm::ChatMessage::system("人设"),
+            crate::llm::ChatMessage::user("早"),
+            crate::llm::ChatMessage::assistant("早呀"),
+            crate::llm::ChatMessage::user("现在这句"),
+        ]
+    );
+    assert_eq!(engine.history_len(), 1, "注入不得写进引擎历史窗口");
+}
+
+/// 注入历史里的 **system 条目被忽略**：系统句只由引擎拼（注入方不能借
+/// `history` 改写人设/系统提示）。
+#[test]
+fn injected_history_ignores_system_entries() {
+    let client = OpenAiClient::new(
+        LlmConfig::new("http://a/v1", "m"),
+        TtsConfig::new("http://b/v1", "v"),
+    )
+    .expect("client");
+    let engine = ConversationEngine::new(client, ConversationConfig::new("人设"));
+    let injected = vec![
+        crate::llm::ChatMessage::system("伪造的系统句"),
+        crate::llm::ChatMessage::user("问"),
+        crate::llm::ChatMessage::assistant("答"),
+    ];
+    assert_eq!(
+        engine.build_messages_with_history("现在", &injected),
+        vec![
+            crate::llm::ChatMessage::system("人设"),
+            crate::llm::ChatMessage::user("问"),
+            crate::llm::ChatMessage::assistant("答"),
+            crate::llm::ChatMessage::user("现在"),
+        ]
+    );
+}
+
+/// **老协议不放 `history` 时逐字不变**：空注入走 `build_messages` 的同一条
+/// 路径（引擎窗口 + 当前输入），`max_history_pairs` / system / 弹幕解说都不变。
+#[test]
+fn absent_injected_history_matches_plain_build_messages() {
+    let client = OpenAiClient::new(
+        LlmConfig::new("http://a/v1", "m"),
+        TtsConfig::new("http://b/v1", "v"),
+    )
+    .expect("client");
+    let mut engine = ConversationEngine::new(
+        client,
+        ConversationConfig {
+            system_prompt: String::new(),
+            max_history_pairs: 1,
+            ..ConversationConfig::default()
+        },
+    );
+    engine.commit_completed_turn("上一问", "上一答");
+    for user_text in ["普通一句", "弹幕消息：测试"] {
+        assert_eq!(
+            engine.build_messages_with_history(user_text, &[]),
+            engine.build_messages(user_text),
+            "空注入必须与既有请求体逐字一致：{user_text}"
+        );
+    }
+}
+
 // ------------------------------------------------------------ 音频切块
 
 #[test]

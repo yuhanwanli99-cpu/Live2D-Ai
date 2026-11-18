@@ -81,6 +81,7 @@ import '../ui/connection_badge.dart';
 import '../chat/chat_session.dart';
 import '../ui/error_banner.dart';
 import '../ui/inline_notice.dart';
+import '../ui/session_rail.dart';
 import '../ui/session_sheet.dart';
 import '../ui/settings_scaffold.dart';
 import '../settings/display_prefs.dart';
@@ -126,6 +127,7 @@ class AppShell extends StatefulWidget {
     this.onSectionChanged,
     this.modRestartNotice,
     this.onDismissModRestart,
+    this.sessionStore,
     this.error,
     this.errorActions = const <ErrorAction>[],
     this.onDismissError,
@@ -253,6 +255,13 @@ class AppShell extends StatefulWidget {
   /// 「这件事还没完全生效」，而不是盯着一个没变化的舞台猜。
   final String? modRestartNotice;
   final VoidCallback? onDismissModRestart;
+
+  /// 会话存档本身（**只读快照 + 三个警告标记**，不是第二份真源）。
+  ///
+  /// 2026-11-18：裁剪（#8）/ 读档损坏（#10）/ 写盘失败（#9）的标记都住在
+  /// `ChatSessionStore` 上，外壳只在**渲染时**读它们（`_sessionsNotice`），
+  /// 不缓存——`ChatController` 每次改动都会 notify，重建时自然读到最新值。
+  final ChatSessionStore? sessionStore;
 
   final String? error;
   final List<ErrorAction> errorActions;

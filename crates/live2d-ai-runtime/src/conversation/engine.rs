@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use crate::OpenAiClient;
 use crate::cleaning::SentenceCleaner;
-use crate::llm::ChatMessage;
+use crate::llm::{ChatMessage, Role};
 use crate::performance::PerformanceRuntime;
 
 /// 直播间弹幕的前缀（2026-10-14 执行单 §3）：弹幕经外部端点注入时正文以此开头。
@@ -176,8 +176,61 @@ impl ConversationEngine {
     /// 把一句固定说明接在**已生效**的 system prompt 后面（没有 system 消息时，
     /// 这一轮就只有这一句）。它只在本轮请求里生效——不写 `live2d-ai.toml`、
     /// 不写 persona / memory 的槽；普通对话一行不加。
+    ///
+    /// 生产路径统一走 [`Self::build_messages_with_history`]（协议 `history`）；
+    /// 本方法保留为「不带注入」的语义入口，当前主要被本模块单测直接调用——
+    /// 显式放行 dead_code，而不是让 `cargo check` 多一条噪声。
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn build_messages(&self, user_text: &str) -> Vec<ChatMessage> {
-        let mut out = Vec::with_capacity(2 * self.history.len() + 2);
+        self.build_messages_with_history(user_text, &[])
+    }
+
+    /// 组装本轮消息，并把客户端给的**本地会话历史**接进历史段。
+    ///
+    /// # 为什么是「传参」而不是 `replace_history`（一次性注入的选型）
+    ///
+    /// `replace_history` 改的是引擎**自己的记忆窗口**，它有三个宿主可见的
+    /// 副作用：`commit_completed_turn` 往同一个桶里追加、`take_evicted_turns`
+    /// 把溢出的轮次交给摘要折叠、`history_len` 被状态面读。本地历史属于
+    /// **客户端这次请求**，不是引擎的轮次记录；写进窗口会污染这三处，还得
+    /// 每轮再清一次（漏清一轮就会把上一个会话的历史带进下一个会话）。
+    /// 传参则天然只活一轮：`run_turn_with_history` 不会把它交给任何提交路径。
+    ///
+    /// # 顺序与回退
+    ///
+    /// 固定为 `[system?] + 历史 + 当前输入`：
+    /// - `injected` 非空 → **以它为准**，不再拼 `self.history`。同一段对话在
+    ///   客户端和宿主进程各存一份，拼两遍是白翻倍的上下文；出厂的
+    ///   `max_history_pairs = 0` 时 `self.history` 本来就是空，老协议请求体
+    ///   逐字不变；
+    /// - `injected` 为空（老客户端 / 第一轮 / 全部条目被过滤）→ 走既有
+    ///   `self.history` 窗口，行为与 `build_messages` 完全一致；
+    /// - `injected` 里的 system 条目被忽略：系统句只由引擎在这里拼，
+    ///   注入方不能借历史改写人设。
+    pub(super) fn build_messages_with_history(
+        &self,
+        user_text: &str,
+        injected: &[ChatMessage],
+    ) -> Vec<ChatMessage> {
+        // 先定历史段：注入的本地历史优先，否则用引擎自己的窗口。
+        let history: Vec<ChatMessage> = if injected.is_empty() {
+            self.history
+                .iter()
+                .flat_map(|(user, assistant)| {
+                    [
+                        ChatMessage::user(user.clone()),
+                        ChatMessage::assistant(assistant.clone()),
+                    ]
+                })
+                .collect()
+        } else {
+            injected
+                .iter()
+                .filter(|message| message.role != Role::System)
+                .cloned()
+                .collect()
+        };
+        let mut out = Vec::with_capacity(history.len() + 2);
         let base = self.effective_system_prompt();
         let system = match danmaku_preface_for(user_text) {
             None => base.to_string(),
@@ -187,12 +240,38 @@ impl ConversationEngine {
         if !system.is_empty() {
             out.push(ChatMessage::system(system));
         }
-        for (user, assistant) in &self.history {
-            out.push(ChatMessage::user(user.clone()));
-            out.push(ChatMessage::assistant(assistant.clone()));
-        }
+        out.extend(history);
         out.push(ChatMessage::user(user_text));
         out
+    }
+
+    /// 运行一轮对话（不注入客户端本地历史）。
+    pub async fn run_turn(
+        &mut self,
+        epoch: u64,
+        user_text: &str,
+        event_tx: tokio::sync::mpsc::Sender<super::EngineEvent>,
+        cancel: super::CancellationToken,
+    ) -> super::TurnReport {
+        self.run_turn_with_history(epoch, user_text, &[], event_tx, cancel)
+            .await
+    }
+
+    /// 运行一轮对话，并把客户端给的本地会话历史**只注入本轮请求**。
+    ///
+    /// 与 [Self::run_turn] 的唯一区别是 `history`：它只影响本轮的
+    /// [Self::build_messages_with_history]，不写 [Self::history]、不参与
+    /// `commit_completed_turn` / `max_history_pairs`（选型理由见前者注释）。
+    pub async fn run_turn_with_history(
+        &mut self,
+        epoch: u64,
+        user_text: &str,
+        history: &[ChatMessage],
+        event_tx: tokio::sync::mpsc::Sender<super::EngineEvent>,
+        cancel: super::CancellationToken,
+    ) -> super::TurnReport {
+        self.run_turn_inner(epoch, user_text, history, event_tx, cancel)
+            .await
     }
 
     /// 成功结束后提交历史（受 `max_history_pairs` 约束；`0` 表示永不保留）。

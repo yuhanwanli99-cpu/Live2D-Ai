@@ -8,18 +8,22 @@
 /// **解决**：聊天记录**留在本机浏览器**——刷新/重开页面还在；可以开多个会话、
 /// 切换、重命名、删除。关掉页面再回来，之前聊过的东西一眼能找到。
 ///
-/// **不解决**：模型**没有记忆**。跨刷新、跨会话，LLM 都不记得上一轮说过什么。
-/// 原因是协议本身：`POST /api/v1/chat` 只接受 `{text}`，**没有历史字段**，
-/// 前端无从把历史喂回去；服务端 `persona.max_history_pairs` 出厂为 `0`
-/// （= 服务端自己也不带历史）。
+/// **会话上下文 = 本机历史 + 每轮随请求附带**（2026-11-18 审计 #14）：发送时
+/// 前端把本会话**最近 8 轮**（16 条）连同这一句放进 `POST /api/v1/chat` 的可选
+/// `history`，服务端只把它拼进**本轮** prompt，**不**持久化会话。于是：
+/// - 切换会话 = 换一份历史 ⇒ 模型上下文真的跟着换；
+/// - 刷新 / 重开页面：历史从本机存档读回，下一轮照旧带上；
+/// - 换设备 / 清站点数据 = 历史没了（服务端没有备份）。
 ///
-/// 所以这一层是**「本地记录」**，不是**「模型记忆」**。真正的会话记忆需要
-/// 协议 + 端点 + 服务端持久化，已登记为**待实现**（见
-/// `docs/plans/future-roadmap-2026-09.md` 与 `docs/design/web-ui-spec-v3.md`）。
+/// 所以这一层是**「本机会话记录」**：服务端没有跨轮记忆，`max_history_pairs`
+/// 只服务别的入口；真正决定模型看到什么的，是这一段会话在本机存了多少（上限
+/// 见 [ChatSessionStore.kMaxMessagesPerSession]）。
 ///
-/// 这个区分必须写在这里，而不是只在文档里：**否则下一个人会把「历史还在」
-/// 误当成「模型记得」**，然后花时间 debug 一个不存在的 bug。
+/// 这个区分必须写在这里：**否则下一个人会把「历史还在」误当成「服务端记得」**，
+/// 然后花时间 debug 一个不存在的 bug。
 library;
+
+import 'dart:convert';
 
 import 'chat_message.dart';
 
@@ -73,7 +77,8 @@ class ChatSession {
     return kUntitledSessionLabel;
   }
 
-  /// 有没有内容（空会话可以不留）。
+  /// 有没有内容。**空会话不再被自动清理**（#12）：只有用户显式删除才会消失，
+  /// 所以这个判据只用于展示与「清空」语义，不再驱动任何 prune。
   bool get isEmpty => messages.isEmpty;
 
   /// 最后一条消息的时间（列表副标题用）。
@@ -144,7 +149,9 @@ class ChatSessionStore {
   /// 会话数上限。超了丢**最久没用过**的那个。
   ///
   /// 取值理由：localStorage 常见配额 5 MB，纯文本消息很小，50 个会话
-  /// 即使每个都到 [kMaxMessagesPerSession] 也远在配额内。
+  /// 即使每个都到 [kMaxMessagesPerSession] 也远在配额内。思考也会落盘但被封顶
+  /// （见 `chat_message.dart` 的 kPersistedReasoningMaxChars）；真顶穿配额时
+  /// 保存会失败并提示，而不是静默丢历史（#9）。
   static const int maxSessions = 50;
 
   /// 每个会话保留的消息条数上限，超了丢**最旧**的。
@@ -152,6 +159,94 @@ class ChatSessionStore {
   /// 与视图层的 `kChatHistoryLimit`（500）**取同一个值**：两处不一致会出现
   /// 「界面上能看到但重开就没了」这种最难查的偏差。
   static const int kMaxMessagesPerSession = 500;
+
+  // ──────────────────────────────────────────────────────── 通知通道（#8/#9/#10）
+  //
+  // 这里存的是三类**本来会被静默吞掉**的事实：#8 裁剪、#9 落盘失败、#10 读取
+  // 损坏。store 不持有 UI，也不自己弹任何东西——只把事实如实放在这里，由组合根
+  // / 会话浮层决定怎么显示。理由：静默丢数据是本项目最贵的 bug 类型（用户以为
+  // 记录还在，其实早没了），而「有地方能查到」是防它的最低成本。
+
+  int _droppedSessionsByTrim = 0;
+  int _droppedMessagesByTrim = 0;
+
+  /// **裁剪通知**：这次运行里真的丢过东西时才非空（#8）。
+  ///
+  /// 说清「丢了多少、丢的是什么、上限是多少」——只说「已优化存储」等于没说。
+  /// 用 getter 现算而不是存字符串：同一次运行可能先裁会话再裁消息，两个数字都
+  /// 要在，存最后一句话会把前一个覆盖掉。
+  String? get trimNotice {
+    if (_droppedSessionsByTrim == 0 && _droppedMessagesByTrim == 0) {
+      return null;
+    }
+    final List<String> parts = <String>[
+      if (_droppedSessionsByTrim > 0)
+        '会话超过上限（最多 $maxSessions 个），已自动删除最久未用的 $_droppedSessionsByTrim 个',
+      if (_droppedMessagesByTrim > 0)
+        '单个会话超过上限（最多 $kMaxMessagesPerSession 条），已自动丢弃最早的 $_droppedMessagesByTrim 条',
+    ];
+    return '${parts.join('；')}。';
+  }
+
+  /// 裁剪提示被用户看过之后调用（下次**真正**丢东西时才会再出现）。
+  void clearTrimNotice() {
+    _droppedSessionsByTrim = 0;
+    _droppedMessagesByTrim = 0;
+  }
+
+  int _droppedLoadEntries = 0;
+  bool _archiveUnreadable = false;
+
+  /// **读取通知**：存档有坏条目 / 整个索引读不出来时非空（#10）。
+  ///
+  /// 以前一条坏记录就让整份存档返回空 store——用户看到的是「历史没了」，与
+  /// 「被清空」无法区分。现在逐条隔离：坏条目只丢自己，但**必须说出来**。
+  String? get loadWarning {
+    if (_archiveUnreadable) {
+      return '会话存档读不出来（格式损坏或版本不兼容），这次从空列表开始';
+    }
+    if (_droppedLoadEntries > 0) {
+      return '有 $_droppedLoadEntries 条会话存档读不出来，已跳过（其余会话正常）';
+    }
+    return null;
+  }
+
+  /// 读盘时跳过的坏条目数（#10；[loadWarning] 的原始数字，便于测试与上报）。
+  int get droppedLoadEntries => _droppedLoadEntries;
+
+  /// 存档索引本身读不出来（坏 JSON / 未知版本）：留一条提示，别把「空」当成「没有」。
+  void markArchiveUnreadable() {
+    _archiveUnreadable = true;
+  }
+
+  void clearLoadWarning() {
+    _droppedLoadEntries = 0;
+    _archiveUnreadable = false;
+  }
+
+  bool _saveFailed = false;
+
+  /// **落盘失败**：无痕模式 / 配额满 / 站点存储被禁时为 `true`（#9）。
+  ///
+  /// UI 据此说 [kSessionsNotPersistedNote] 那句话——不说的话，用户会以为记录
+  /// 还在，刷新后才发现全没了（与 DisplayPrefs 保存失败同一条教训）。
+  bool get saveFailed => _saveFailed;
+
+  /// 保存路径写失败时调用（见 `app/browser_io.dart` 的 saveChatSessions）；**绝不抛**。
+  void markSaveFailed() {
+    _saveFailed = true;
+  }
+
+  /// 保存路径写成功时调用。
+  void clearSaveFailure() {
+    _saveFailed = false;
+  }
+
+  /// 这个 store 是从 v1 单键全量存档**迁移**出来的（#10）。
+  ///
+  /// 读取时在内存里换成新模型，**下一次落盘**自动写成 v2（索引 + 逐条）。
+  /// 该标记只用于观测 / 测试；保存路径不依赖它决定格式（**永远**写 v2）。
+  bool migratedFromLegacy = false;
 
   ChatSession? get active {
     final String? id = activeId;
@@ -246,12 +341,10 @@ class ChatSessionStore {
     current.updatedAt = now ?? DateTime.now();
   }
 
-  /// 删除所有**空会话**（除了当前这个，免得用户正看着它被删掉）。
-  int pruneEmpty() {
-    final int before = sessions.length;
-    sessions.removeWhere((ChatSession s) => s.isEmpty && s.id != activeId);
-    return before - sessions.length;
-  }
+  // 这里曾经有 `pruneEmpty()`：`ChatController.newSession()` 每次新建会话都
+  // 顺手删掉其他空会话。**已删除**（2026-11-18，#12）：用户点「新建」建了几个
+  // 空会话、还没来得及打字，下一次新建就把它们静默清了——那是用户自己建的
+  // 会话，不是垃圾。空会话现在**只由用户显式删除**（[delete]）。
 
   /// 追加一条消息到活动会话，并推进 `updatedAt`。
   void append(ChatMessage message, {DateTime? now}) {
@@ -295,19 +388,47 @@ class ChatSessionStore {
     session.updatedAt = now ?? DateTime.now();
   }
 
+  /// 序列化**整份快照**（v2 版本号 + 内联 sessions）。
+  ///
+  /// **不是真实落盘格式**：真实落盘是「索引 + 每个会话一条键」
+  /// （[toIndexJson] + [ChatSession.toJson]，见 `app/browser_io.dart`）。
+  /// 保留这个函数是为了单测 / 导出 / 备份能一条函数往返，也让
+  /// [ChatSessionStore.fromJson] 有一个对称的写入口。
   Map<String, Object?> toJson() => <String, Object?>{
     'version': kChatStoreVersion,
     'activeId': activeId,
     'sessions': <Object?>[for (final ChatSession s in sessions) s.toJson()],
   };
 
-  /// 反序列化：**永不抛**。坏条目丢弃，版本不符整体丢弃。
+  /// 存档**索引**（v2 的真实落盘格式之一）：只放版本、当前会话、id 列表。
+  ///
+  /// 索引刻意**不内联会话正文**：v1 的毛病就是「一个键装全部」——任何一条
+  /// 记录坏掉，`jsonDecode` 整份失败，历史全没了（#10 的现场）。拆开之后，
+  /// 一条坏记录只影响它自己。
+  Map<String, Object?> toIndexJson() => <String, Object?>{
+    'version': kChatStoreVersion,
+    'activeId': activeId,
+    'ids': <String>[for (final ChatSession s in sessions) s.id],
+  };
+
+  /// 反序列化**整份快照**：**永不抛**。坏条目丢弃，未知版本整体丢弃。
+  ///
+  /// 两种输入都认（见 [kChatStoreVersion] / [kChatStoreLegacyVersion]）：
+  /// - v1：旧版**单键全量**存档（`sessions` 数组）。读到就在内存里迁移，并标
+  ///   [migratedFromLegacy]——下一次落盘自动写成 v2；
+  /// - v2：带 `sessions` 数组的整份快照（测试 / 导出 / 备份）。真实加载**不走**
+  ///   这里，而是 [decodeChatSessionIndex] + [loadChatSessionEntries] 的逐条
+  ///   隔离路径。
   factory ChatSessionStore.fromJson(Object? raw) {
     if (raw is! Map) return ChatSessionStore.empty();
     final Map<String, Object?> json = raw.cast<String, Object?>();
+    final Object? version = json['version'];
     // 版本门禁：不认识的版本**整体丢弃**而不是尽力解析——半懂不懂地读
     // 一份未来格式，比重来一遍更危险（可能把新字段写没了）。
-    if (json['version'] != kChatStoreVersion) return ChatSessionStore.empty();
+    // v1 例外：旧存档必须能读（读法仍是「全量 sessions 数组」）。
+    if (version != kChatStoreVersion && version != kChatStoreLegacyVersion) {
+      return ChatSessionStore.empty();
+    }
 
     final List<ChatSession> sessions = <ChatSession>[];
     final Object? rawSessions = json['sessions'];
@@ -326,9 +447,10 @@ class ChatSessionStore {
           ? activeId
           : null,
     );
+    store.migratedFromLegacy = version == kChatStoreLegacyVersion;
     store._trimSessions();
     for (final ChatSession s in store.sessions) {
-      ChatSessionStore._trimMessages(s);
+      store._trimMessages(s);
     }
     return store;
   }
@@ -359,13 +481,17 @@ class ChatSessionStore {
       }
       if (victim == null) return;
       sessions.remove(victim);
+      // 删了就要说（#8）：静默丢一个会话，用户会以为是自己删的 / 存档坏了。
+      _droppedSessionsByTrim++;
     }
   }
 
-  static void _trimMessages(ChatSession session) {
-    while (session.messages.length > kMaxMessagesPerSession) {
-      session.messages.removeAt(0);
-    }
+  void _trimMessages(ChatSession session) {
+    final int excess = session.messages.length - kMaxMessagesPerSession;
+    if (excess <= 0) return;
+    session.messages.removeRange(0, excess);
+    // 同理：丢的是**最早的**记录，不提示就永远不知道上下文为什么断了。
+    _droppedMessagesByTrim += excess;
   }
 }
 
@@ -393,8 +519,26 @@ String relativeTime(DateTime at, {required DateTime now}) {
   return '${at.year}-$m-$day';
 }
 
-/// 存储格式版本。不匹配就整体丢弃（见 [ChatSessionStore.fromJson]）。
-const int kChatStoreVersion = 1;
+/// 存档**索引**的格式版本（#10，2026-11-18：v1 → v2）。
+///
+/// v2 = 索引（本键）+ 每个会话一条独立键（`<索引键>.<id>`）。
+/// 详见 [ChatSessionLoadPlan] 与 `app/browser_io.dart` 的保存 / 读取路径。
+const int kChatStoreVersion = 2;
+
+/// 旧版**单键全量**格式版本：`{version:1, activeId, sessions:[...]}`。
+///
+/// 仍然必须能读——用户升级前保存的存档只有这一种。读取时在内存里迁移成
+/// store（[ChatSessionStore.migratedFromLegacy]），下一次落盘自动写成 v2。
+const int kChatStoreLegacyVersion = 1;
+
+/// 落盘失败时给用户的一句话（#9）：无痕模式 / 配额满 / 站点存储被禁。
+///
+/// 放在纯逻辑层而不是 UI：它是**事实陈述**，不是排版；UI 只决定显示在哪。
+/// 不说这句话，用户会以为记录还在，刷新后才发现全没了。
+const String kSessionsNotPersistedNote = '会话只保留在本次页面里（浏览器存储不可用或已满）。';
+
+/// 会话列表里给 id 短提示加的标签（#7：必须读起来像「编号」，不是标题）。
+const String kSessionIdHintLabel = '编号';
 
 /// 没起名也没内容时的会话标题。
 const String kUntitledSessionLabel = '新对话';
@@ -419,4 +563,163 @@ String? _readString(Object? raw) => raw is String ? raw : null;
 DateTime? _readTime(Object? raw) {
   if (raw is! String) return null;
   return DateTime.tryParse(raw);
+}
+
+/// 存档格式（v2，2026-11-18，#10）：**索引 + 每个会话一条独立键**。
+///
+/// ```
+/// live2d-ai.chat-sessions            → {"version":2,"activeId":"…","ids":["…"]}
+/// live2d-ai.chat-sessions.<会话 id>  → 一条 ChatSession 的 JSON
+/// ```
+///
+/// 为什么要拆：v1 是「一个键装全量 sessions 数组」，任何一条记录坏掉都会让
+/// `jsonDecode` 整份失败，于是用户看到「历史全没了」——**一条坏数据吃掉所有
+/// 会话**。拆开之后每条独立解码，坏一条只丢一条，并被计入
+/// [ChatSessionStore.loadWarning]。
+///
+/// 键名定义在 `app/browser_io.dart`（那里才允许 `package:web`）；本文件只管
+/// **纯 JSON 结构**，于是整条加载 / 保存逻辑都能在 VM 上单测。
+/// v2 索引的解码结果：告诉调用方「该去读哪些逐条键」。
+///
+/// 纯逻辑（本文件零 web 依赖）：`browser_io` 只负责 `getItem`，「索引长什么样、
+/// 什么算坏」全部在这里判，才能在 VM 上测到（#10 的可测部分）。
+class ChatSessionLoadPlan {
+  ChatSessionLoadPlan._({
+    this.ids = const <String>[],
+    this.activeId,
+    this.legacyStore,
+    this.indexCorrupt = false,
+  });
+
+  /// v2：需要逐条读取的会话 id（顺序 = 保存时顺序；展示仍按 updatedAt 重排）。
+  final List<String> ids;
+
+  /// v2：存档里的当前会话 id（由 [loadChatSessionEntries] 校验存在性）。
+  final String? activeId;
+
+  /// v1：已经在内存里迁移好的 store。**非空 = 不需要逐条读取**。
+  final ChatSessionStore? legacyStore;
+
+  /// 索引本身读不出来（坏 JSON / 未知版本 / 类型不对）。
+  ///
+  /// 与「没有存档」区分开：前者要给一句「历史没读出来」，后者应该安静。
+  final bool indexCorrupt;
+
+  /// 是不是旧版（v1）单键全量存档：是的话下一次落盘会自动写成 v2。
+  bool get isLegacy => legacyStore != null;
+}
+
+/// 解码索引原文（`localStorage['live2d-ai.chat-sessions']` 的 value）。
+///
+/// **永不抛**：坏 JSON / 类型不对 → [ChatSessionLoadPlan.indexCorrupt]；
+/// 空串 / null → 「没有存档」（安静返回空 plan，不算损坏）。
+///
+/// v1 存档在这里**直接迁移**（[ChatSessionStore.fromJson] 读全量 sessions），
+/// 后续保存路径总是写 v2，所以迁移只需发生在内存里。
+ChatSessionLoadPlan decodeChatSessionIndex(String? raw) {
+  if (raw == null || raw.isEmpty) return ChatSessionLoadPlan._();
+  Object? decoded;
+  try {
+    decoded = jsonDecode(raw);
+  } catch (_) {
+    return ChatSessionLoadPlan._(indexCorrupt: true);
+  }
+  if (decoded is! Map) return ChatSessionLoadPlan._(indexCorrupt: true);
+  final Map<String, Object?> json = decoded.cast<String, Object?>();
+  final Object? version = json['version'];
+  if (version == kChatStoreLegacyVersion) {
+    final ChatSessionStore store = ChatSessionStore.fromJson(json);
+    // fromJson 只在版本是 v1 时才认（这里已经判过）；迁移标记再显式写一次是
+    // 防御——就算标记丢了下一次保存也不会写错格式（保存**恒**写 v2）。
+    store.migratedFromLegacy = true;
+    return ChatSessionLoadPlan._(legacyStore: store);
+  }
+  if (version != kChatStoreVersion) {
+    // 未知版本 = 未来格式：不半懂不懂地读（可能把新字段写没了）。
+    return ChatSessionLoadPlan._(indexCorrupt: true);
+  }
+  final List<String> ids = <String>[];
+  final Object? rawIds = json['ids'];
+  if (rawIds is List) {
+    for (final Object? item in rawIds) {
+      if (item is String && item.isNotEmpty && !ids.contains(item)) {
+        ids.add(item);
+      }
+    }
+  }
+  final Object? rawActiveId = json['activeId'];
+  return ChatSessionLoadPlan._(
+    ids: ids,
+    activeId: rawActiveId is String ? rawActiveId : null,
+  );
+}
+
+/// v2 逐条加载：索引 + 每个 id 的**条目 JSON 原文** → store。
+///
+/// [entryJsonById] 的 value 为 `null` = 该键不存在（缺失也算坏条目）。
+/// **逐条隔离**：任何一条解不出 / 不是合法会话，只跳过它自己并计数，其余照常
+/// 加载（#10 的修复本体）。
+///
+/// 返回的 store 上：
+/// - [ChatSessionStore.droppedLoadEntries] / [ChatSessionStore.loadWarning]
+///   记录跳过了几条；
+/// - activeId 指向被跳过 / 不存在的会话时当作没选（不凭空选一个）；
+/// - 加载完仍受 [ChatSessionStore.maxSessions] /
+///   [ChatSessionStore.kMaxMessagesPerSession] 夹持（存档被外部塞爆也要夹住）。
+ChatSessionStore loadChatSessionEntries(
+  ChatSessionLoadPlan plan,
+  Map<String, String?> entryJsonById,
+) {
+  final List<ChatSession> sessions = <ChatSession>[];
+  int dropped = 0;
+  for (final String id in plan.ids) {
+    final ChatSession? session = parseChatSessionEntry(entryJsonById[id]);
+    if (session == null) {
+      dropped++;
+      continue;
+    }
+    sessions.add(session);
+  }
+  final String? activeId = plan.activeId;
+  final ChatSessionStore store = ChatSessionStore(
+    sessions: sessions,
+    activeId: sessions.any((ChatSession s) => s.id == activeId)
+        ? activeId
+        : null,
+  );
+  store._droppedLoadEntries = dropped;
+  store._trimSessions();
+  for (final ChatSession s in store.sessions) {
+    store._trimMessages(s);
+  }
+  return store;
+}
+
+/// 单条会话的 JSON 原文 → [ChatSession]；坏数据返回 `null`（**绝不抛**）。
+ChatSession? parseChatSessionEntry(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  try {
+    return ChatSession.fromJson(jsonDecode(raw));
+  } catch (_) {
+    return null;
+  }
+}
+
+/// 索引的 JSON 字符串（写 `localStorage['live2d-ai.chat-sessions']` 用）。
+String encodeChatSessionIndex(ChatSessionStore store) =>
+    jsonEncode(store.toIndexJson());
+
+/// 单条会话的 JSON 字符串（写 `live2d-ai.chat-sessions.<id>` 用）。
+String encodeChatSessionEntry(ChatSession session) =>
+    jsonEncode(session.toJson());
+
+/// 会话 id 的**短提示**（列表副标题里显示，帮用户在几个同名会话之间对上号，#7）。
+///
+/// id 形如 `<微秒时间戳>-<同刻序号>`，末尾 6 个字符同时含时间戳低位与序号，
+/// 足够区分同一屏里的会话；显示全长（十六七位数字）会把副标题挤爆。
+/// **只是显示用**：不参与持久化、不改变 [ChatSession.id] 的语义。
+String sessionIdHint(String id, {int maxChars = 6}) {
+  final List<int> runes = id.runes.toList();
+  if (runes.length <= maxChars) return id;
+  return String.fromCharCodes(runes.skip(runes.length - maxChars));
 }

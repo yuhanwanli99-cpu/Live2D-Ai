@@ -341,10 +341,14 @@ pub(crate) fn drain_residual_events(rx: &mut mpsc::Receiver<EngineEvent>) {
 /// 调用方是 `run_forever` 的 say 分支，位置必须在该轮 `run_one_turn` **之前**
 /// ——那是本轮 `text_delta`（`SentenceVoiced` 投影）的唯一来源，因此这一帧天然
 /// 先于任何正文帧到达页面。收成函数是为了 `supervisor.rs` 的 1000 行硬上限。
-pub(crate) fn emit_user_line(emit: &Emit, epoch: u64, text: &str) {
+/// `session` 是本轮会话 id（与 `SayRequest.session` 同源，#19）：
+/// 前端按它把这一句写回真正发起这一轮的会话，而不是「现在的活动会话」。
+/// 为空 = 全局桶（不带会话），wire 上连 `session_id` 键都不出现。
+pub(crate) fn emit_user_line(emit: &Emit, epoch: u64, text: &str, session: Option<&str>) {
     emit(AppEvent::Conversation(ConversationUiEvent::UserLine {
         epoch,
         text: text.to_string(),
+        session: session.map(str::to_string),
     }));
 }
 

@@ -1,22 +1,19 @@
-/// 记忆面板**跟着「会话桶」切换**（2026-10-01，F-0004-1）。
+/// 记忆面板的**会话切换**回归（2026-11-18：会话分桶已停用）。
 ///
-/// # 现场
+/// # 历史（2026-10-01，F-0004-1）
 ///
-/// 面板的桶说明行是 build 里**现读** `ctx.activeSessionId` 的（一帧就改口），
-/// 而列表是 `initState` 里拉一次的异步结果——`_MemoryPanelBodyState` 从前
-/// 没有 `didUpdateWidget`。切会话后于是：**文案说桶 B、列表还是桶 A**，
-/// 而行内「删除/编辑」拿的是列表里那条记录的 `id`、`session_id` 却现读
-/// `ctx`（= B）⇒ 一次**跨桶写**：用户在 B 的界面上删掉了 A 的记忆。
+/// 旧契约是「切会话桶 → 列表必须跟着换」，防止行内操作拿 A 的 id 去 B 里删。
 ///
-/// # 现在的契约（本文件守的就是它）
+/// # 现在（本文件守的契约）
 ///
-/// 1. 桶换了 → 立刻为新桶取一次数（`list` 的 `session_id` 必须是新桶）；
-///    取数窗口里**旧桶的行先消失**，按钮先失效（旧 id 点不到）。
-/// 2. 行为的 `session_id` 一律取「列表所属桶」的快照，不是 `ctx`。
-/// 3. 迟到的旧桶响应**丢掉**（否则刚切过去的列表会被旧桶内容重新填满）。
+/// 服务端说话路径不再读 memory 的会话注入槽（`session_scope.rs::speak_prompt_for`
+/// 剔除 persona / memory），2026-11-16 起模型这一轮的记忆来自主链热槽；树内
+/// memory Mod 也默认不注册。面板因此只剩**全局**一条路径：
+/// - `list` / `import` / `update` / `delete` / `clear` 都不带 `session_id`；
+/// - 宿主把 `activeSessionId` 从 A 换成 B 时**不重新取数**、列表不变、行仍可点
+///   （不存在跨桶写，因为根本没有桶）；
+/// - 面板上不再出现「只看这次对话」这类按会话承诺（见 kMemoryScopeNotice）。
 library;
-
-import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,9 +22,6 @@ import 'package:live2d_ai_shell/api/mods_api.dart';
 import 'package:live2d_ai_shell/settings/mods/memory_panel.dart';
 import 'package:live2d_ai_shell/settings/mods/mod_panel.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
-
-const String kBucketA = 'session-a';
-const String kBucketB = 'session-b';
 
 ModSettingsSpec _memorySpec() => ModSettingsSpec(
   modId: 'memory',
@@ -49,84 +43,45 @@ ModInfo _memoryMod() => ModInfo(
   apiVersion: 1,
   enabled: true,
   status: 'running',
-  config: const <String, Object?>{'store_path': '/tmp/memory.jsonl'},
+  config: const <String, Object?>{},
   settingsSpec: _memorySpec(),
 );
 
-Map<String, Object?> _record(String id, String text) =>
-    <String, Object?>{'id': id, 'text': text};
-
-ModCommandResult _listReply({
-  required String session,
-  required List<Map<String, Object?>> records,
-}) => ModCommandResult(
-  ok: true,
-  result: <String, Object?>{
-    'ok': true,
-    'records': records,
-    'total': records.length,
-    'bucket': 'sessions/$session.memory.jsonl',
-  },
-);
-
-class RecordedCall {
-  RecordedCall(this.command, this.args);
+class _RecordedCall {
+  _RecordedCall(this.command, this.args);
 
   final String command;
   final Map<String, Object?> args;
 }
 
-/// 记录调用 + 可手动放行的 `list`（用来制造「取数窗口」与「迟到响应」）。
+/// 记录调用；`list` 固定回两条记录（与「当前会话」无关）。
 class _MemoryFake {
-  final List<RecordedCall> calls = <RecordedCall>[];
-  final Map<String, List<Map<String, Object?>>> records =
-      <String, List<Map<String, Object?>>>{};
-
-  /// `manualLists = true` 时，`list` 的 Future 由测试手动 complete。
-  bool manualLists = false;
-  final List<Completer<ModCommandResult>> pending = <Completer<ModCommandResult>>[];
-  final List<String?> pendingSessions = <String?>[];
+  final List<_RecordedCall> calls = <_RecordedCall>[];
 
   Future<ModCommandResult> call(
     String command, [
     Map<String, Object?> args = const <String, Object?>{},
-  ]) {
-    calls.add(RecordedCall(command, args));
+  ]) async {
+    calls.add(_RecordedCall(command, args));
     if (command != 'list') {
-      return Future<ModCommandResult>.value(
-        const ModCommandResult(ok: true, result: <String, Object?>{'records': 0}),
-      );
+      return const ModCommandResult(ok: true, result: <String, Object?>{});
     }
-    final String? session = args['session_id'] as String?;
-    if (manualLists) {
-      final Completer<ModCommandResult> completer =
-          Completer<ModCommandResult>();
-      pending.add(completer);
-      pendingSessions.add(session);
-      return completer.future;
-    }
-    return Future<ModCommandResult>.value(
-      _listReply(session: session ?? 'global', records: records[session] ?? const <Map<String, Object?>>[]),
+    return const ModCommandResult(
+      ok: true,
+      result: <String, Object?>{
+        'ok': true,
+        'records': <Object?>[
+          <String, Object?>{'id': 'id-1', 'text': '第一条记忆'},
+          <String, Object?>{'id': 'id-2', 'text': '第二条记忆'},
+        ],
+        'total': 2,
+        'bucket': 'memory.jsonl',
+      },
     );
   }
 
-  void releaseList(int index) {
-    final String? session = pendingSessions[index];
-    pending[index].complete(
-      _listReply(
-        session: session ?? 'global',
-        records: records[session] ?? const <Map<String, Object?>>[],
-      ),
-    );
-  }
-
-  List<String?> get listSessions => calls
-      .where((RecordedCall c) => c.command == 'list')
-      .map((RecordedCall c) => c.args['session_id'] as String?)
-      .toList();
-
-  List<RecordedCall> get writes =>
-      calls.where((RecordedCall c) => c.command != 'list').toList();
+  List<_RecordedCall> get listCalls =>
+      calls.where((_RecordedCall c) => c.command == 'list').toList();
 }
 
 ModPanelContext _ctx(_MemoryFake fake, String? session) => ModPanelContext(
@@ -140,8 +95,7 @@ ModPanelContext _ctx(_MemoryFake fake, String? session) => ModPanelContext(
   onCommand: fake.call,
 );
 
-/// 同一棵 `MaterialApp`/同一位置换 `ctx` —— 与宿主（`main.dart` 现读
-/// `_chat.sessions.activeId` 每次 build 新建 ctx）的行为同形。
+/// 同一棵 `MaterialApp` / 同一位置换 `ctx`——与宿主（每次 build 新建 ctx）同形。
 Widget _host(ValueNotifier<ModPanelContext> notifier) => MaterialApp(
   theme: buildAppTheme(),
   home: Scaffold(
@@ -155,136 +109,41 @@ Widget _host(ValueNotifier<ModPanelContext> notifier) => MaterialApp(
   ),
 );
 
-Future<void> _switchBucket(
-  WidgetTester tester,
-  ValueNotifier<ModPanelContext> notifier,
-  _MemoryFake fake,
-  String session,
-) async {
-  notifier.value = _ctx(fake, session);
-  await tester.pumpAndSettle();
-}
-
 void main() {
-  group('F-0004-1：切会话桶 → 列表跟着换（不是只有文案改口）', () {
-    testWidgets('旧桶条目从列表消失、新桶条目上屏，且 list 的 session_id 是新桶', (
-      WidgetTester tester,
-    ) async {
-      final _MemoryFake fake = _MemoryFake();
-      fake.records[kBucketA] = <Map<String, Object?>>[
-        _record('a-1', 'A 的记忆一'),
-        _record('a-2', 'A 的记忆二'),
-      ];
-      fake.records[kBucketB] = <Map<String, Object?>>[_record('b-1', 'B 的记忆一')];
-      final ValueNotifier<ModPanelContext> notifier =
-          ValueNotifier<ModPanelContext>(_ctx(fake, kBucketA));
+  testWidgets('切会话：不重新取数、列表不变、写操作不带 session_id', (WidgetTester tester) async {
+    final _MemoryFake fake = _MemoryFake();
+    final ValueNotifier<ModPanelContext> notifier =
+        ValueNotifier<ModPanelContext>(_ctx(fake, 'session-a'));
 
-      await tester.pumpWidget(_host(notifier));
-      await tester.pumpAndSettle();
-      expect(find.text('A 的记忆一'), findsOneWidget);
-      // 2026-10-08：说明改成人话（不再出现「桶」/ 会话 id）。
-      expect(find.text('只看这次对话记住的内容。'), findsOneWidget);
+    await tester.pumpWidget(_host(notifier));
+    await tester.pumpAndSettle();
+    expect(find.text('第一条记忆'), findsOneWidget);
+    expect(find.text('第二条记忆'), findsOneWidget);
+    expect(find.text(kMemoryScopeNotice), findsOneWidget);
+    expect(fake.listCalls.length, 1, reason: '进入面板取一次数');
+    expect(
+      fake.listCalls.single.args.containsKey('session_id'),
+      isFalse,
+      reason: '列表是全局的（会话绑定已停用）',
+    );
 
-      await _switchBucket(tester, notifier, fake, kBucketB);
+    // 宿主切会话：`activeSessionId` 变了，但面板不该跟着换列表 / 重新取数。
+    notifier.value = _ctx(fake, 'session-b');
+    await tester.pumpAndSettle();
+    expect(fake.listCalls.length, 1, reason: '切会话不再重新取数——记忆面板没有「会话桶」可切');
+    expect(find.text('第一条记忆'), findsOneWidget);
+    expect(find.text('第二条记忆'), findsOneWidget);
+    expect(find.text(kMemoryScopeNotice), findsOneWidget);
 
-      expect(
-        find.text('B 的记忆一'),
-        findsOneWidget,
-        reason: '切桶后列表没有跟着换 —— 面板停在桶 A 的内容上',
-      );
-      expect(
-        find.text('A 的记忆一'),
-        findsNothing,
-        reason: '桶 A 的条目还留在桶 B 的界面上（行内操作的 id 就是它）',
-      );
-      expect(fake.listSessions, <String?>[kBucketA, kBucketB]);
-    });
-
-    testWidgets('切桶取数窗口：旧桶的行点不到、写操作按钮全部失效', (WidgetTester tester) async {
-      final _MemoryFake fake = _MemoryFake()..manualLists = true;
-      fake.records[kBucketA] = <Map<String, Object?>>[_record('a-1', 'A 的记忆一')];
-      fake.records[kBucketB] = <Map<String, Object?>>[_record('b-1', 'B 的记忆一')];
-      final ValueNotifier<ModPanelContext> notifier =
-          ValueNotifier<ModPanelContext>(_ctx(fake, kBucketA));
-
-      await tester.pumpWidget(_host(notifier));
-      await tester.pump();
-      fake.releaseList(0); // 桶 A 的列表到位
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('memory-delete-a-1')), findsOneWidget);
-
-      // 切到 B：B 的 list 还没回来。
-      notifier.value = _ctx(fake, kBucketB);
-      await tester.pump();
-      expect(
-        find.byKey(const Key('memory-delete-a-1')),
-        findsNothing,
-        reason: '切桶后旧桶的行还挂在树上 —— 点下去就是拿 A 的 id 去 B 里删',
-      );
-      expect(find.byTooltip('删除'), findsNothing);
-      expect(
-        tester
-            .widget<TextButton>(find.byKey(const Key('memory-import-button')))
-            .onPressed,
-        isNull,
-        reason: '取数窗口里「导入」还可用 —— 它会把内容写进哪个桶说不清',
-      );
-      expect(
-        tester
-            .widget<OutlinedButton>(
-              find.ancestor(
-                of: find.text('清空记忆库'),
-                matching: find.byType(OutlinedButton),
-              ),
-            )
-            .onPressed,
-        isNull,
-        reason: '取数窗口里「清空」还可用 —— 可能清错桶',
-      );
-
-      // 新桶的列表到位 → 行回来，且写操作打的是新桶。
-      fake.releaseList(1);
-      await tester.pumpAndSettle();
-      expect(find.text('B 的记忆一'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('memory-delete-b-1')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('确认删除'));
-      await tester.pumpAndSettle();
-
-      final RecordedCall delete = fake.writes.single;
-      expect(delete.command, 'delete');
-      expect(delete.args['id'], 'b-1');
-      expect(
-        delete.args['session_id'],
-        kBucketB,
-        reason: '删除打到了别的桶 —— 记录的家（快照）与 ctx 分叉了',
-      );
-    });
-
-    testWidgets('迟到的旧桶响应被丢掉（不把新桶的列表重新填回旧桶）', (WidgetTester tester) async {
-      final _MemoryFake fake = _MemoryFake()..manualLists = true;
-      fake.records[kBucketA] = <Map<String, Object?>>[_record('a-1', 'A 的记忆一')];
-      fake.records[kBucketB] = <Map<String, Object?>>[_record('b-1', 'B 的记忆一')];
-      final ValueNotifier<ModPanelContext> notifier =
-          ValueNotifier<ModPanelContext>(_ctx(fake, kBucketA));
-
-      await tester.pumpWidget(_host(notifier));
-      await tester.pump();
-      // 桶 A 的响应还没回来就切到 B。
-      notifier.value = _ctx(fake, kBucketB);
-      await tester.pump();
-      fake.releaseList(1); // B 先到
-      await tester.pumpAndSettle();
-      expect(find.text('B 的记忆一'), findsOneWidget);
-
-      fake.releaseList(0); // A 迟到
-      await tester.pumpAndSettle();
-      expect(
-        find.text('A 的记忆一'),
-        findsNothing,
-        reason: '迟到的旧桶响应把面板填回了旧桶（代际没有对齐）',
-      );
-      expect(find.text('B 的记忆一'), findsOneWidget);
-    });
+    // 行内删除：id 来自列表，但 args 不得再看「当前会话」（没有桶可写错）。
+    await tester.tap(find.byKey(const Key('memory-delete-id-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确认删除'));
+    await tester.pumpAndSettle();
+    final _RecordedCall delete = fake.calls.firstWhere(
+      (_RecordedCall c) => c.command == 'delete',
+    );
+    expect(delete.args['id'], 'id-1');
+    expect(delete.args.containsKey('session_id'), isFalse);
   });
 }

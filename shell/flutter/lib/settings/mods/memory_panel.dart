@@ -1,8 +1,16 @@
-/// `memory` 的产品面板（产品级加强波次 + L1 主动管理面）。
+/// `memory` 的产品面板（产品级加强波次 + L1 主动管理面；2026-11-18 去会话绑定）。
 ///
-/// 职责：概览一行 / **记忆列表（查看 · 编辑 · 删除）** / **导入一条** /
-/// 清空整库 / 会话分桶的降级说明；注入可关与 persona 的策略在 UI 里说清。
+/// 职责：概览一行 / **记忆列表（查看 · 编辑 · 删除）** / **导入一条** / 清空整库。
 /// 本文件由 memory 轨道独占，其他轨道不要改。
+///
+/// # 2026-11-18：会话分桶 / 注入进提示词两条旧承诺**已停用**
+///
+/// 服务端说话路径不再读 memory Mod 写的会话注入槽（`session_scope.rs` 的
+/// `speak_prompt_for` 剔除 persona / memory）；2026-11-16 起模型这一轮的记忆
+/// 来自主链热槽（系统句 + 钉住的事 + 最近对话 + 热卡），与「当前会话」无关。
+/// 树内 memory Mod 也默认不注册（`AVAILABLE_MOD_FACTORIES` 为空）。所以面板：
+/// - 命令一律走**全局**路径（不再带 `session_id`），切会话不改变列表；
+/// - 用一句诚实话说明「这里的内容不会进模型提示词」，不再按会话分桶。
 ///
 /// # 边界（与其它轨道 / 既有契约的关系）
 ///
@@ -48,18 +56,14 @@ String memorySummaryLine(Map<String, Object?>? state) {
   return '记住了 ${memoryCountText(s['records'])} 条';
 }
 
-/// 记忆放在哪的说明（2026-10-08：说人话，不出现「桶」）。纯函数，可单测。
+/// **记忆作用域说明（2026-11-18）**：诚实说清「这里的记忆不进模型提示词」。
 ///
-/// `activeSessionId == null` 时必须**说清现状**，不能假装绑好了：这时还没有
-/// 这次对话可归属，内容先记在总文件里——它不会写进提示词，也不会自动拆进以后
-/// 的某次对话（别让用户以为「等会儿聊天它就会记得」）。
-String memoryBucketNotice(String? activeSessionId) {
-  final String id = activeSessionId?.trim() ?? '';
-  if (id.isEmpty) {
-    return '还没有对话。这些内容记在总文件里，不会写进提示词，也不会自动拆进以后的某次对话。';
-  }
-  return '只看这次对话记住的内容。';
-}
+/// 旧面板按「当前会话」说「只看这次对话记住的内容」，但服务端说话路径已不读
+/// memory 的会话注入槽；模型这一轮用的记忆来自主链热槽。再说「只看这次对话」
+/// 就是谎报能力——用户会以为换会话就换了记忆。产品面上不出现「桶」这个词。
+const String kMemoryScopeNotice =
+    '这里的记忆只进 Mod 自己的记忆库，不会写进模型提示词；'
+    '模型这一轮的上下文与当前会话无关（旧版按会话记忆已停用）。';
 
 /// 一条记录的展示文本：压平空白 + 截断（面板不把整段糊上来）。纯函数，可单测。
 String memoryRecordText(Object? raw, {int maxChars = 80}) {
@@ -75,30 +79,13 @@ String memoryRecordText(Object? raw, {int maxChars = 80}) {
 /// 从 `list` 返回体解析记录（未知形状 → 空列表，不崩）。纯函数，可单测。
 List<Map<String, Object?>> memoryParseRecords(Object? raw) {
   if (raw is! List) return const <Map<String, Object?>>[];
-  return raw
-      .whereType<Map<Object?, Object?>>()
-      .map((Map<Object?, Object?> m) {
-        final Map<String, Object?> out = <String, Object?>{};
-        m.forEach((Object? k, Object? v) {
-          if (k is String) out[k] = v;
-        });
-        return out;
-      })
-      .toList();
-}
-
-/// 命令 args：可选的 `session_id` **只在有会话时才带**。
-///
-/// 与 Rust 侧口径逐字对齐：`args.session_id` 缺省 → 老路径全局桶。面板在
-/// `activeSessionId == null` 时不传，正是「全局桶降级」那句文案的行为。
-Map<String, Object?> memoryCommandArgs({
-  String? sessionId,
-  Map<String, Object?> extra = const <String, Object?>{},
-}) {
-  final Map<String, Object?> args = <String, Object?>{...extra};
-  final String id = sessionId?.trim() ?? '';
-  if (id.isNotEmpty) args['session_id'] = id;
-  return args;
+  return raw.whereType<Map<Object?, Object?>>().map((Map<Object?, Object?> m) {
+    final Map<String, Object?> out = <String, Object?>{};
+    m.forEach((Object? k, Object? v) {
+      if (k is String) out[k] = v;
+    });
+    return out;
+  }).toList();
 }
 
 /// 命令失败码 → **可处置**的一句话（必须带码）。纯函数，可单测。
@@ -191,9 +178,9 @@ class MemoryPanel extends ModPanel {
     'enabled_injection': '注入开关',
     'store_path': '记忆库路径',
     'turns_seen': '经历轮数',
-    'session_scoped': '会话分桶',
-    'active_session': '当前会话',
-    'bucket_path': '生效记忆库',
+    'session_scoped': '会话分桶（已停用）',
+    'active_session': '当前会话（仅显示）',
+    'bucket_path': '记忆库文件',
   };
 
   @override
@@ -221,55 +208,15 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
   String? _bucket;
   final TextEditingController _importController = TextEditingController();
 
-  /// **当前列表里的记录属于哪个会话桶**（F-0004-1）。
-  ///
-  /// 它不是「当前会话」的同义词：切会话时宿主立刻用新 `ctx` 重建本面板
-  /// （文案那行现读 `ctx.activeSessionId`，一帧就改口），而列表是异步来的。
-  /// 两者一旦分叉，行内编辑/删除就会拿着**桶 A 的 id** 去 `ctx` 说的**桶 B**
-  /// 里操作——改错桶的数据。所以：
-  ///   · 所有行为的 `session_id` 一律取这份**快照**（记录的家）；
-  ///   · 快照与 `ctx.activeSessionId` 不一致期间（切桶的取数窗口），
-  ///     列表先清空、按钮先失效（见 [_bucketStale]）——旧桶的行**点不到**。
-  late String? _recordsSessionId = widget.ctx.activeSessionId;
-
-  /// 列表取数的**代**：迟到的旧桶响应必须丢掉，否则它会把刚切过去的
-  /// 面板重新填回旧桶的内容。
+  /// 列表取数的**代**：迟到的旧响应必须丢掉，否则它会把刚刷新的列表
+  /// 重新填回上一次取数的内容。
   int _listEpoch = 0;
-
-  /// 展示中的数据与「当前会话」是否已经分叉（切桶取数窗口 / 取数失败）。
-  bool get _bucketStale => _recordsSessionId != widget.ctx.activeSessionId;
 
   @override
   void initState() {
     super.initState();
     // 进入面板就拉一次列表；不在 initState 里 setState（首帧还没建）。
     unawaited(_refreshList(initial: true));
-  }
-
-  @override
-  void didUpdateWidget(_MemoryPanelBody oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // **会话桶换了 → 列表必须跟着换**（F-0004-1）。
-    //
-    // 从前这里没有 didUpdateWidget：State 被复用、`_records` 停在旧桶，
-    // 而 build 里的桶说明行现读 `ctx.activeSessionId` ⇒ 界面自相矛盾
-    // （文案说 B、列表是 A），接着「删除」就会拿 A 的行 id 去 B 里删。
-    //
-    // 现在：先把旧桶的内容清掉（避免分叉窗口里任何 id 还能被点到），
-    // 再为新桶取数。取数期间 `_recordsSessionId` 仍是旧桶 ⇒ [_bucketStale]
-    // 为真 ⇒ 按钮失效；新桶的响应落地后一切复原。
-    if (oldWidget.ctx.activeSessionId != widget.ctx.activeSessionId) {
-      // **只改字段**（didUpdateWidget 之后框架本来就会重建一次，这里 setState
-      // 是多余的，还会在「父级 build 期间」留下一次额外标记）。
-      _records = const <Map<String, Object?>>[];
-      _total = null;
-      _bucket = null;
-      _listError = null;
-      _listLoading = true;
-      _message = null;
-      // 取数走 `initial: true`：它**不在 await 之前** setState，响应落地才更新。
-      unawaited(_refreshList(initial: true));
-    }
   }
 
   @override
@@ -280,8 +227,6 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
 
   Future<void> _refreshList({bool initial = false}) async {
     final int epoch = ++_listEpoch;
-    // 这一次取数**为哪个桶**取。响应落地时也只有它才算数。
-    final String? requested = widget.ctx.activeSessionId;
     if (!initial && mounted) {
       setState(() {
         _listLoading = true;
@@ -289,14 +234,13 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
       });
     }
     try {
+      // 全局一条路：不再带 `session_id`（会话分桶已停用，服务端也没有按会话的
+      // 说话注入）。命令走 Mod 自己的库，与「当前看哪个会话」无关。
       final ModCommandResult result = await widget.ctx.onCommand(
         'list',
-        memoryCommandArgs(
-          sessionId: requested,
-          extra: <String, Object?>{'limit': kMemoryListLimit},
-        ),
+        <String, Object?>{'limit': kMemoryListLimit},
       );
-      // 迟到的旧桶响应：丢掉（否则刚切过去的桶会被旧桶内容重新填满）。
+      // 迟到的旧响应：丢掉（否则会把刚刷新的列表填回上一次取数的内容）。
       if (!mounted || epoch != _listEpoch) return;
       setState(() {
         _listLoading = false;
@@ -305,8 +249,6 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
         _total = result.result['total'];
         final Object? bucket = result.result['bucket'];
         _bucket = bucket is String ? bucket : null;
-        // 列表现已属于这个桶 —— 快照在这里才更新。
-        _recordsSessionId = requested;
       });
     } on ApiException catch (e) {
       if (!mounted || epoch != _listEpoch) return;
@@ -374,15 +316,9 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
       });
       return;
     }
-    await _send(
-      '导入',
-      'import',
-      memoryCommandArgs(
-        sessionId: _recordsSessionId,
-        extra: <String, Object?>{'text': text},
-      ),
-      (ModCommandResult _) => '已导入一条记忆（下一条命中它的用户话，本轮就会带上）',
-    );
+    await _send('导入', 'import', <String, Object?>{
+      'text': text,
+    }, (ModCommandResult _) => '已导入一条记忆（下一条命中它的用户话，本轮就会带上）');
     if (mounted) _importController.clear();
   }
 
@@ -425,15 +361,10 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
       });
       return;
     }
-    await _send(
-      '更新',
-      'update',
-      memoryCommandArgs(
-        sessionId: _recordsSessionId,
-        extra: <String, Object?>{'id': id, 'text': text},
-      ),
-      (ModCommandResult _) => '已更新这条记忆（id 不变）',
-    );
+    await _send('更新', 'update', <String, Object?>{
+      'id': id,
+      'text': text,
+    }, (ModCommandResult _) => '已更新这条记忆（id 不变）');
   }
 
   Future<void> _delete(Map<String, Object?> record) async {
@@ -456,29 +387,20 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
       ),
     );
     if (confirmed != true) return;
-    await _send(
-      '删除',
-      'delete',
-      memoryCommandArgs(
-        sessionId: _recordsSessionId,
-        extra: <String, Object?>{'id': id},
-      ),
-      (ModCommandResult _) => '已删除这条记忆',
-    );
+    await _send('删除', 'delete', <String, Object?>{
+      'id': id,
+    }, (ModCommandResult _) => '已删除这条记忆');
   }
 
   Future<void> _clear() async {
-    await _send(
-      '清空',
-      'clear',
-      memoryCommandArgs(sessionId: _recordsSessionId),
-      (ModCommandResult result) {
-        final bool residue = result.result['residue'] == true;
-        return '已清空记忆库：清掉 ${memoryCountText(result.result['removed'])} 条，'
-            '现存 ${memoryCountText(result.result['records'])} 条'
-            '${residue ? '。提示词里仍留着上一轮注入的记忆块，停用 Mod 会按既有语义剥离' : ''}';
-      },
-    );
+    await _send('清空', 'clear', const <String, Object?>{}, (
+      ModCommandResult result,
+    ) {
+      final bool residue = result.result['residue'] == true;
+      return '已清空记忆库：清掉 ${memoryCountText(result.result['removed'])} 条，'
+          '现存 ${memoryCountText(result.result['records'])} 条'
+          '${residue ? '。提示词里仍留着上一轮注入的记忆块，停用 Mod 会按既有语义剥离' : ''}';
+    });
   }
 
   /// 「压缩过的记忆」块（2026-10-08 瘦身）：**有正文才画**，只画标题 + 正文。
@@ -524,7 +446,7 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
   ) {
     final ThemeData theme = Theme.of(context);
     final AppColors colors = appColorsOf(context);
-    final bool locked = !ctx.enabled || _busy || _bucketStale;
+    final bool locked = !ctx.enabled || _busy;
     return Padding(
       padding: const EdgeInsets.only(bottom: Space.s1),
       child: Row(
@@ -567,14 +489,10 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
     final TextStyle? muted = theme.textTheme.bodySmall?.copyWith(
       color: colors.contentMuted,
     );
-    // 切桶取数窗口里一律不准动（F-0004-1）：下面那几行可能还是旧桶的
-    // 记录 id，而 `ctx` 已经改成新会话了 —— 放行就是跨桶写。
-    //
-    // 「刷新」**不看** `_bucketStale`（2026-10-08）：它的职责正是把当前桶的
-    // 列表拉回来，锁上它等于「切桶失败后没有出路」；`list` 失败后也必须仍
-    // 可点。导入 / 编辑 / 删除 / 清空才需要「快照 == 当前会话且不在读取中」。
+    // 「刷新」的职责是把列表拉回来：`list` 失败后也必须仍可点。
+    // 导入 / 编辑 / 删除 / 清空则要求列表已到位（`_listLoading` 期间不动作）。
     final bool canRefresh = ctx.enabled && !_busy;
-    final bool canAct = ctx.enabled && !_busy && !_bucketStale && !_listLoading;
+    final bool canAct = ctx.enabled && !_busy && !_listLoading;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -588,11 +506,9 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
         else
           Text(memorySummaryLine(ctx.state), style: theme.textTheme.bodySmall),
         const SizedBox(height: Space.s2),
-        InlineNotice(
-          message: memoryBucketNotice(ctx.activeSessionId),
-          severity: ctx.activeSessionId == null
-              ? NoticeSeverity.warning
-              : NoticeSeverity.info,
+        const InlineNotice(
+          message: kMemoryScopeNotice,
+          severity: NoticeSeverity.info,
           dense: true,
         ),
         const SizedBox(height: Space.s2),
@@ -633,7 +549,8 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
           children: <Widget>[
             Text('记忆列表', style: theme.textTheme.titleSmall),
             const SizedBox(width: Space.s2),
-            if (_total != null) Text('共 ${memoryCountText(_total)} 条', style: muted),
+            if (_total != null)
+              Text('共 ${memoryCountText(_total)} 条', style: muted),
             const Spacer(),
             TextButton.icon(
               key: const Key('memory-refresh-button'),
@@ -646,7 +563,7 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
         if (_bucket != null)
           Padding(
             padding: const EdgeInsets.only(bottom: Space.s1),
-            child: Text('生效记忆库：$_bucket', style: muted),
+            child: Text('记忆库文件：$_bucket', style: muted),
           ),
         if (_listLoading)
           Text('正在读取记忆列表…', style: muted)
@@ -681,8 +598,11 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
         if (!ctx.enabled)
           Padding(
             padding: const EdgeInsets.only(top: Space.s1),
-            child: Text('Mod 未启用：列表 / 导入 / 编辑 / 删除 / 清空都不可用——'
-                '先在卡片标题行的开关里启用。', style: muted),
+            child: Text(
+              'Mod 未启用：列表 / 导入 / 编辑 / 删除 / 清空都不可用——'
+              '先在卡片标题行的开关里启用。',
+              style: muted,
+            ),
           ),
         if (_message != null)
           Padding(

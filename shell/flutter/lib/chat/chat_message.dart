@@ -60,11 +60,59 @@ String? lastUserText(List<ChatMessage> messages) {
 }
 
 /// 一句已上屏的正文。`seq` 与正在播放的音频句号是同一个数。
+///
+/// # 为什么要落盘（2026-11-18，#11）
+///
+/// 它是**跟读高亮**的坐标：`MessageBubble` 用 `spokenHighlight` 在它上面算
+/// 当前句子的区间。以前不落盘，刷新页面后每个气泡都只剩拼接好的 [text]，
+/// 高亮永远回不来——而「刚才那句在哪里」恰恰是回看时最想找的东西。
+///
+/// 体积不是问题：每句正文本来就在 [text] 里各出现一次，`spoken` 只是把同一批
+/// 文字**再按句号切一遍**（总字符数至多与正文相同）。
 class SpokenSpan {
   SpokenSpan({required this.seq, required this.text});
 
   final int seq;
   final String text;
+
+  /// 落盘用（见 [ChatMessage.toJson]）。
+  Map<String, Object?> toJson() => <String, Object?>{'seq': seq, 'text': text};
+
+  /// 反序列化：坏条目返回 `null`（丢这一句，不丢整条消息）。
+  ///
+  /// `seq` 必须是 int、`text` 必须是 String：缺一个，高亮就算不出区间——
+  /// 留着它只会在 `spokenHighlight` 里制造一个静默的空 span。
+  static SpokenSpan? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final Object? seq = raw['seq'];
+    final Object? text = raw['text'];
+    if (seq is! int || text is! String) return null;
+    return SpokenSpan(seq: seq, text: text);
+  }
+}
+
+/// 思考正文落盘时的**字符上限**（按 rune 计，2026-11-18，#11）。
+///
+/// 取值理由：思考通常比正文长 5–20 倍（实测一个普通提问 1200+ 字思考 vs 20 字
+/// 回复）。落盘是为了刷新后还能展看「它当时怎么想的」，但不设上限的话，一个
+/// 长会话光思考就能把 localStorage（常见配额 5 MB）顶穿——届时**整份存档**写入
+/// 失败，用户连正文历史都看不到。2000 字 ≈ 4–8 KB/条，最坏情况随
+/// `ChatSessionStore.kMaxMessagesPerSession`（500）线性放大，仍在配额内。
+///
+/// 超限时截断并加 [kPersistedReasoningTruncatedMarker]，而不是丢掉整个字段：
+/// 保留开头比「什么都没有」诚实（代价只是尾巴不见）。
+const int kPersistedReasoningMaxChars = 2000;
+
+/// 思考正文被截断时补在末尾的标记（见 [kPersistedReasoningMaxChars]）。
+const String kPersistedReasoningTruncatedMarker = '…';
+
+/// 把思考正文裁到落盘上限：短的原样返回，长的截断加省略号。
+///
+/// **幂等**（截断过的再截一次结果不变），所以写盘与读盘两侧都能放心调用。
+String capPersistedReasoning(String text) {
+  final List<int> runes = text.runes.toList();
+  if (runes.length <= kPersistedReasoningMaxChars) return text;
+  return '${String.fromCharCodes(runes.take(kPersistedReasoningMaxChars))}$kPersistedReasoningTruncatedMarker';
 }
 
 /// 一条聊天消息（assistant 气泡可流式追加）。
@@ -97,28 +145,30 @@ class ChatMessage {
 
   /// 推理模型的**思考**正文（`reasoning_delta` 累积；2026-09-13）。
   ///
-  /// # 为什么不落盘（`toJson` / `fromJson` 都不含它）
+  /// # 落盘与上限（2026-11-18，#11）
   ///
-  /// 思考通常比正文长 **5–20 倍**（实测一个普通提问 1200+ 字思考 vs 20 字回复）。
-  /// 写进 localStorage 会让会话存档膨胀一个数量级，而它的价值只在
-  /// 「刚发生的那一轮」——用户想看的是「它刚才怎么想的」。
+  /// 以前刻意不落盘：思考通常比正文长 5–20 倍，整段写进 localStorage 会让存档
+  /// 膨胀一个数量级。代价是**刷新页面后思考折叠区永远是空的**——用户回看一轮
+  /// 时最想找的「它当时怎么想的」恰好没了。
   ///
-  /// 代价说清楚：**刷新页面后旧气泡不再有思考**。这是刻意的取舍，不是遗漏。
-  /// 要改成持久化，需要同时给会话存档加体积上限（否则长会话会顶穿配额）。
+  /// 现在改成「落盘但封顶」：写到 [kPersistedReasoningMaxChars] 个字符（rune）
+  /// 就截断并加省略号（[kPersistedReasoningTruncatedMarker]）。读盘一侧同样封顶
+  /// ——存档可能来自别的版本或被人手工塞大，上限只有在写与读两侧都成立才算数。
   String reasoning;
 
   /// 本轮已上屏的句子（`text_delta` 的 `sentence_seq` + 该句正文）。
   ///
-  /// 与 [reasoning] 一样**不落盘**：刷新后气泡只剩拼接好的 [text]，跟读高亮
-  /// 只在当轮播放时有意义。序号来自服务端，不要用标点把 [text] 再切一遍。
+  /// 落盘（2026-11-18，#11）：刷新后跟读高亮的坐标还在，不再是「只剩拼接好的
+  /// [text]」。序号来自服务端，**不要**用标点把 [text] 再切一遍——切法不同会
+  /// 让高亮落在错的字上。
   final List<SpokenSpan> spoken = <SpokenSpan>[];
 
   /// 这一轮的正文是**失败兜底**（`text_fallback` 帧）来的：真实生成、
   /// 但没有语音收尾（rc.3 N0，2026-09-13）。
   ///
   /// 只在气泡上加一条说明行（[kUnfinishedTurnCaption]），**不改**文字本身——
-  /// 文字是真实收到的内容，丢了就是篡改记录。与 [reasoning] 不同，它**要落盘**：
-  /// 刷新后那段文字还在，就必须还带着「未收尾」这个限定。
+  /// 文字是真实收到的内容，丢了就是篡改记录。它**必须落盘**（#11 之后
+  /// [reasoning] 也落盘了）：刷新后那段文字还在，就必须还带着「未收尾」这个限定。
   bool unfinished;
 
   /// 是否是一条「系统提示」而不是真实回复（失败/无输出的占位文案）。
@@ -130,12 +180,19 @@ class ChatMessage {
   ///
   /// **不存 `streaming`**：存下来的消息永远是「已完成」的——把
   /// `streaming: true` 写进存储，重开页面会得到一个永远转圈的空气泡。
+  ///
+  /// **存 [reasoning] 与 [spoken]**（2026-11-18，#11）：刷新后思考折叠区与
+  /// 跟读高亮都靠它们，否则回看旧对话时只剩一段没有「为什么」的正文。
+  /// 两者都只在非空时写键（旧存档 / 空思考不占地方）。
   Map<String, Object?> toJson() => <String, Object?>{
     'role': role.name,
     'text': text,
     if (epoch != null) 'epoch': epoch,
     if (failed) 'failed': true,
     if (unfinished) 'unfinished': true,
+    if (reasoning.isNotEmpty) 'reasoning': capPersistedReasoning(reasoning),
+    if (spoken.isNotEmpty)
+      'spoken': <Object?>[for (final SpokenSpan span in spoken) span.toJson()],
   };
 
   /// 反序列化：**坏数据返回 `null`（丢弃这一条），绝不抛**。
@@ -154,12 +211,26 @@ class ChatMessage {
     final Object? rawText = raw['text'];
     if (rawText is! String) return null;
     final Object? rawEpoch = raw['epoch'];
+    // 旧存档没有这两个字段（#11 之前）：缺省空，不要因此丢掉整条消息。
+    final Object? rawReasoning = raw['reasoning'];
+    final String reasoning = rawReasoning is String
+        ? capPersistedReasoning(rawReasoning)
+        : '';
+    final List<SpokenSpan> spoken = <SpokenSpan>[];
+    final Object? rawSpoken = raw['spoken'];
+    if (rawSpoken is List) {
+      for (final Object? item in rawSpoken) {
+        final SpokenSpan? span = SpokenSpan.fromJson(item);
+        if (span != null) spoken.add(span);
+      }
+    }
     return ChatMessage(
       role: role,
       text: rawText,
       epoch: rawEpoch is int ? rawEpoch : null,
       failed: raw['failed'] == true,
       unfinished: raw['unfinished'] == true,
-    );
+      reasoning: reasoning,
+    )..spoken.addAll(spoken);
   }
 }

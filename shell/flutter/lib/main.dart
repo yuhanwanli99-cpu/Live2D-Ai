@@ -73,6 +73,7 @@ import 'audio/audio_player.dart';
 import 'audio/epoch_gate.dart';
 import 'audio/stage_clock.dart';
 import 'chat/chat_controller.dart';
+import 'chat/chat_session.dart';
 import 'chat/draft_probe.dart';
 import 'chat/turn_liveness.dart';
 import 'data/background_hydration.dart';
@@ -110,6 +111,7 @@ import 'ui/error_actions.dart';
 import 'ui/field_row.dart';
 import 'ui/restart_notice.dart';
 import 'ui/shell_slideshow.dart';
+import 'ui/desk_pet_mode_page.dart';
 import 'ui/stage_corner_controls.dart';
 import 'ui/theme.dart';
 
@@ -534,8 +536,8 @@ class _ShellRootState extends State<ShellRoot> {
       ]),
       builder: (BuildContext context, Widget? _) {
         if (_enteredDeskPet) {
-          // 占位页先上屏再尝试关窗；wasm 的 rAF 已随 iframe 卸载停掉。
-          return deskPetExitPage();
+          // 桌宠模式页：会话仍可切换、可一键回工作台（2026-11-18）。
+          return _deskPetModeView();
         }
         // 统一「停止」的判据只算一次：圆键停止态与 Esc 共用它。
         // **不看界面相位**——服务端推完 PCM 后相位先归零，尾巴只剩这三条。
@@ -751,6 +753,7 @@ class _ShellRootState extends State<ShellRoot> {
           // 浮层要在**自己的 builder 里**读此刻的列表 / 当前 id：
           // 只传快照会让「删掉一行，行还在」（见 ui/session_sheet.dart）。
           sessionsListenable: _chat,
+          sessionStore: _chat.sessions,
           readSessions: () => _chat.sessions.byRecency,
           readActiveSessionId: () => _chat.sessions.activeId,
           onNewSession: _chat.newSession,

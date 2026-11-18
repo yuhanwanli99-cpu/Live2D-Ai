@@ -20,15 +20,17 @@ import '../design/tokens.dart';
 import '../live2d/stage_pointer_interceptor.dart';
 import 'theme.dart';
 
-/// 会话列表顶部那行说明：**本地记录 ≠ 模型记忆**（rc.3 N3，2026-09-13）。
+/// 会话列表顶部那行说明（2026-09-13 立；2026-11-18 #14 改写）。
 ///
 /// 它必须说清两件事，否则用户会误读：
-/// ① 这些会话只在本机（localStorage）——换设备/清站点数据就没了；
-/// ② 模型**看不到**它们：每轮 `POST /api/v1/chat` 只带当前这一句，
-///    所谓「记忆」不由这里提供。
+/// ① 这些会话只在本机（localStorage）——换设备 / 清站点数据就没了；
+/// ② 模型看到的是**这一段的最近几轮**：每轮请求会把本会话最近 8 轮历史一起
+///    发给服务端（`POST /api/v1/chat` 的可选 `history`），服务端不保存会话。
+///    所以「换会话 = 换上下文」是真的，「跨设备还记得」是假的。
 ///
 /// 与 `chat/chat_session.dart` 的模型说明同源，放在 UI 侧只因为它是**给人看的文案**。
-const String kSessionsAreLocalNote = '这些会话只是本机记录，不是模型记忆（每轮只把当前这句发给模型）。';
+const String kSessionsAreLocalNote =
+    '这些会话只存在本机；每轮会把本会话最近几轮一起发给模型，换会话就是换上下文。';
 
 /// 打开会话浮层。
 ///
@@ -49,6 +51,15 @@ Future<void> showSessionSheet({
   required ValueChanged<String> onSelect,
   required void Function(String id, String title) onRename,
   required ValueChanged<String> onDelete,
+
+  /// 存档裁剪提示（`ChatSessionStore.trimNotice`，#8）。
+  String? trimNotice,
+
+  /// 读盘警告（`ChatSessionStore.loadWarning`，#10）。
+  String? loadWarning,
+
+  /// 落盘失败（`ChatSessionStore.saveFailed`，#9）：显示「只保留在本次页面里」。
+  bool saveFailed = false,
 }) => showModalBottomSheet<void>(
   context: context,
   showDragHandle: true,
@@ -70,6 +81,9 @@ Future<void> showSessionSheet({
           onSelect: onSelect,
           onRename: onRename,
           onDelete: onDelete,
+          trimNotice: trimNotice,
+          loadWarning: loadWarning,
+          saveFailed: saveFailed,
           // 用**浮层自己的** context 关掉自己（与设置浮层同一条理由：
           // 用外壳的 context 去 maybePop 依赖「浮层恰好是栈顶」这个巧合）。
           onClose: () => Navigator.of(sheetContext).pop(),
@@ -89,6 +103,9 @@ class SessionSheet extends StatefulWidget {
     required this.onRename,
     required this.onDelete,
     this.onClose,
+    this.trimNotice,
+    this.loadWarning,
+    this.saveFailed = false,
     super.key,
   });
 
@@ -103,6 +120,21 @@ class SessionSheet extends StatefulWidget {
 
   /// 选中/新建之后关闭浮层；`null` 时不自关（测试里用）。
   final VoidCallback? onClose;
+
+  /// 存档裁剪提示（`ChatSessionStore.trimNotice`）：超上限自动丢了什么（#8）。
+  ///
+  /// 由组合根从 store 读出来传进来——本组件不认识 store，才能在 widget 测试里
+  /// 直接摆出「有提示 / 没提示」两种状态。
+  final String? trimNotice;
+
+  /// 读盘警告（`ChatSessionStore.loadWarning`）：有存档条目读不出来（#10）。
+  final String? loadWarning;
+
+  /// 落盘失败（`ChatSessionStore.saveFailed`）：无痕模式 / 配额满（#9）。
+  ///
+  /// 为 `true` 时显示 `kSessionsNotPersistedNote`——用户必须知道「这次页面一关，
+  /// 记录就没了」，否则会以为和平时一样能刷新回来。
+  final bool saveFailed;
 
   @override
   State<SessionSheet> createState() => _SessionSheetState();
@@ -121,6 +153,15 @@ class _SessionSheetState extends State<SessionSheet> {
   /// 不用对话框（见文件头注），改成「点一次变成『确认删除』，再点才真删」。
   String? _confirmingDeleteId;
 
+  /// 重命名提交后的**行内确认**文案（#13；`null` = 不显示）。
+  ///
+  /// 只对「清空标题 → 恢复自动标题」显示：那是唯一一种「提交了但看起来像没改」
+  /// 的操作。不用 SnackBar / Dialog——新 overlay 在指针垫层外点不着（见文件头）。
+  String? _renameNotice;
+
+  /// [_renameNotice] 属于哪个会话（换一行改名时旧提示要清掉）。
+  String? _renameNoticeId;
+
   @override
   void dispose() {
     _titleInput.dispose();
@@ -131,6 +172,9 @@ class _SessionSheetState extends State<SessionSheet> {
     setState(() {
       _editingId = session.id;
       _confirmingDeleteId = null;
+      // 开始新一轮改名：上一条确认文案已经过时。
+      _renameNotice = null;
+      _renameNoticeId = null;
       // 起过名就填用户的名字；没起过就填空——空串提交等于「恢复自动标题」。
       _titleInput.text = session.title;
       _titleInput.selection = TextSelection(
@@ -141,8 +185,20 @@ class _SessionSheetState extends State<SessionSheet> {
   }
 
   void _commitRename(String id) {
-    widget.onRename(id, _titleInput.text);
-    setState(() => _editingId = null);
+    final String submitted = _titleInput.text;
+    widget.onRename(id, submitted);
+    setState(() {
+      _editingId = null;
+      if (submitted.trim().isEmpty) {
+        // 空串 = **恢复自动标题**（语义在 ChatSessionStore.rename）。必须给一句
+        // 行内确认：否则「留空提交」与「按了取消」看起来一模一样（#13）。
+        _renameNoticeId = id;
+        _renameNotice = '已恢复自动标题：${_displayTitleOf(id)}';
+      } else {
+        _renameNotice = null;
+        _renameNoticeId = null;
+      }
+    });
   }
 
   @override
@@ -195,6 +251,8 @@ class _SessionSheetState extends State<SessionSheet> {
             ),
           ),
         ),
+        // #8/#9/#10 的提示：只显示非空的那几条（不占地方、不喧宾夺主）。
+        ..._noticeLines(theme),
         if (widget.sessions.isEmpty)
           Padding(
             padding: const EdgeInsets.all(Space.s5),
@@ -243,7 +301,9 @@ class _SessionSheetState extends State<SessionSheet> {
                 onSubmitted: (_) => _commitRename(session.id),
                 decoration: const InputDecoration(
                   isDense: true,
-                  hintText: '留空则用第一条消息作标题',
+                  // #13：留空**不是**「没标题」——是「恢复自动标题」。这句说明
+                  // 只在编辑态可见，所以必须写进 hint，别指望别处解释。
+                  hintText: '留空 = 恢复自动标题（用第一条消息）',
                 ),
               ),
             ),
@@ -264,77 +324,157 @@ class _SessionSheetState extends State<SessionSheet> {
     // ── 待确认删除 ──
     if (_confirmingDeleteId == session.id) {
       return ListTile(
-        title: Text('删除「${session.displayTitle}」？'),
-        subtitle: Text(
-          '${session.messages.length} 条消息，删除后无法恢复',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: colors.contentMuted,
-          ),
+        title: Text(
+          '删除「${session.displayTitle}」？',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
         ),
-        trailing: Row(
+        subtitle: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            TextButton(
-              onPressed: () => setState(() => _confirmingDeleteId = null),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              onPressed: () {
-                widget.onDelete(session.id);
-                setState(() => _confirmingDeleteId = null);
-                // 删掉的正好是当前会话时，列表内容已经变了；
-                // 不自动关浮层——用户可能还要继续删。
-              },
-              style: TextButton.styleFrom(
-                foregroundColor: appPaletteOf(context).danger,
+            Text(
+              '${session.messages.length} 条消息，删除后无法恢复',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.contentMuted,
               ),
-              child: const Text('删除'),
             ),
+            _actionsRow(<Widget>[
+              TextButton(
+                onPressed: () => setState(() => _confirmingDeleteId = null),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () {
+                  widget.onDelete(session.id);
+                  setState(() => _confirmingDeleteId = null);
+                  // 删掉的正好是当前会话时，列表内容已经变了；
+                  // 不自动关浮层——用户可能还要继续删。
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: appPaletteOf(context).danger,
+                ),
+                child: const Text('删除'),
+              ),
+            ]),
           ],
         ),
       );
     }
 
     // ── 常态 ──
+    //
+    // #6（2026-11-18）：两个动作按钮**不能**放在 `ListTile.trailing` 里。
+    // trailing 是行内固定宽度，320 px 宽时标题被挤成省略号、按钮组还可能溢出；
+    // 而这里不能用 PopupMenuButton（新 overlay 在指针垫层外点不着，见文件头）。
+    // 改成把按钮放在 subtitle 的**第二行、右对齐**：标题独占整行，按钮永远有
+    // 地方放，窄屏也不会溢出。
     return ListTile(
       title: Text(
         session.displayTitle,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      subtitle: Text(
-        _subtitle(session),
-        style: theme.textTheme.bodySmall?.copyWith(color: colors.contentMuted),
+      subtitle: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            _subtitle(session),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colors.contentMuted,
+            ),
+          ),
+          // #13：重命名提交后的行内确认，留在本行、不新开 overlay。
+          if (_renameNoticeId == session.id && _renameNotice != null)
+            Padding(
+              padding: const EdgeInsets.only(top: Space.s1),
+              child: Text(
+                _renameNotice!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.contentMuted,
+                ),
+              ),
+            ),
+          _actionsRow(<Widget>[
+            TextButton(
+              onPressed: () => _startRename(session),
+              child: const Text('改名'),
+            ),
+            TextButton(
+              onPressed: () => setState(() {
+                _confirmingDeleteId = session.id;
+                _editingId = null;
+                _renameNotice = null;
+                _renameNoticeId = null;
+              }),
+              child: const Text('删除'),
+            ),
+          ]),
+        ],
       ),
       selected: isActive,
       onTap: () {
         widget.onSelect(session.id);
         widget.onClose?.call();
       },
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          TextButton(
-            onPressed: () => _startRename(session),
-            child: const Text('改名'),
-          ),
-          TextButton(
-            onPressed: () => setState(() {
-              _confirmingDeleteId = session.id;
-              _editingId = null;
-            }),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
     );
   }
 
-  /// 副标题：条数 + 最后活动时间。
+  /// 行内动作组：**右对齐、独占一行**（#6：不挤标题、不溢出）。
+  Widget _actionsRow(List<Widget> children) => Align(
+    alignment: Alignment.centerRight,
+    child: Row(mainAxisSize: MainAxisSize.min, children: children),
+  );
+
+  /// 浮层顶部的状态提示（#8 裁剪 / #9 落盘失败 / #10 读取损坏）。
+  ///
+  /// 三条都是「不说用户就不知道」的事实；只显示非空的那几条。
+  List<Widget> _noticeLines(ThemeData theme) {
+    final AppPalette palette = appPaletteOf(context);
+    final List<(String, Color)> lines = <(String, Color)>[
+      // 落盘失败最严重：用户以为记录还在，刷新后才会发现没了（#9）。
+      if (widget.saveFailed) (kSessionsNotPersistedNote, palette.danger),
+      if (widget.loadWarning != null) (widget.loadWarning!, palette.warning),
+      if (widget.trimNotice != null) (widget.trimNotice!, palette.warning),
+    ];
+    return <Widget>[
+      for (final (String text, Color color) in lines)
+        Padding(
+          padding: const EdgeInsets.only(
+            left: Space.s4,
+            top: Space.s2,
+            right: Space.s4,
+          ),
+          child: Text(
+            text,
+            style: theme.textTheme.bodySmall?.copyWith(color: color),
+          ),
+        ),
+    ];
+  }
+
+  /// 副标题：条数 + 最后活动时间 + **会话 id 短提示**（#7）。
+  ///
+  /// 为什么带 id：这些会话**只在本机**（浮层顶部那句），而两个会话标题很容易
+  /// 一样（都叫「新对话」/ 同一句话开头）。不给一个稳定短号，用户无法把界面上
+  /// 这一行与「存储里那条记录」对上；人格面板在未知 id 时回落的「当前会话」
+  /// 也就无从核对。只取末尾几位：显示全长会把副标题挤爆。
   String _subtitle(ChatSession session) {
+    final String idHint = '$kSessionIdHintLabel ${sessionIdHint(session.id)}';
     final int n = session.messages.length;
     final DateTime? at = session.lastMessageAt;
-    if (n == 0 || at == null) return '空会话';
-    return '$n 条 · ${relativeTime(at, now: DateTime.now())}';
+    if (n == 0 || at == null) return '空会话 · $idHint';
+    return '$n 条 · ${relativeTime(at, now: DateTime.now())} · $idHint';
+  }
+
+  /// 某会话当前会显示的标题（重命名确认文案用；找不到就回落「新对话」）。
+  String _displayTitleOf(String id) {
+    for (final ChatSession s in widget.sessions) {
+      if (s.id == id) return s.displayTitle;
+    }
+    return kUntitledSessionLabel;
   }
 }

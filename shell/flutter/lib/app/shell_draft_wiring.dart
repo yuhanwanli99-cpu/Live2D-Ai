@@ -18,6 +18,10 @@ extension _ShellDraftWiring on _ShellRootState {
   /// 「A 会话打了字 → 立刻切到 B → 400 ms 到点」这条路上，输入框不再变化，
   /// 探针会拿 B 的 id 把 A 的草稿发出去——正是本文件头注里说的那类串台。
   /// 所以切会话时**先 cancel**（不补发），下一段输入自然重新计时。
+  ///
+  /// 2026-11-18（#20）：探针自己也在**排计时器那一刻**固定会话 id，触发时发现
+  /// 目标会话变了就不发（见 `draft_probe.dart`）。这里的 cancel 是第一道防线，
+  /// 不再承担全部正确性——监听顺序出岔子也不会把 A 的检索落到 B 的热卡上。
   void _initDraftProbe() {
     // 为什么挂 `TextEditingController.addListener` 而不是 `TextField.onChanged`：
     // 后者只覆盖「用户敲键盘」，而这里要跟的是**输入框内容**——粘贴、语音写入、

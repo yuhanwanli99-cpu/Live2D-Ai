@@ -188,6 +188,7 @@ mod tests {
         let user = AppEvent::Conversation(ConversationUiEvent::UserLine {
             epoch: 7,
             text: "用户说的".to_string(),
+            session: None,
         });
         assert_eq!(
             map_app_event(&user),

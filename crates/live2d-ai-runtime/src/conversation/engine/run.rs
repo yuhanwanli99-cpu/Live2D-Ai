@@ -17,21 +17,20 @@ use crate::conversation::queue::{PushOutcome, push_job};
 use crate::conversation::worker::{TtsJob, TtsWorkerCtx, WorkerExit, tts_worker};
 use crate::conversation::{EngineEvent, ErrorKind, TurnReport, TurnStatus};
 use crate::dialogue::{DialogueAssembler, DialogueEvent, SentenceAssembler};
-use crate::llm::LlmEvent;
+use crate::llm::{ChatMessage, LlmEvent};
 
 use super::ConversationEngine;
 use super::sentence::sentence_texts;
 
 impl ConversationEngine {
-    /// 运行一轮对话：LLM 流式请求 → 实时 `TextDelta` → 切句入队 → TTS 串行
-    /// 合成 → `AudioChunk`。全程可取消；终态语义见模块文档与 [`EngineEvent`]。
+    /// [`ConversationEngine::run_turn`] / `run_turn_with_history` 的共用实现。
     ///
-    /// `event_tx` 由调用方创建（建议容量 ≥ `tts_queue_capacity + 8`，避免消费端
-    /// 成为额外瓶颈）；消费停止（receiver 被 drop）视同取消。
-    pub async fn run_turn(
+    /// `history` = 客户端本地会话历史，只进本轮请求；`&[]` = 不注入（既有行为）。
+    pub(super) async fn run_turn_inner(
         &mut self,
         epoch: u64,
         user_text: &str,
+        history: &[ChatMessage],
         event_tx: mpsc::Sender<EngineEvent>,
         cancel: CancellationToken,
     ) -> TurnReport {
@@ -60,7 +59,7 @@ impl ConversationEngine {
             job_rx,
         ));
 
-        let messages = self.build_messages(user_text);
+        let messages = self.build_messages_with_history(user_text, history);
         // 表演层运行时快照：`Some` = 本轮由表演层决定 speak/cues（收齐原文后再切句）。
         let performance = self.performance.clone();
         // 二路清洗快照（rc4 常驻；`None` / disabled = 不跑二路，上屏与送 TTS

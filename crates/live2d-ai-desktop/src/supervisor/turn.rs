@@ -83,6 +83,7 @@ pub(crate) async fn run_one_turn(
     turn_id: u64,
     epoch: u64,
     user_text: String,
+    history: &[live2d_ai_runtime::ChatMessage],
     quitting: &mut bool,
     emit: &Emit,
 ) -> TurnClose {
@@ -210,7 +211,15 @@ pub(crate) async fn run_one_turn(
         #[allow(unused_assignments)]
         let mut events_closed = false;
 
-        let gen_fut = engine.run_turn(epoch, &user_text, event_tx, cancel.child_token());
+        // 客户端本地会话历史：只注入本轮请求（不写引擎历史窗口），见
+        // `ConversationEngine::build_messages_with_history` 的选型注释。
+        let gen_fut = engine.run_turn_with_history(
+            epoch,
+            &user_text,
+            history,
+            event_tx,
+            cancel.child_token(),
+        );
         tokio::pin!(gen_fut);
 
         'generating: loop {
