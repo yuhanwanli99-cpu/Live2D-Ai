@@ -1,17 +1,14 @@
 # Live2D-Ai 项目说明（AGENTS.md）
 
-> **现行契约见 [docs/architecture/CURRENT.md](docs/architecture/CURRENT.md)（一页，2026-10-13）。**
-> 先读那一页：产品现状、导演与动作、Mod 在册、点火与验收都在那里。
-> 下面的长文是沿革与逐条记录，历史段落一行不改。
+> **现行契约见 [docs/architecture/CURRENT.md](docs/architecture/CURRENT.md)。先读 §0，再读其余节。**
+> 下面的长文是沿革与逐条记录，历史段落一行不改。历史段里的「唯一工作树是 `main`」「现行 6 个 Mod」「出厂不设人设」「ASR 在 sidecar」**不是** `pet/companion` 的规则。
 
 > 本文件是项目级通用说明，供任何 CLI agent（pi / Claude Code / Hermes 等）读取。
 > 状态：2026-09-10 重写——确立 **Rust 核心 + Flutter 前端** 双主导分层，
 > 前端/接口层自 `rust-ratio` 门禁中**显式豁免**（原版只描述 Rust 单主线）。
 > **2026-10-01 单一化：本文件是唯一现行真源。**
-> **2026-10-06 工作树单一化**：linked worktree `Live2D-Ai-fe` 已删除，**唯一工作树 =
-> `/home/skystar/Live2D-Ai`（分支 `main`）**——旧分支 `mod/persona-polish` @ `88342ce`
-> 与它那份「3 个 Mod / 0.2.0-rc.1」的教义一并退役。同名 `AGENTS.md` 若出现在别处都是
-> 过时副本，**不要**按它写代码或文档；文档地图与生命周期三分见 `docs/DOC-MAP.md`。
+> **2026-10-06 工作树单一化**是当时的记录：linked worktree `Live2D-Ai-fe` 已删除，旧分支 `mod/persona-polish` @ `88342ce` 退役。
+> **2026-11-18 现行**：本机产品线的工作树是 `/home/skystar/Live2D-Ai-companion`（分支 `pet/companion`）。`/home/skystar/Live2D-Ai` 若停在 `pet/desk-pet-host` 或别的分支，不要在那棵树上改桌宠菜单、热槽或语音。其它 `Live2D-Ai-*` 目录是 worktree，不是独立仓库。同名 `AGENTS.md` 以 companion 这份为准。文档地图见 `docs/DOC-MAP.md`。
 > **文档取回（2026-10-06 E8 文档减量）**：只具历史留证价值的文档（`docs/legacy/**`、
 > `docs/design/legacy/**`、2026-08「节点 C」/原生壳验证系列、12 份已收口计划，共 **139 份 / 31,509 行**）已
 > **移出工作树**——信息量一点没少：git 历史逐字保留，逐份取回方式见
@@ -243,13 +240,11 @@
 3. 前端层的质量门槛改由 Flutter 自己的工具链承担：
    `flutter analyze`（静态检查）+ `flutter test`（含音频调度等纯逻辑回归）。
 4. 治理红线仍然适用：前端**不得**绕过 core 仲裁、不得直接持有密钥、
-   不得引入设备端推理运行时（LLM/TTS 仍走统一 OpenAI 兼容端点）。
+   不得引入设备端推理运行时。出声仍由核心 `[tts]` 发出：`provider=openai` 打 OpenAI 兼容端点，`provider=deepseek` 打 DeepSeek。识别走 `POST /api/v1/voice/asr`，不在前端里嵌一套 ASR SDK。
 
 ## 工作区与点火纪律（WSL2 ↔ Windows，2026-09-12 定）
 
-核心开发**只在 WSL2**（**唯一工作树 `/home/skystar/Live2D-Ai`**，分支 `main`；
-2026-10-06 已把 `Live2D-Ai-fe` 这个 linked worktree 合并回本树并删除）；Windows 侧只承担**浏览器肉眼验收**。
-两边不做第二套真相，也不互相复制产物。
+核心开发**只在 WSL2**。本机产品线的工作树是 `/home/skystar/Live2D-Ai-companion`（`pet/companion`）。不要在 `/home/skystar/Live2D-Ai` 的 `pet/desk-pet-host` 上再开一套桌宠。Windows 侧跑原生 exe 做肉眼验收，不在 Windows 上编 Flutter。两边不做第二套真相，也不互相复制产物。`shell/flutter/build/web` 不入库。
 
 | 角色 | 职责 |
 | --- | --- |
