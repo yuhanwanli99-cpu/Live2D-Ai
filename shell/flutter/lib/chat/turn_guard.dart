@@ -291,3 +291,30 @@ const String kTurnElsewhereMessage = '上一段会话还在回答，先停止它
 
 /// 上面对应的机器码（错误横幅的「下一步」按钮按码分流；码是可搜索的契约锚点）。
 const String kTurnElsewhereCode = 'turn_elsewhere_running';
+
+/// 助手气泡该落在哪个会话、要不要顺手开一轮（2026-11-18 #21）。
+///
+/// # 缺陷现场（单测漏掉的那一条串台）
+///
+/// `user_line` 会先按帧上的 `session_id` 把用户句写进 A，并让 [TurnGuard] 记住
+/// 这一轮属于 A；助手气泡却要等第一段 `text_delta` 才建。建气泡的旧代码走
+/// `sessions.append`（= 写**当前活动会话**）再 `_guard.start(sessionId: 活动会话)`：
+/// 人在看 B、帧属于 A 时，用户句进 A、回复进 B，守卫记的 A 还被覆盖掉。
+///
+/// 普通输入框发送不会走到这里（`send()` 在 POST 之前就建好气泡）；会走到的是
+/// 语音 / 外部注入 / 桌宠 say 这条「先有 user_line、气泡还没建」的路。
+///
+/// 返回值：
+/// - `sessionId`：气泡该写进哪个会话（`null` = 还没有会话，由调用方 ensure）；
+/// - `startTurn`：要不要在这里 `TurnGuard.start`。守卫**已经**记过这一轮时必须
+///   为 `false`——再 start 一次就把属主覆盖成当前活动会话了。
+({String? sessionId, bool startTurn}) assistantBubbleTarget({
+  required bool turnInFlight,
+  required String? turnSessionId,
+  required String? activeSessionId,
+}) {
+  if (turnInFlight) {
+    return (sessionId: turnSessionId ?? activeSessionId, startTurn: false);
+  }
+  return (sessionId: activeSessionId, startTurn: true);
+}

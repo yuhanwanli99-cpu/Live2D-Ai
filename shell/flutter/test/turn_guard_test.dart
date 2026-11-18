@@ -228,4 +228,50 @@ void main() {
       expect(kTurnElsewhereCode, isNot(equals(kTurnElsewhereMessage)));
     });
   });
+
+  group('助手气泡落点（#21：先有 user_line、气泡后建）', () {
+    test('守卫已记过这一轮：气泡写回它记的会话，**不再** start', () {
+      final ({String? sessionId, bool startTurn}) target = assistantBubbleTarget(
+        turnInFlight: true,
+        turnSessionId: 'A',
+        activeSessionId: 'B',
+      );
+      expect(target.sessionId, 'A', reason: '帧属于 A、人看着 B 时回复必须进 A');
+      expect(
+        target.startTurn,
+        isFalse,
+        reason: '再 start 一次会把属主覆盖成当前活动会话 B（这正是串台根因）',
+      );
+    });
+
+    test('守卫在飞但没记会话（旧服务端不带 id）：回落活动会话，仍不重开一轮', () {
+      final ({String? sessionId, bool startTurn}) target = assistantBubbleTarget(
+        turnInFlight: true,
+        turnSessionId: null,
+        activeSessionId: 'B',
+      );
+      expect(target.sessionId, 'B');
+      expect(target.startTurn, isFalse);
+    });
+
+    test('空闲：气泡落在活动会话并开一轮', () {
+      final ({String? sessionId, bool startTurn}) target = assistantBubbleTarget(
+        turnInFlight: false,
+        turnSessionId: null,
+        activeSessionId: 'B',
+      );
+      expect(target.sessionId, 'B');
+      expect(target.startTurn, isTrue);
+    });
+
+    test('还没有会话（首条注入）：sessionId 为 null，交给 store ensureActive', () {
+      final ({String? sessionId, bool startTurn}) target = assistantBubbleTarget(
+        turnInFlight: false,
+        turnSessionId: null,
+        activeSessionId: null,
+      );
+      expect(target.sessionId, isNull);
+      expect(target.startTurn, isTrue);
+    });
+  });
 }

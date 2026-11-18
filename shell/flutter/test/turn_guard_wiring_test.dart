@@ -223,4 +223,71 @@ void main() {
       expect(append.contains('kMaxMessagesPerSession'), isTrue);
     });
   });
+
+  group('#21：先有 user_line、后建气泡时必须落在本轮所属会话', () {
+    test('三个「自建气泡」入口都走 _startAssistantBubble（不再各自 append + start）', () {
+      for (final String signature in <String>[
+        'void _appendDelta(',
+        'void _appendReasoning(',
+        'void _applyTextFallback(',
+      ]) {
+        final String body = bodyOf(signature);
+        expect(
+          body.contains('_startAssistantBubble('),
+          isTrue,
+          reason: '`$signature` 必须按守卫记的会话建气泡（#21）',
+        );
+        expect(
+          body.contains('sessions.append('),
+          isFalse,
+          reason: '`$signature` 直接 append 只会写当前活动会话——正是串台现场',
+        );
+        expect(
+          RegExp(r'_guard\.start\(').allMatches(body).isEmpty,
+          isTrue,
+          reason: '`$signature` 再 start 一次会覆盖守卫记的会话',
+        );
+      }
+    });
+
+    test('_startAssistantBubble：按守卫会话取落点，守卫已有轮就不再 start', () {
+      final String helper = bodyOf('ChatMessage _startAssistantBubble(');
+      expect(helper.contains('assistantBubbleTarget('), isTrue);
+      expect(helper.contains('_guard.inFlight'), isTrue);
+      expect(helper.contains('_guard.activeSession'), isTrue);
+      expect(helper.contains('_sessionById(target.sessionId)'), isTrue);
+      expect(helper.contains('_appendToSession(owner, bubble)'), isTrue);
+      expect(
+        helper.contains('if (target.startTurn)'),
+        isTrue,
+        reason: '只在新一轮且守卫空闲时才 start',
+      );
+      expect(helper.contains('_guard.start('), isTrue);
+      expect(
+        helper.contains('sessions.append(bubble)'),
+        isTrue,
+        reason: '活动会话 / 没有会话时才走 store（含 ensureActive）',
+      );
+      expect(
+        helper.contains('spoken.clear()'),
+        isTrue,
+        reason: '落到别的会话时，那一轮的旧朗读标记也要作废（否则切回去会误亮）',
+      );
+    });
+
+    test('_appendDelta：清朗读标记必须在气泡落定**之后**', () {
+      // 气泡落到 A、人看着 B 时，_clearSpoken() 清的是 B。放在建气泡之前，
+      // A 里上一轮的同号 span 不会作废——这一轮从 1 起的句号会让它们一起亮。
+      final String body = bodyOf('void _appendDelta(');
+      final int bubbleAt = body.indexOf('_startAssistantBubble(');
+      final int clearAt = body.indexOf('_clearSpoken()');
+      expect(bubbleAt, greaterThanOrEqualTo(0));
+      expect(clearAt, greaterThanOrEqualTo(0));
+      expect(
+        clearAt,
+        greaterThan(bubbleAt),
+        reason: '先清后建 = 清的是活动会话（B），本轮所属会话（A）的旧 span 留着误亮',
+      );
+    });
+  });
 }

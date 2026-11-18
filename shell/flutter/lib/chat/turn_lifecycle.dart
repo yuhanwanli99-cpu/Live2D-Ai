@@ -198,6 +198,50 @@ extension _ChatTurnLifecycle on ChatController {
     _persist();
   }
 
+  /// 在**本轮所属会话**里建助手气泡（2026-11-18 #21）。
+  ///
+  /// 为什么不能直接 `sessions.append`：那个方法只写活动会话，而「user_line 先到
+  /// （守卫记下 A）、气泡等第一段 delta 才建」的路径上用户可能已经切到 B——
+  /// 回复会写进 B，且旧代码随后的 `_guard.start(sessionId: 活动会话)` 会把守卫
+  /// 记的 A 覆盖掉。落点判据在纯函数 [assistantBubbleTarget]（VM 可测），这里
+  /// 只做接线：按守卫记的会话取 store / 指定会话，守卫已有轮就**不再** start。
+  ChatMessage _startAssistantBubble({
+    required int? epoch,
+    required bool streaming,
+  }) {
+    final ({String? sessionId, bool startTurn}) target = assistantBubbleTarget(
+      turnInFlight: _guard.inFlight,
+      turnSessionId: _guard.activeSession,
+      activeSessionId: sessions.activeId,
+    );
+    final ChatSession? owner = _sessionById(target.sessionId);
+    // 本轮可能属于另一个会话（#21）：那一轮的旧朗读标记同样要作废——
+    // `_clearSpoken` 只清活动会话，不清的话用户切回去时，本轮从 1 起的
+    // 句号会让 A 里旧气泡的同号 span 一起亮。
+    if (owner != null && owner.id != sessions.activeId) {
+      for (final ChatMessage message in owner.messages) {
+        message.spoken.clear();
+      }
+    }
+    final ChatMessage bubble = ChatMessage(
+      role: ChatRole.assistant,
+      epoch: epoch,
+      streaming: streaming,
+    );
+    if (owner == null || owner.id == sessions.activeId) {
+      // 没有会话 / 就是活动会话：走 store（会 ensureActive，必要时建会话）。
+      sessions.append(bubble);
+    } else {
+      _appendToSession(owner, bubble);
+    }
+    if (target.startTurn) {
+      // 刚顺序反了会记下一个当时还不存在的会话 id（append 可能新建会话）。
+      _guard.start(sessionId: sessions.activeId, epoch: epoch);
+    }
+    _assistant = bubble;
+    return bubble;
+  }
+
   /// 追加流式正文。
   ///
   /// 调用方已经用 TurnGuard.verdictFor 确认：这一帧属于当前轮，或由它**开启**
@@ -205,18 +249,12 @@ extension _ChatTurnLifecycle on ChatController {
   void _appendDelta(String text, int? epoch, int? sentenceSeq) {
     var bubble = _assistant;
     if (bubble == null) {
-      // 服务端主动开口 = 新一轮：旧气泡的朗读标记同样立即作废（见 send）。
+      // #21：气泡落在**本轮所属会话**（user_line 已记过就是它），不是活动会话。
+      // **朗读标记在气泡落定之后清**：本轮属于 A、人看着 B 时，_clearSpoken 清的是
+      // B，A 里上一轮留下的同号 span 仍会跟着这一轮从 1 起的句子号一起亮。
+      bubble = _startAssistantBubble(epoch: epoch, streaming: true);
       _clearSpoken();
       _highlight.clear();
-      bubble = ChatMessage(
-        role: ChatRole.assistant,
-        epoch: epoch,
-        streaming: true,
-      );
-      // 先追加到活动会话（可能因此新建会话），再登记本轮身份——顺序反了
-      // 会记下一个当时还不存在的会话 id。
-      sessions.append(bubble);
-      _guard.start(sessionId: sessions.activeId, epoch: epoch);
     } else {
       // 旧服务端的帧没有 epoch：当前轮还不知道代次时从帧上补记。
       _guard.noteFrameEpoch(epoch);
@@ -238,14 +276,8 @@ extension _ChatTurnLifecycle on ChatController {
   void _appendReasoning(String text, int? epoch) {
     var bubble = _assistant;
     if (bubble == null) {
-      bubble = ChatMessage(
-        role: ChatRole.assistant,
-        epoch: epoch,
-        streaming: true,
-      );
-      sessions.append(bubble);
-      _guard.start(sessionId: sessions.activeId, epoch: epoch);
-      _assistant = bubble;
+      // #21：同 [_appendDelta]，思考也不能串到当前看着的会话里。
+      bubble = _startAssistantBubble(epoch: epoch, streaming: true);
     } else {
       _guard.noteFrameEpoch(epoch);
     }
@@ -290,13 +322,8 @@ extension _ChatTurnLifecycle on ChatController {
     }
     var bubble = _assistant;
     if (bubble == null) {
-      bubble = ChatMessage(
-        role: ChatRole.assistant,
-        epoch: epoch,
-        streaming: true,
-      );
-      sessions.append(bubble);
-      _guard.start(sessionId: sessions.activeId, epoch: epoch);
+      // #21：正文兜底同样落在本轮所属会话（它是那一轮的帧，不是这一屏的）。
+      bubble = _startAssistantBubble(epoch: epoch, streaming: true);
     } else {
       _guard.noteFrameEpoch(epoch);
     }
