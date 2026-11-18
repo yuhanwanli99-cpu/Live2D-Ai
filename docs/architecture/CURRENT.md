@@ -1,33 +1,13 @@
 # 现行契约（一页，2026-10-13）
 
 > 状态：**活** · 立档：2026-10-13 · 这一页是**现状**，不是沿革。
-> 新人先读这一页；长文与逐条记录在 `AGENTS.md` 与 `docs/architecture/` 各专文，历史段落一行不改。
-> **2026-11-18**：本分支的产品口径以 §0 为准。§2 往后的日期条目是已落地的沿革，与 §0 冲突时以 §0 为准。
+> 新人先读这一页；长文与逐条记录在 `AGENTS.md` 与 `docs/architecture/` 各专文，历史段落一行不改。**2026-11-18**：本分支以 §0 为准，§2 往后是已落地的沿革，冲突时从 §0。
 
 ## 0. 本机工作线（2026-11-18）
 
-两条线不要合成一条：
+两条线不要合成一条。`origin/main` = `911ed58` 是公开仓库（工厂 0，人设/记忆/语音识别各在公开 Mod 仓库）；本机产品线是 worktree `/home/skystar/Live2D-Ai-companion`（`pet/companion`），未 push、未并 `main`，桌宠都做在这里。`/home/skystar/Live2D-Ai` 检出 `pet/desk-pet-host`（`5c8395a`），只有桌宠窗，既不是本机产品线也不是 `origin/main`。清理后 `git worktree list` 只剩这两棵树：另五个 worktree 已删（分支还在），`Live2D-Ai-mods` 已移出磁盘。`origin/main` 在合并前仍按 §8 的旧七仓表理解，不要把 §0 推到 GitHub。
 
-| 线 | 在哪 | 用来做什么 |
-| --- | --- | --- |
-| 已推送主线 | `origin/main` = `911ed58` | GitHub 上的公开仓库。工厂仍是 0。人设、记忆、语音识别仍是各自的公开 Mod 仓库 |
-| 本机产品线 | worktree `/home/skystar/Live2D-Ai-companion`，分支 `pet/companion` @ `b56f50f1`，未 push、未并 `main` | 现在要继续做的桌宠。下面三条都算这条线 |
-
-`/home/skystar/Live2D-Ai` 当前检出的是 `pet/desk-pet-host`（`5c8395a`），只有桌宠窗，没有热槽、没有 DeepSeek 语音、没有右键六组。不要把它当成本机产品线，也不要把它当成 `origin/main`。
-
-同名的 `Live2D-Ai-hotmem`、`Live2D-Ai-voice`、`Live2D-Ai-bind050`、`Live2D-Ai-integ047`、`Live2D-Ai-win047` 都是这个仓库的 worktree，不是第二个产品。`/home/skystar/Live2D-Ai-mods` 是历史目录，主仓不引用。
-
-本机产品线相对 `origin/main` 已改过的边界：
-
-- 缺省工厂仍是 **0**。没有动态加载器。
-- 打包清单是 6 个：`external-input`、`local-tts`、`local-engine`、`a2a`、`cosyvoice3-tts`、`desk-pet`。`persona`、`memory`、`voice-input` 不在这份清单里。三个公开仓库留在磁盘上，不挂回。
-- 说话用主链四块：出厂系统句、钉住的事、热卡、最近对话。热卡在没有向量时为空。这不是角色卡 Mod。
-- 识别在主仓 `POST /api/v1/voice/asr`（DeepSeek）。`POST /api/v1/voice/transcript` 是 410 `voice_retired`。ASR SDK 仍不进二进制。
-- 出声仍是核心 `[tts]`。`provider=openai` 走原来的 `/audio/speech`（本地 Melo、CosyVoice 等兼容端点）。`provider=deepseek` 走 DeepSeek TTS，PCM 24000 Hz。
-- 桌宠不是开机即开的透传。网页 `/app/` 舞台角标「切换到桌宠」才开窗并关掉网页。右键六组：对话框、置顶、回到 web、语音输入、切换皮肤、简易会话框。`pet-desktop` 这个 id 仍然禁止挂回。
-- Windows 这次实测没有启动器上的 Mod 预加载。不要把「预启动」写成这条线的入口。
-
-`origin/main` 在合并之前仍按 §8 的旧七仓表理解。不要把 §0 推到 GitHub，除非这条分支先合并。
+与 `origin/main` 的边界：工厂仍 **0**、无动态加载器；打包清单 6 个（`external-input`、`local-tts`、`local-engine`、`a2a`、`cosyvoice3-tts`、`desk-pet`，不含 `persona`/`memory`/`voice-input`，三者留盘不挂回）；说话用主链四块（出厂系统句、钉住的事、热卡、最近对话，热卡没向量时为空）；识别与出声分档见 §7（`/voice/transcript` 是 410 `voice_retired`）；桌宠由 `/app/` 角标切换开窗、右键六组，`pet-desktop` 仍禁止挂回，Windows 启动器无 Mod 预加载。
 
 ## 1. 产品是什么
 
@@ -39,7 +19,7 @@
 
 分句只由引擎给，音频播放时钟是唯一时间基准。TTS 出声是第 2 块把句子送出去的那一跳，端点在 `[tts]`，可以是云端 API。`local-tts-melo` 只在端点是本机 Melo 时拉起那个进程，本身是 Mod（缺省不挂，见 §7/§8），不是这跳出声。
 
-外部事件、本地引擎、A2A、拉起本机 Melo 的进程，仍是 Mod，各自一个本机仓库（§8）。本机产品线（§0）里，热槽记忆、DeepSeek 识别、出声分档、桌宠窗在主仓，不另做会改写系统提示词的 Mod。工程目录里的 crate 名叫 `core` / `runtime` / `desktop`，只说明代码放哪，**不**用来判断一个功能是不是核心。已删除的 id `pet-desktop` 不恢复；新的桌宠 id 是 `desk-pet`，窗仍在 `live2d-ai-desktop`。
+外部事件、本地引擎、A2A、拉起本机 Melo 的进程仍是 Mod，各自一个本机仓库（§8）。本机产品线（§0）把热槽记忆、DeepSeek 识别、出声分档、桌宠窗放在主仓，不另做会改写系统提示词的 Mod。crate 名 `core` / `runtime` / `desktop` 只说明代码放哪，**不**用来判断功能是不是核心。`pet-desktop` 不恢复，新桌宠 id 是 `desk-pet`。
 
 ## 2. 版本与工作区
 
@@ -70,9 +50,7 @@
 
 ## 3. 出厂提示词
 
-`origin/main` 上 `system_prompt` 仍为空，角色卡仍是 `live2d-ai-mod-persona`。
-
-本机产品线（§0）改成一句固定的陪伴系统句，用户可在「模型对话」里改。角色卡 Mod 不挂回。耐久事实在「钉住的事」里，不写回 `live2d-ai.toml`。
+`origin/main` 上 `system_prompt` 仍为空，角色卡仍是 `live2d-ai-mod-persona`。本机产品线（§0）改成一句固定的陪伴系统句、可在「模型对话」里改，角色卡 Mod 不挂回，耐久事实在「钉住的事」里。
 
 ## 4. 导演与动作
 
@@ -184,15 +162,11 @@
     `[tts.vendors.*]` 读入时**忽略**（不让 `deny_unknown_fields` 拦下启动），
     下一次保存**不再写回**这两键，手写注释保留。旧机制只作历史留证，见
     [`docs/releases/v0.3.9-rc.4.md`](../releases/v0.3.9-rc.4.md)。
-  - 连通性自检沿用 TTS 纪律：`GET {base_url}/models`，404 算可达 + note，401/403
-    `auth_failed`，其余 `protocol_error`，**不真跑对话 / 不合成**；本地没配置 / 连不上回
-    `llm_local_unreachable`（不显示 ready）。
+  - 连通性自检沿用 TTS 纪律：`GET {base_url}/models`，404 算可达 + note，401/403 `auth_failed`，其余 `protocol_error`，**不真跑对话 / 不合成**；本地没配置 / 连不上回 `llm_local_unreachable`（不显示 ready）。
 
 ## 8. Mod（缺省 0）
 
-本机产品线的打包清单与退休项见 §0。下表是 `origin/main` 已公开的仓库，磁盘上还在，**不是** `pet/companion` 的打包清单。
-
-`AVAILABLE_MOD_FACTORIES` 在两条线上都为空，工厂 **0**；`default_mods_manifest` 的 `mods` 为空对象，缺省**不启用**任何 Mod。主仓不依赖这些实现、缺省不编译：
+打包清单与退休项见 §0。下表是 `origin/main` 已公开的仓库，磁盘上还在，**不是** `pet/companion` 的清单。`AVAILABLE_MOD_FACTORIES` 两条线都为空（工厂 **0**），`default_mods_manifest` 的 `mods` 是空对象——缺省**不启用**任何 Mod，主仓也不依赖这些实现：
 
 | 本机仓库 | 公开仓库 | id |
 |---|---|---|
@@ -204,14 +178,13 @@
 | `/home/skystar/live2d-ai-mod-local-engine` | [live2d-ai-mod-local-engine](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-local-engine) | `local-engine` |
 | `/home/skystar/live2d-ai-mod-a2a` | [live2d-ai-mod-a2a](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-a2a) | `a2a` |
 
-- 七个公开仓库的分支 `main` 已推；旧目录 `/home/skystar/Live2D-Ai-mods` 保留作历史来源，已不被主仓引用。`live2d-ai-mod-system` 与出厂协议仍在主仓。主仓缺省构建仍不依赖它们。
+- 七个公开仓库的分支 `main` 已推；旧目录 `Live2D-Ai-mods` 已于 2026-11-18 移出磁盘（历史来源，主仓从不引用）。`live2d-ai-mod-system` 与出厂协议仍在主仓。
 - **挂载**由维护者手动完成：把该 crate 的 `path` 依赖加回根 `[workspace.dependencies]` 与 `live2d-ai-desktop` 依赖、加回 `AVAILABLE_MOD_FACTORIES`（并同步计数 / id 断言）、恢复该 Mod 的宿主路由 / 集成代码。**没有动态加载器**；缺省提交里没有这些。
 - **未挂载时**：`POST /api/v1/external/chat`、`POST /api/v1/voice/transcript`、`GET /.well-known/agent-card.json`、`POST /api/v1/a2a` 一律回 **404**，body `error.code = "mod_disabled"`，不打 LLM、不 `say`。
 - `a2a`（0.3.9）：协议核在本机仓库 `live2d-ai-mod-a2a`（agent card、JSON-RPC dispatch、`message/send` / `tasks/get`、进程内任务表上限 32、错误脱敏）；宿主只留门 `web_api/a2a_gate.rs`——loopback + Origin + Content-Type 校验与「Mod 未挂载则不调用」。挂回后线格式与 0.3.8 逐字一致（取消仍拒绝）；密钥仍只在宿主按 `[llm].api_key_env` 查，Mod 与响应 / 日志 / 卡片都拿不到值。
 - `local-engine`（0.3.4）：spawn-only，4 项 schema（program / args_json / workdir / launch_mode），无 `base_url`；不写 `[tts]`/`[llm]`、不探活、不换地址、不重启；`apply_settings` 恒 0 次。立即退出（1s 窗口）→ Failed 带 stderr 尾；之后退出只进 `state_json`。**2026-10-18 裁决：不删除、不注销。** 设置 → 扩展不再显示这张卡；缺省未挂载（见上表）。出声仍是 `local-tts-melo`（挂回后），对话云 / 本地仍是 `[llm].mode`。
 - `memory`：本地 JSONL + 词重叠检索（**零向量云依赖**），缺省**关**。
-- `director` 的 crate 仍在主仓 workspace（规则表已迁入核心），但**退出 `AVAILABLE_MOD_FACTORIES`、不再投递，禁止挂回**；
-  八个隐藏键（3 个词表映射 + 5 个 `staging_*`）仍不出现在界面；导演卡上只留 `motion_bias` / `motion_rate` 两个键（§5）。
+- `director` 的 crate 仍在主仓 workspace（规则表已迁入核心），但**退出 `AVAILABLE_MOD_FACTORIES`、不再投递，禁止挂回**；八个隐藏键（3 个词表映射 + 5 个 `staging_*`）仍不出现在界面，导演卡上只留 `motion_bias` / `motion_rate`（§5）。
 - `wallpaper`、`pet-desktop`、`local-llm` **已删除，禁止挂回**（台账 `docs/architecture/ARCHIVED-mods.md`）。
 
 ## 9. 开发工具

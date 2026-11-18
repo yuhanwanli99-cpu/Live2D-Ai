@@ -8,7 +8,7 @@
 > 前端/接口层自 `rust-ratio` 门禁中**显式豁免**（原版只描述 Rust 单主线）。
 > **2026-10-01 单一化：本文件是唯一现行真源。**
 > **2026-10-06 工作树单一化**是当时的记录：linked worktree `Live2D-Ai-fe` 已删除，旧分支 `mod/persona-polish` @ `88342ce` 退役。
-> **2026-11-18 现行**：本机产品线的工作树是 `/home/skystar/Live2D-Ai-companion`（分支 `pet/companion`）。`/home/skystar/Live2D-Ai` 若停在 `pet/desk-pet-host` 或别的分支，不要在那棵树上改桌宠菜单、热槽或语音。其它 `Live2D-Ai-*` 目录是 worktree，不是独立仓库。同名 `AGENTS.md` 以 companion 这份为准。文档地图见 `docs/DOC-MAP.md`。
+> **2026-11-18 现行**：本机产品线的工作树是 `/home/skystar/Live2D-Ai-companion`（`pet/companion`）。`/home/skystar/Live2D-Ai` 停在 `pet/desk-pet-host`，不要在那棵树上改桌宠菜单、热槽或语音。2026-11-18 清理后 `git worktree list` 只剩这两棵；同名 `AGENTS.md` 以 companion 这份为准，文档地图见 `docs/DOC-MAP.md`。
 > **文档取回（2026-10-06 E8 文档减量）**：只具历史留证价值的文档（`docs/legacy/**`、
 > `docs/design/legacy/**`、2026-08「节点 C」/原生壳验证系列、12 份已收口计划，共 **139 份 / 31,509 行**）已
 > **移出工作树**——信息量一点没少：git 历史逐字保留，逐份取回方式见
