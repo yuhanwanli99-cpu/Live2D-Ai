@@ -681,19 +681,24 @@ def main() -> int:
                             note("exe sha256：" + result["exe_sha"])
                         else:
                             result["exe"] = "build_ok_no_exe"
-                            warn("release build 成功但找不到 live2d-ai-desktop.exe")
+                            die("release build 成功但找不到 live2d-ai-desktop.exe"
+                                "（产物不完整；原文见 " + str(build_log) + "）")
                     else:
+                        # P0（2026-11-19）：exe 是发布包的**必需项**。以前这里只
+                        # warn 然后继续组装，脚本最终返回 0 —— 一个「绿灯但没 exe」
+                        # 的半成品包。现在直接失败；只拼 web/assets 请显式
+                        # --skip-cargo（那时本段根本不跑）。
                         result["exe"] = "build_failed"
-                        warn("exe 没编出来：记录原文，继续组装 web/assets"
-                             "（Windows 实机未验）")
+                        die("windows-gnu release build 失败——不组装半成品包"
+                            "（原文见 " + str(build_log) + "）")
                     stage_snapshot("windows-gnu release build 后")
                 else:
                     die("windows-gnu check 失败（这是本脚本的硬门槛；原文见 "
                         + str(gnu_log) + "）")
             else:
                 result["gnu"] = "skip_target_missing"
-                warn("未安装 rust-std " + GNU_TARGET
-                     + "；无法验证 Windows 目标，exe 不编（记录：工具链没装）")
+                die("未安装 rust-std " + GNU_TARGET
+                    + "：发 Windows 包必须有 exe（只拼 web/assets 请显式 --skip-cargo）")
         else:
             note("--skip-cargo：跳过全部 cargo 检查/编译")
             stage_snapshot("cargo 全部跳过")
@@ -790,6 +795,28 @@ def main() -> int:
             note("mods/：随基线带了文件夹 Mod")
         else:
             note("mods/：临时树没有文件夹 Mod（缺省树不带，报告里写明）")
+
+        # ------------------------------------------ 完整性终检（P0，2026-11-19）
+        # 发布包入口**只**产完整包：exe / 网页 / 渲染面 / assets / 配置模板缺任何
+        # 一项都非零退出，绝不把半成品当发布物。只拼一部分必须显式 --skip-*，
+        # 那时对应项不参与检查（报告里也记 skip）。
+        required = [
+            stage / "README.txt",
+            stage / "mods.json",
+            stage / "live2d-ai.toml",
+            stage / "assets",
+        ]
+        if not args.skip_cargo:
+            required.append(stage / "live2d-ai-desktop.exe")
+        if not args.skip_flutter:
+            required.append(stage / "web/index.html")
+        if not args.skip_trunk:
+            required.append(stage / "web/render/index.html")
+        missing_items = [str(p.relative_to(stage)) for p in required if not p.exists()]
+        if missing_items:
+            die("产物不完整，缺：" + "、".join(missing_items)
+                + "（发布包必须齐；只拼部分请显式 --skip-*）")
+        note("完整性终检：exe / web/app / web/render / assets / 配置模板 全在")
 
         dist_dir.parent.mkdir(parents=True, exist_ok=True)
         if dist_dir.exists():

@@ -27,8 +27,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain (stable + rustfmt + clippy)
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain (1.98.1 pinned + rustfmt + clippy)
+        uses: dtolnay/rust-toolchain@1.98.1
         with:
           profile: minimal
           components: rustfmt, clippy
@@ -114,8 +114,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain (stable)
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain (1.98.1 pinned)
+        uses: dtolnay/rust-toolchain@1.98.1
         with:
           profile: minimal
 
@@ -183,6 +183,8 @@ jobs:
       - name: Setup Flutter (stable) + cache
         uses: subosito/flutter-action@v2
         with:
+          # 固定 Flutter 版本（本机 stable 3.47.3）。
+          flutter-version: 3.47.3
           channel: stable
           cache: true
 
@@ -202,8 +204,8 @@ jobs:
       - name: Artifact budget gate (prune --check, 4 criteria)
         run: ./scripts/prune_web_artifacts.sh --check
 
-      - name: Install Rust toolchain (stable)
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain (1.98.1 pinned)
+        uses: dtolnay/rust-toolchain@1.98.1
         with:
           profile: minimal
 

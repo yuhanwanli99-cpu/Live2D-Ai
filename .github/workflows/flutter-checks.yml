@@ -28,6 +28,15 @@ on:
       - "crates/*/src/**"
       - "scripts/prune_web_artifacts.sh"
       - ".github/workflows/flutter-checks.yml"
+  # 2026-11-19（0.7.0 收口）：main 的 push 也要跑同一套前端门禁——
+  # 此前只有 PR 触发，直接 push main 的提交可以带着红的前端进主干。
+  push:
+    branches: [main]
+    paths:
+      - "shell/flutter/**"
+      - "crates/*/src/**"
+      - "scripts/prune_web_artifacts.sh"
+      - ".github/workflows/flutter-checks.yml"
   workflow_dispatch:
 
 concurrency:
@@ -47,6 +56,8 @@ jobs:
       - name: Setup Flutter (stable) + cache
         uses: subosito/flutter-action@v2
         with:
+          # 固定 Flutter 版本（本机 stable 3.47.3；与发布产物同一版本，避免 stable 漂移）。
+          flutter-version: 3.47.3
           channel: stable
           cache: true
 
@@ -96,6 +107,8 @@ jobs:
       - name: Setup Flutter (stable) + cache
         uses: subosito/flutter-action@v2
         with:
+          # 固定 Flutter 版本（本机 stable 3.47.3；与发布产物同一版本，避免 stable 漂移）。
+          flutter-version: 3.47.3
           channel: stable
           cache: true
 

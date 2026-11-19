@@ -37,8 +37,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain (stable + rustfmt + clippy)
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain (1.98.1 pinned + rustfmt + clippy)
+        uses: dtolnay/rust-toolchain@1.98.1
         with:
           profile: minimal
           components: rustfmt, clippy
