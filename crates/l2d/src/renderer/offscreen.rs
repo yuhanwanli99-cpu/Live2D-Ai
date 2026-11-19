@@ -54,7 +54,7 @@ impl OffscreenRenderer {
     /// 按模型贴图最大边**自动选最小够用档**并装载模型（0.5.0 rc.6）。
     ///
     /// 规则（[ModelRendererCore::required_tier]）：
-
+    ///
     /// - 贴图最长边 ≤4096 → [`RenderTier::Tier4096`]（与默认档一致，普通模型零变化）；
     /// - 4097..8192 → [`RenderTier::Tier8192`]（大肥鱼皮肤 4096×8192 属于这里）；
     /// - 8193..16384 → [`RenderTier::Tier16384`]；

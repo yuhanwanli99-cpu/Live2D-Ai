@@ -21,9 +21,13 @@
 //!
 //! 未验：Windows 运行时行为（真机弹窗）本机无法验证；Linux 侧只覆盖纯文本。
 
+#[cfg(any(windows, test))]
 use std::path::Path;
 
 /// 显式静默开关：设置即不弹（测试 / CI / 无人值守）。
+///
+/// 只有 Windows 的弹窗分支读它；非 Windows 构建里不存在（否则 dead_code）。
+#[cfg(windows)]
 const ENV_NO_DIALOG: &str = "LIVE2D_AI_NO_DIALOG";
 
 /// panic 的进程退出码（Rust 默认 101）；对话框文案里如实写出来。
@@ -38,6 +42,7 @@ static LAST_FAILURE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(No
 ///
 /// detail 为空 / None 时只给通用排查段落（不编造原因）；log_dir 未初始化时
 /// 明确写「未能初始化」，而不是省略这一行。
+#[cfg(any(windows, test))]
 pub fn failure_text(exit_code: u8, detail: Option<&str>, log_dir: Option<&Path>) -> String {
     let mut out = format!("live2d-ai 启动失败（退出码 {exit_code}）\n\n");
     if let Some(detail) = detail.map(str::trim).filter(|detail| !detail.is_empty()) {
