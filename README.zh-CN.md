@@ -38,17 +38,19 @@
 
 ### Mod
 - trait 注册中心（`live2d-ai-mod-system`）留在主仓。**缺省构建的工厂数是 0**（`AVAILABLE_MOD_FACTORIES` 为空，`default_mods_manifest` 的 `mods` 是空对象）。`external-input` 与 `local-tts-melo` 都不再缺省启用，也没有被编进缺省二进制。
-- 七个实现各自一个公开源码仓库，主仓不依赖它们。没有动态加载器，也没有打包好的二进制 Mod。要加进正在跑的进程，把仓库放到主仓同级，再按 [`docs/architecture/two-repo-mods.md`](docs/architecture/two-repo-mods.md) §4 重新编译。`mods.json` 只能开关**已经编进去**的 id。往 `mods/` 放文件夹、让启动器看见并记住勾选的步骤见 [`docs/mods-user.md`](docs/mods-user.md)：0.3.13 起点「进入」会启动勾选的文件夹程序；它仍不是把代码载入主进程。
+- 九个实现各自一个公开源码仓库（0.7.0 随包 6 个；`persona` / `voice-input` / `memory` 为 legacy），主仓不依赖它们。没有动态加载器，也没有打包好的二进制 Mod。要加进正在跑的进程，把仓库放到主仓同级，再按 [`docs/architecture/two-repo-mods.md`](docs/architecture/two-repo-mods.md) §4 重新编译。`mods.json` 只能开关**已经编进去**的 id。往 `mods/` 放文件夹、让启动器看见并记住勾选的步骤见 [`docs/mods-user.md`](docs/mods-user.md)：0.3.13 起点「进入」会启动勾选的文件夹程序；它仍不是把代码载入主进程。
 
   | 公开仓库 | id |
   | --- | --- |
   | [live2d-ai-mod-external-input](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-external-input) | `external-input` |
-  | [live2d-ai-mod-persona](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-persona) | `persona` |
-  | [live2d-ai-mod-voice-input](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-voice-input) | `voice-input` |
-  | [live2d-ai-mod-memory](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-memory) | `memory` |
+  | [live2d-ai-mod-persona](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-persona) | `persona`（legacy，0.7.0 起不随包） |
+  | [live2d-ai-mod-voice-input](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-voice-input) | `voice-input`（legacy，0.7.0 起不随包） |
+  | [live2d-ai-mod-memory](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-memory) | `memory`（legacy，0.7.0 起不随包） |
   | [live2d-ai-mod-local-tts](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-local-tts) | `local-tts-melo` |
   | [live2d-ai-mod-local-engine](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-local-engine) | `local-engine` |
   | [live2d-ai-mod-a2a](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-a2a) | `a2a` |
+  | [live2d-ai-mod-cosyvoice3](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-cosyvoice3) | `cosyvoice3-tts` |
+  | [live2d-ai-mod-desk-pet](https://github.com/yuhanwanli99-cpu/live2d-ai-mod-desk-pet) | `desk-pet` |
 
 - 未挂载时这些路由回 **404**，`error.code = "mod_disabled"`，不打 LLM、不 `say`：`POST /api/v1/external/chat`、`POST /api/v1/voice/transcript`、`GET /.well-known/agent-card.json`、`POST /api/v1/a2a`。
 - `local-tts-melo` 只拉起外部 Melo 进程，不写 `[tts]`。权重不在公开仓库里。缺省构建不会自动拉起 Melo。

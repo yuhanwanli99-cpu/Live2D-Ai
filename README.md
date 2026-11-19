@@ -31,19 +31,22 @@ It ships one **white (bai) model** so a fresh clone renders out of the box; the 
 - **The default build compiles 0 Mod factories** (`AVAILABLE_MOD_FACTORIES` is empty;
   `default_mods_manifest` has an empty `mods` object), so no Mod — not even
   `external-input` or `local-tts-melo` — is enabled out of the box.
-- Seven factories exist, each in its **own public repo** (not cloned with the core,
+- Nine factories exist (the 0.7.0 package links six; `persona` / `voice-input` / `memory` are legacy),
+  each in its **own public repo** (not cloned with the core,
   not referenced by the core's Cargo manifests). Addresses are in
   [`docs/architecture/CURRENT.md`](docs/architecture/CURRENT.md) §8:
 
   | Repo (this machine) | crate | id |
   | --- | --- | --- |
   | `/home/skystar/live2d-ai-mod-external-input` | `live2d-ai-mod-external-input` | `external-input` |
-  | `/home/skystar/live2d-ai-mod-persona` | `live2d-ai-mod-persona` | `persona` |
-  | `/home/skystar/live2d-ai-mod-voice-input` | `live2d-ai-mod-voice-input` | `voice-input` |
-  | `/home/skystar/live2d-ai-mod-memory` | `live2d-ai-mod-memory` | `memory` |
+  | `/home/skystar/live2d-ai-mod-persona` | `live2d-ai-mod-persona` | `persona`（legacy，0.7.0 起不随包） |
+  | `/home/skystar/live2d-ai-mod-voice-input` | `live2d-ai-mod-voice-input` | `voice-input`（legacy，0.7.0 起不随包） |
+  | `/home/skystar/live2d-ai-mod-memory` | `live2d-ai-mod-memory` | `memory`（legacy，0.7.0 起不随包） |
   | `/home/skystar/live2d-ai-mod-local-tts` | `live2d-ai-mod-local-tts` | `local-tts-melo` (`MELO_FACTORY`) |
   | `/home/skystar/live2d-ai-mod-local-engine` | `live2d-ai-mod-local-engine` | `local-engine` |
   | `/home/skystar/live2d-ai-mod-a2a` | `live2d-ai-mod-a2a` | `a2a` |
+  | `/home/skystar/live2d-ai-mod-cosyvoice3` | `live2d-ai-mod-cosyvoice3` | `cosyvoice3-tts` (`COSYVOICE3_FACTORY`) |
+  | `/home/skystar/live2d-ai-mod-desk-pet` | `live2d-ai-mod-desk-pet` | `desk-pet` |
 
 - **Mounting is manual**: add the crate's `path` dependency back to the root
   `[workspace.dependencies]` and `live2d-ai-desktop`, re-add the factory to
