@@ -207,7 +207,7 @@ fn list_exposes_builtin_and_display_name() {
     );
     assert!(body.contains(r#""display_name":"大肥鱼""#), "{body}");
     assert!(
-        body.contains(r#""builtin":false"#) == false,
+        !body.contains(r#""builtin":false"#),
         "当前只有出厂模型: {body}"
     );
     cleanup(&store.assets_root);

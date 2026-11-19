@@ -95,8 +95,10 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 }
 
 fn differing_pixels(left: &[u8], right: &[u8]) -> usize {
-    left.chunks_exact(4)
-        .zip(right.chunks_exact(4))
+    left.as_chunks::<4>()
+        .0
+        .iter()
+        .zip(right.as_chunks::<4>().0)
         .filter(|(a, b)| a != b)
         .count()
 }
@@ -229,8 +231,8 @@ fn dafeiyu_binder_matches_bai_shape() {
     };
     let dafeiyu = ModelPackage::load(&dafeiyu_path).expect("load dafeiyu");
     let bai = ModelPackage::load(&bai_path).expect("load bai");
-    let dafeiyu_binder = ParamBinder::from_ids(&parameter_ids(&dafeiyu));
-    let bai_binder = ParamBinder::from_ids(&parameter_ids(&bai));
+    let dafeiyu_binder = ParamBinder::from_ids(parameter_ids(&dafeiyu));
+    let bai_binder = ParamBinder::from_ids(parameter_ids(&bai));
 
     // 语义形状一致：同样 11/13、同样缺两个 eye smile、都逐字保留标准名。
     assert_eq!(
