@@ -148,6 +148,28 @@ pub fn arm_from_manifest(cli_requested: bool, manifest: &serde_json::Value) -> b
     true
 }
 
+/// 进程级测试互斥：本模块与 `menu_state` 的单测都读写**进程内的全局态**
+/// （`ARMED` / `ARMED_CONFIG` / `menu_state::STATE`），而 `cargo test` 默认在
+/// 同一个二进制里**多线程并行**跑测试。不加锁时两条测试会互相踩：一边的
+/// `reset` 把另一边刚拨好的状态抹掉，表现为「单跑必过、全量偶发失败」
+/// （实测 `arm_from_manifest_follows_cli_and_reads_config` 在
+/// `armed_for_test()` 上读到另一条测试留下的 `Some(PetConfig)`）。
+///
+/// 只在测试目标存在，生产的 `arm` / `start_if_armed` 语义一字未改。
+#[cfg(test)]
+pub(crate) static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// 取那把测试锁；调用方必须把返回值绑到一个活到测试结束的变量上
+/// （`let _guard = test_guard();`），否则锁在语句末尾就放掉了。
+///
+/// 一条测试 panic 后锁会中毒：取回内值继续，避免**一次失败连坐后面所有测试**。
+#[cfg(test)]
+pub(crate) fn test_guard() -> std::sync::MutexGuard<'static, ()> {
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[cfg(test)]
 fn reset_armed_for_test() {
     ARMED.store(false, Ordering::SeqCst);
@@ -379,15 +401,23 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn start_if_armed_is_a_noop_off_windows() {
+        // arm 会写进程级 ARMED / ARMED_CONFIG：与 arm_from_manifest_* 那条共用
+        // 一把测试锁，否则「这边刚 arm、那边刚 reset」会互相抹掉。
+        let _guard = crate::desk_pet::test_guard();
+        reset_armed_for_test();
         arm_with(config::PetConfig::default());
         start_if_armed();
         start_if_armed(); // swap 语义：第二次无需再做事
+        reset_armed_for_test();
     }
 
     /// rc.2：开窗判定与配置来源（工厂 0 + 命令行 → 开；配置取自 manifest；
     /// 工厂 0 时 manifest enabled 不参与）。不创建 HWND、不起线程。
     #[test]
     fn arm_from_manifest_follows_cli_and_reads_config() {
+        // 单测之间不并发：本测试反复 reset / arm 进程级 ARMED_CONFIG，与
+        // `start_if_armed_is_a_noop_off_windows` 并行时会互相踩（见 test_guard）。
+        let _guard = crate::desk_pet::test_guard();
         reset_armed_for_test();
         let manifest = serde_json::json!({
             "mods": {"desk-pet": {

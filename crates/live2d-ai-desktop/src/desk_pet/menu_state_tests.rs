@@ -1,4 +1,9 @@
 //! 六组菜单的纯判定单测（Linux 也真跑）。
+//!
+//! 这八条都读写 `menu_state::STATE`（进程级静态）而且开头都 `reset()`：
+//! `cargo test` 默认多线程并行，不串行化就会「A 刚 reset、B 刚拨好、A 又 reset」，
+//! 表现为单跑必过、全量偶发失败。统一走 `crate::desk_pet::test_guard()`
+//! （同一把锁也罩住 `desk_pet` 的 ARMED 状态），生产语义一行未改。
 
 use super::*;
 
@@ -8,6 +13,7 @@ fn labels(groups: &[Group]) -> Vec<&str> {
 
 #[test]
 fn default_state_has_voice_off_and_both_bubbles_on() {
+    let _guard = crate::desk_pet::test_guard();
     reset();
     let s = get();
     assert_eq!(s.voice, VoiceMode::Off, "缺省必须是关闭，不录音");
@@ -18,6 +24,7 @@ fn default_state_has_voice_off_and_both_bubbles_on() {
 
 #[test]
 fn six_groups_are_all_present_in_the_order_of_the_plan() {
+    let _guard = crate::desk_pet::test_guard();
     reset();
     let groups = build(&get(), true, &["bai".to_string()], 0);
     assert_eq!(groups.len(), 6);
@@ -49,6 +56,7 @@ fn six_groups_are_all_present_in_the_order_of_the_plan() {
 
 #[test]
 fn dialog_parent_off_hides_both_children_pixels() {
+    let _guard = crate::desk_pet::test_guard();
     reset();
     apply(&Command::DialogToggle);
     let s = get();
@@ -64,6 +72,7 @@ fn dialog_parent_off_hides_both_children_pixels() {
 
 #[test]
 fn two_bubble_switches_are_independent() {
+    let _guard = crate::desk_pet::test_guard();
     reset();
     apply(&Command::UserToggle);
     assert_eq!(bubble_visibility(&get()), (false, true));
@@ -75,6 +84,7 @@ fn two_bubble_switches_are_independent() {
 
 #[test]
 fn voice_modes_are_mutually_exclusive_and_only_one_is_checked() {
+    let _guard = crate::desk_pet::test_guard();
     reset();
     for mode in [VoiceMode::Always, VoiceMode::Hold, VoiceMode::Off] {
         apply(&Command::Voice(mode));
@@ -92,6 +102,7 @@ fn voice_modes_are_mutually_exclusive_and_only_one_is_checked() {
 
 #[test]
 fn chat_topmost_is_independent_and_only_available_when_open() {
+    let _guard = crate::desk_pet::test_guard();
     reset();
     let groups = build(&get(), true, &[], 0);
     let chat = &groups[5].children;
@@ -107,6 +118,7 @@ fn chat_topmost_is_independent_and_only_available_when_open() {
 
 #[test]
 fn skin_entries_get_stable_ids_and_one_check() {
+    let _guard = crate::desk_pet::test_guard();
     reset();
     let skins = vec!["bai".to_string(), "neko".to_string()];
     let groups = build(&get(), false, &skins, 1);
@@ -120,6 +132,7 @@ fn skin_entries_get_stable_ids_and_one_check() {
 
 #[test]
 fn every_built_command_id_round_trips() {
+    let _guard = crate::desk_pet::test_guard();
     reset();
     let groups = build(&get(), true, &["bai".to_string()], 0);
     for group in groups {

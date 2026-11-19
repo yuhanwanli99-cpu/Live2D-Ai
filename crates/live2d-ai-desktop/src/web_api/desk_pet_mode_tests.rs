@@ -30,13 +30,46 @@ fn body_of(resp: Response<Cursor<Vec<u8>>>) -> String {
 /// ② 新路径不落在 `/api/v1/mods/` 前缀里，结构上就进不了那条前置路由
 /// （`FolderProcesses::running_ids` 只在 unix test 编译，Windows 侧改用这个
 /// 与 `MODS_PREFIX` 同源的判据）；③ 响应体里没有任何 discovered 字段。
+///
+/// # 为什么 `ok` 的真值随平台变（不要写死成 `"ok":true`）
+///
+/// HTTP 层对「窗没开起来」是**刻意**回 200 的（调用方据此决定要不要
+/// `window.close()`，见 `desk_pet_mode.rs` 末尾注释），所以状态码 200 与
+/// `"mode":"pet"` 两边都成立。变的只有 `ok`：
+///
+/// - **Linux/macOS**：`desk_pet::mode::apply` 在开窗前就按 `cfg!(windows)`
+///   判掉 `pet`，响应是 `{"ok":false,"mode":"pet","reason":"仅 Windows"}`；
+/// - **Windows**：`cfg(test)` 使真开窗分支不参与编译，走「不真开窗」分支，
+///   响应是 `{"ok":true,"mode":"pet"}`。
+///
+/// 结构断言（200、mode 回填、不落 `/api/v1/mods/` 前缀、handler 不引用
+/// discovered、响应体无 discovered 字段）**与平台无关**，必须继续两边都跑；
+/// 只有 `ok` 这一项按平台分叉。刻意不 `#[ignore]`、不删测试。
 #[test]
 fn mode_pet_never_calls_discovered() {
     let ctx = ctx();
     let resp = dispatch(&ctx, &Method::Post, DESK_PET_MODE_PATH, r#"{"mode":"pet"}"#);
+    // 结构断言 ①：窗开没开起来都是 200（失败走 body 里的 ok:false + reason）。
     assert_eq!(resp.status_code().0, 200);
     let body = body_of(resp);
-    assert!(body.contains("\"ok\":true"), "{body}");
+    let expected_ok = cfg!(windows);
+    assert!(
+        body.contains(if expected_ok {
+            "\"ok\":true"
+        } else {
+            "\"ok\":false"
+        }),
+        "ok 应为 {expected_ok}（平台 {}）：{body}",
+        std::env::consts::OS
+    );
+    if expected_ok {
+        assert!(!body.contains("reason"), "成功不该带 reason：{body}");
+    } else {
+        assert!(
+            body.contains("\"reason\":\"仅 Windows\""),
+            "非 Windows 的 pet 必须给出「仅 Windows」这个原因：{body}"
+        );
+    }
     assert!(body.contains("\"mode\":\"pet\""), "{body}");
     assert!(!body.contains("discovered"), "{body}");
     assert!(

@@ -126,12 +126,47 @@ mod tests {
     }
 
     /// 两条入口共用同一个函数：`web` 与右键菜单拿到的结果必须一致。
+    ///
+    /// # 为什么 `ok` 的真值随平台变（不要写死成 `true`）
+    ///
+    /// `apply` 第一件事就是 `decision(mode, cfg!(windows))`：`pet` 在**非
+    /// Windows 上必然**在进入开窗分支之前就被判掉，回 `{"ok":false,
+    /// "reason":"仅 Windows"}`（`spawn_pet_thread` 的非 Windows 实现也只有这一条
+    /// 返回值）。所以：
+    ///
+    /// - **Linux/macOS**：`pet` 的 `ok` == `false`，且 `reason` 必须是「仅 Windows」；
+    /// - **Windows**：`cfg(test)` 让 `#[cfg(all(windows, not(test)))]` 那段不参与
+    ///   编译，于是走 `#[cfg(any(not(windows), test))]` 的「不真开窗」分支，
+    ///   `pet` 的 `ok` == `true`、`reason` 为 `None`；
+    /// - `web` 两边都不需要开窗，恒 `ok == true`。
+    ///
+    /// 也就是说这条测试**断言的是「结果形状随平台正确」**，而不是「永远是
+    /// true」——后者只在 Windows 上成立，并进 CI 的 ubuntu-latest 就会红。
+    /// 刻意不 `#[ignore]`、不删：形状断言（mode 回填、reason 只在失败时出现）
+    /// 两边都该跑。
     #[test]
     fn both_modes_produce_a_well_formed_outcome() {
         for mode in [Mode::Pet, Mode::Web] {
             let outcome = apply(mode);
-            assert_eq!(outcome.mode, mode);
-            assert!(outcome.ok, "单元测试不真开窗，应返回 ok:true");
+            assert_eq!(outcome.mode, mode, "结果必须回填请求的 mode");
+            // 期望值按平台算：只有 pet 在非 Windows 上被拒；web 恒成功。
+            let expected_ok = mode == Mode::Web || cfg!(windows);
+            assert_eq!(
+                outcome.ok,
+                expected_ok,
+                "mode={:?} 在 {} 上的 ok 应为 {expected_ok}",
+                mode,
+                std::env::consts::OS
+            );
+            // 「失败必带原因、成功不带原因」这条形状在两边都成立。
+            match outcome.ok {
+                true => assert_eq!(outcome.reason, None, "{mode:?} 成功不该带 reason"),
+                false => assert_eq!(
+                    outcome.reason.as_deref(),
+                    Some("仅 Windows"),
+                    "{mode:?} 失败必须给出人能看懂的原因"
+                ),
+            }
         }
     }
 }
