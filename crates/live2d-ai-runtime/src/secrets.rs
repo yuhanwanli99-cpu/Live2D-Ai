@@ -32,19 +32,94 @@ use std::sync::{LazyLock, RwLock};
 static SNAPSHOT: LazyLock<RwLock<Option<BTreeMap<String, String>>>> =
     LazyLock::new(|| RwLock::new(None));
 
-/// `.env` 路径：`LIVE2D_AI_ENV_FILE` > `<cwd>/.env`。
+/// **锚定**的 `.env` 路径（0.7.0 P1.4 收口）。`None` = 未锚定 → 旧行为 `<cwd>/.env`。
 ///
-/// 与 `live2d-ai.toml` 同处仓库根（`scripts/ignite.sh` 已把 cwd 固定在那里），
-/// 也和 `.gitignore` 里那条 `/.env` 对得上。
+/// # 为什么需要锚定（2026-11-19 真机观测）
+///
+/// `.env` 的三个消费点曾经各自找文件：启动读 `refresh_from_disk()`（cwd）、
+/// 界面写 `write_key()`（cwd）、热重载 watcher（**配置目录**）。而配置路径由
+/// `config_path_for_web()` 按 exe 目录 / HOME / APPDATA 解析——三者可以指向
+/// 三个不同文件：改完 key 不生效、热重载读到旧值，都出在这里。
+///
+/// 现在由启动方（`cli_entry::run_web_mode`，确定 config_path 之后）锚一次，
+/// 之后读写与监视统一走 [`env_file_path`]。
+static ANCHORED_ENV_FILE: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+/// `.env` 路径：`LIVE2D_AI_ENV_FILE` > 锚定路径 > `<cwd>/.env`。
+///
+/// 未锚定时与旧行为**逐字相同**（`<cwd>/.env`，`scripts/ignite.sh` 把 cwd
+/// 固定到仓库根）——既有测试 / 库调用不受影响。`LIVE2D_AI_ENV_FILE` 是用户
+/// 显式指定，永远排第一（启动方也不会在它已设置时锚定，见
+/// [`env_anchor_for_config`]）。
 pub fn env_file_path() -> PathBuf {
-    if let Some(p) = std::env::var_os("LIVE2D_AI_ENV_FILE")
-        && !p.is_empty()
-    {
+    resolve_env_file_path(
+        anchored_env_file(),
+        std::env::var_os("LIVE2D_AI_ENV_FILE"),
+        std::env::current_dir().ok(),
+    )
+}
+
+/// 纯解析（**不读全局状态**，参数注入，可单测）：
+/// `env_override`（非空）> `anchored` > `<cwd>/.env`；cwd 不可得 → 相对 `.env`。
+pub fn resolve_env_file_path(
+    anchored: Option<PathBuf>,
+    env_override: Option<std::ffi::OsString>,
+    cwd: Option<PathBuf>,
+) -> PathBuf {
+    if let Some(p) = env_override.filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
     }
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(".env")
+    if let Some(p) = anchored {
+        return p;
+    }
+    cwd.unwrap_or_else(|| PathBuf::from(".")).join(".env")
+}
+
+/// **锚定** `.env` 路径（0.7.0 P1.4）：此后 [`env_file_path`] 不再看 cwd。
+///
+/// 幂等；重复调用以最后一次为准（启动装配只调一次）。空路径拒绝——锚到空串
+/// 会让读写静默落回相对 `.env`，比不锚更糟。
+pub fn anchor_env_file(path: impl Into<PathBuf>) -> Result<(), String> {
+    let path = path.into();
+    if path.as_os_str().is_empty() {
+        return Err("锚定 .env 路径不能为空".to_string());
+    }
+    let mut guard = ANCHORED_ENV_FILE
+        .write()
+        .map_err(|_| "锚定 .env 路径失败：锁中毒".to_string())?;
+    *guard = Some(path);
+    Ok(())
+}
+
+/// 当前锚定的 `.env` 路径（未锚定 = `None`）。排障 / 单测用。
+pub fn anchored_env_file() -> Option<PathBuf> {
+    ANCHORED_ENV_FILE.read().ok().and_then(|g| g.clone())
+}
+
+/// 按配置路径推导**应锚定**的 `.env`：`LIVE2D_AI_ENV_FILE` 已设 → `None`
+/// （那是用户显式指定的密钥文件，[`env_file_path`] 本来就优先它，不能再改成
+/// 配置目录那份）；否则 `<配置父目录>/.env`。
+///
+/// 配置路径无父目录（裸文件名）→ `None`：保持旧口径，不做相对路径拼接。
+pub fn env_anchor_for_config(
+    config_path: &Path,
+    env_override: Option<std::ffi::OsString>,
+) -> Option<PathBuf> {
+    if env_override.is_some_and(|p| !p.is_empty()) {
+        return None;
+    }
+    config_path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .map(|dir| dir.join(".env"))
+}
+
+/// 单测用：清掉全局锚定（只给 `secrets_anchor_tests` 收尾，避免污染同进程测试）。
+#[cfg(test)]
+pub fn reset_anchor_for_test() {
+    if let Ok(mut g) = ANCHORED_ENV_FILE.write() {
+        *g = None;
+    }
 }
 
 /// 解析 `.env` 文本 → 键值表（最小实现：`KEY=VALUE` + `#` 注释 + 可选引号）。
@@ -414,3 +489,8 @@ not a var line
         assert!(!path.exists(), "校验失败不得留下文件");
     }
 }
+
+/// 0.7.0 P1.4 收口：`.env` 路径锚定 / 解析顺序的回归（拆文件守住 `crates/*/src` 500 行硬门禁）。
+#[cfg(test)]
+#[path = "secrets_anchor_tests.rs"]
+mod anchor_tests;

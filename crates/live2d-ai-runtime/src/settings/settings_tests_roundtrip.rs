@@ -453,6 +453,57 @@ fn merge_rejects_broken_existing_toml() {
     assert!(s.merge_into_toml("[llm\nbase_url = ").is_err());
 }
 
+/// P0（2026-11-19）：磁盘入口只有 `NotFound` 才允许整份生成。
+///
+/// 读失败 / 解析失败 ≠ 空文件；否则「坏 TOML 后点保存」会用默认值整份覆盖用户
+/// 原文（注释一起没）。这条测试守的是 API 契约本身，HTTP 侧的端到端回归见
+/// `settings_routes::tests::bad_toml_on_disk_is_never_overwritten_by_patch`。
+#[test]
+fn to_toml_string_merging_only_generates_when_file_is_missing_or_empty() {
+    let dir = std::env::temp_dir().join(format!(
+        "live2d_ai_merge_guard_{}_{}",
+        std::process::id(),
+        line!()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let path = dir.join("live2d-ai.toml");
+    let s = AppSettings::default();
+
+    // ① 文件不存在 → 整份生成（既有语义不变）。
+    assert_eq!(
+        s.to_toml_string_merging(&path).expect("missing → generate"),
+        s.to_toml_string()
+    );
+
+    // ② 空文件 → 整份生成（与手写的空模板等价）。
+    std::fs::write(&path, "").expect("write empty");
+    assert_eq!(
+        s.to_toml_string_merging(&path).expect("empty → generate"),
+        s.to_toml_string()
+    );
+
+    // ③ 非空坏 TOML → Err，且原文件逐字不变。
+    let broken = "# 用户手写的注释\n[llm\n";
+    std::fs::write(&path, broken).expect("write broken");
+    assert!(s.to_toml_string_merging(&path).is_err(), "坏 TOML 必须报错");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read back"),
+        broken,
+        "坏 TOML 被覆盖"
+    );
+
+    // ④ 读取失败（路径是目录）→ Err，不当作空文件。
+    let dir_as_file = dir.join("is-a-dir");
+    std::fs::create_dir_all(&dir_as_file).expect("mkdir2");
+    assert!(
+        s.to_toml_string_merging(&dir_as_file).is_err(),
+        "读取失败必须报错"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // ============================================================================
 // 0.3.9：旧 toml 的 vendor / vendors 键**读入时忽略**，写回时不再写出
 // ============================================================================

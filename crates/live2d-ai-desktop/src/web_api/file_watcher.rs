@@ -1,6 +1,6 @@
 //! 配置文件热重载文件监听器（2026-08-31）。
 //!
-//! 用 `notify` 跨平台监听 `live2d-ai.toml`（**以及同目录的 `.env`**）的外部修改
+//! 用 `notify` 跨平台监听 `live2d-ai.toml`（以及 **`.env` 密钥文件**）的外部修改
 //! （如用户手动编辑），检测到变更后触发 supervisor reload，实现真正的热重载。
 //!
 //! 2026-09-12（rc.2）：监视集加入 `.env`。密钥的真源是 `.env`（见
@@ -8,9 +8,13 @@
 //! 还是 401」会以另一种形式回来。`post_reload` 钩子因此要**同时**刷新设置快照
 //! 与密钥快照（调用方负责，见 `cli_entry`）。
 //!
+//! 2026-11-19（0.7.0 P1.4）：`.env` **不再**取「配置同目录」——配置可能在
+//! exe 目录 / HOME / APPDATA，密钥文件按 `secrets::env_file_path()` 的锚定路径
+//! 走，两者可以是不同目录。监听计划因此升级为「目录集合 + (目录, 文件名)」。
+//!
 //! 设计：
 //! - 后台线程跑 `notify` 事件循环（`notify::recommended_watcher`）。
-//! - 监听配置文件**父目录**（notify 只能监听目录），过滤出目标文件事件。
+//! - 监听配置文件与密钥文件的**父目录**（notify 只能监听目录），过滤出目标文件事件。
 //! - 防抖：事件触发后等待 `debounce_ms`，期间的事件合并为一次 reload。
 //! - 通过 `SupervisorHandle::reload()` 触发热重载（线程安全：原子标志 + channel）。
 
@@ -50,9 +54,73 @@ pub type PostReloadHook = Box<dyn Fn(bool) + Send>;
 /// （`SupervisorSlot::ensure_after_patch`）也能被同一条监听看见。
 pub type SupervisorSource = Box<dyn Fn() -> Option<Arc<SupervisorHandle>> + Send + 'static>;
 
+/// 监听计划：`notify` 只能监听目录，所以拆成「目录集合 + (目录, 文件名) 集合」。
+///
+/// 2026-11-19（0.7.0 P1.4）：配置目录与密钥目录可以不同，不再假设 `.env` 与
+/// `live2d-ai.toml` 同目录。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WatchPlan {
+    /// 需要监听的目录（去重，按加入顺序）。
+    dirs: Vec<PathBuf>,
+    /// `(目录, 文件名)`：事件路径必须落在该目录且文件名命中才处理。
+    targets: Vec<(PathBuf, std::ffi::OsString)>,
+}
+
+impl WatchPlan {
+    /// 加入一个 `(目录, 文件名)`；同目录只监听一次，同目标不重复。
+    fn push(&mut self, dir: PathBuf, name: std::ffi::OsString) {
+        if !self.dirs.contains(&dir) {
+            self.dirs.push(dir.clone());
+        }
+        let target = (dir, name);
+        if !self.targets.contains(&target) {
+            self.targets.push(target);
+        }
+    }
+}
+
+/// 相对路径没有非空父目录（如裸 `.env`）时用 `.`（= cwd）兜底。
+fn non_empty_parent(path: &Path) -> Option<PathBuf> {
+    path.parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+}
+
+/// 由配置路径 + 密钥文件路径算出监听计划（**纯函数**，可单测）。
+///
+/// 为什么不再硬编码「配置目录的 `.env`」：`.env` 的唯一真源是
+/// [`live2d_ai_runtime::secrets::env_file_path`]（启动时按配置目录锚定，或
+/// `LIVE2D_AI_ENV_FILE` 显式指定）。硬编码会在「配置在 HOME/APPDATA、密钥在
+/// 别处」的组合下**监视错文件**——2026-11-19 真机观测到的「热重载读到旧值」
+/// 正是这个分叉。
+fn watch_plan(config_path: &Path, env_file: &Path) -> Result<WatchPlan, String> {
+    let config_name = config_path
+        .file_name()
+        .ok_or_else(|| format!("配置文件无文件名: {}", config_path.display()))?
+        .to_os_string();
+    let config_dir = non_empty_parent(config_path)
+        .ok_or_else(|| format!("配置文件无父目录: {}", config_path.display()))?;
+    let env_name = env_file
+        .file_name()
+        .ok_or_else(|| format!("密钥文件无文件名: {}", env_file.display()))?
+        .to_os_string();
+    let env_dir = non_empty_parent(env_file).unwrap_or_else(|| PathBuf::from("."));
+
+    let mut plan = WatchPlan {
+        dirs: Vec::new(),
+        targets: Vec::new(),
+    };
+    plan.push(config_dir, config_name);
+    plan.push(env_dir, env_name);
+    Ok(plan)
+}
+
 impl FileWatcher {
-    /// 监听 `config_path`（及同目录 `.env`）的外部修改，检测到变更时调用
-    /// `supervisor.reload()`。
+    /// 监听 `config_path` 与**密钥文件**（[`live2d_ai_runtime::secrets::env_file_path`]
+    /// 的锚定路径）的外部修改，检测到变更时调用 `supervisor.reload()`。
+    ///
+    /// 密钥文件可能在**另一个目录**（配置在 HOME/APPDATA、`.env` 锚在别处），
+    /// 所以内部按「目录集合 + (目录, 文件名)」监听，见 [`watch_plan`]。
     ///
     /// `debounce_ms`：防抖窗口（毫秒），避免编辑器一次保存触发多次 reload。
     /// `post_reload`：reload 之后的额外副作用（刷新设置快照 / 密钥快照）；
@@ -64,34 +132,23 @@ impl FileWatcher {
         post_reload: Option<PostReloadHook>,
     ) -> Result<Self, String> {
         let config_path = config_path.as_ref().to_path_buf();
-        // notify 监听目录，所以取父目录。
-        let watch_dir = config_path
-            .parent()
-            .ok_or_else(|| format!("配置文件无父目录: {}", config_path.display()))?
-            .to_path_buf();
-        // 监视集：配置文件 + 同目录的 `.env`（密钥真源，rc.2）。
-        // 两者都在仓库根，`notify` 又只能监听目录，所以一个目录 + 两个文件名。
-        let mut targets = vec![
-            config_path
-                .file_name()
-                .ok_or_else(|| format!("配置文件无文件名: {}", config_path.display()))?
-                .to_os_string(),
-        ];
-        targets.push(std::ffi::OsString::from(".env"));
+        // **密钥文件路径不再猜「配置同目录」**（0.7.0 P1.4）：唯一真源是
+        // `secrets::env_file_path()`——启动时已按 config_path 的目录锚定。
+        let env_file = live2d_ai_runtime::secrets::env_file_path();
+        // `LIVE2D_AI_ENV_FILE` 允许相对路径；notify 事件给的是绝对路径，不归一化
+        // 会让过滤条件永远不命中（那样监听了也等于没监）。
+        let env_file = match std::env::current_dir() {
+            Ok(cwd) if !env_file.is_absolute() => cwd.join(&env_file),
+            _ => env_file,
+        };
+        let plan = watch_plan(&config_path, &env_file)?;
         let stop_flag = Arc::new(AtomicBool::new(false));
         let stop_flag_clone = stop_flag.clone();
 
         let handle = std::thread::Builder::new()
             .name("config-file-watcher".into())
             .spawn(move || {
-                Self::run(
-                    watch_dir,
-                    targets,
-                    supervisor,
-                    stop_flag_clone,
-                    debounce_ms,
-                    post_reload,
-                );
+                Self::run(plan, supervisor, stop_flag_clone, debounce_ms, post_reload);
             })
             .map_err(|e| format!("启动文件监听线程失败: {e}"))?;
 
@@ -102,21 +159,30 @@ impl FileWatcher {
     }
 
     fn run(
-        watch_dir: PathBuf,
-        targets: Vec<std::ffi::OsString>,
+        plan: WatchPlan,
         supervisor: SupervisorSource,
         stop_flag: Arc<AtomicBool>,
         debounce_ms: u64,
         post_reload: Option<PostReloadHook>,
     ) {
+        let WatchPlan { dirs, targets } = plan;
         let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let targets_for_cb = targets;
         let mut watcher = match notify::recommended_watcher(move |res: Result<notify::Event, _>| {
             if let Ok(event) = res {
-                // 过滤：只关心监视集里的文件的写入/创建/重命名事件。
-                if event.paths.iter().any(|p| {
-                    p.file_name()
-                        .is_some_and(|n| targets.iter().any(|t| t == n))
-                }) {
+                // 过滤：只关心监听计划里的**那个目录下那个文件名**。只看文件名
+                // 不行（不同目录可以有同名文件），只看目录也不行（同目录其它文件
+                // 与热重载无关）。
+                let hit = event.paths.iter().any(|p| {
+                    let Some(name) = p.file_name() else {
+                        return false;
+                    };
+                    let parent = p.parent();
+                    targets_for_cb.iter().any(|(dir, target)| {
+                        target.as_os_str() == name && parent == Some(dir.as_path())
+                    })
+                });
+                if hit {
                     match event.kind {
                         notify::EventKind::Modify(_) | notify::EventKind::Create(_) => {
                             let _ = tx.send(());
@@ -132,13 +198,14 @@ impl FileWatcher {
                 return;
             }
         };
-        if let Err(e) = notify::Watcher::watch(
-            &mut watcher,
-            &watch_dir,
-            notify::RecursiveMode::NonRecursive,
-        ) {
-            tracing::error!(error = %e, dir = %watch_dir.display(), "监听目录失败");
-            return;
+        // notify 只能监听目录：计划里的每个目录各监听一次（同目录已去重）。
+        for dir in &dirs {
+            if let Err(e) =
+                notify::Watcher::watch(&mut watcher, dir, notify::RecursiveMode::NonRecursive)
+            {
+                tracing::error!(error = %e, dir = %dir.display(), "监听目录失败");
+                return;
+            }
         }
 
         let debounce = Duration::from_millis(debounce_ms);
@@ -243,5 +310,41 @@ mod tests {
             1,
             "首跑窗口也必须刷新设置/密钥快照（F-0002-01 的修复点）"
         );
+    }
+
+    /// ③（0.7.0 P1.4）：watcher 目标 = 配置文件 + **锚定 `.env` 的父目录与文件名**，
+    /// 不再硬编码「配置同目录的 `.env`」。纯函数注入路径，不碰全局锚定。
+    #[test]
+    fn watch_plan_uses_anchored_env_dir_and_name() {
+        let config_dir = std::env::temp_dir().join("l2d-watch-plan-config");
+        let env_dir = std::env::temp_dir().join("l2d-watch-plan-home");
+        let config = config_dir.join("live2d-ai.toml");
+        // 文件名也不假设必须是 `.env`（LIVE2D_AI_ENV_FILE 可显式指定任意名）。
+        let env = env_dir.join("custom.keys");
+        let plan = watch_plan(&config, &env).expect("监听计划");
+        assert_eq!(
+            plan.dirs,
+            vec![config_dir.clone(), env_dir.clone()],
+            "配置目录与密钥目录不同 → 两个目录都要监听"
+        );
+        assert!(
+            plan.targets
+                .contains(&(config_dir, std::ffi::OsString::from("live2d-ai.toml")))
+        );
+        assert!(
+            plan.targets
+                .contains(&(env_dir, std::ffi::OsString::from("custom.keys"))),
+            "监视目标必须带锚定路径的父目录 + 文件名：{:?}",
+            plan.targets
+        );
+    }
+
+    /// 同目录时只监听一次目录（不重复 watch），但两个文件名都要在目标里。
+    #[test]
+    fn watch_plan_dedupes_shared_dir() {
+        let dir = std::env::temp_dir().join("l2d-watch-plan-same");
+        let plan = watch_plan(&dir.join("live2d-ai.toml"), &dir.join(".env")).expect("监听计划");
+        assert_eq!(plan.dirs, vec![dir.clone()], "同目录只 watch 一次");
+        assert_eq!(plan.targets.len(), 2);
     }
 }

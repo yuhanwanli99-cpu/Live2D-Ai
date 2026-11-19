@@ -393,22 +393,6 @@ fn system_text_is_sentence_plus_pinned_plus_hot_card() {
 }
 
 #[test]
-fn factory_sentence_is_the_documented_text() {
-    // 计划 §2 的出厂句**逐字**钉住（改文案必须改测试）。
-    assert_eq!(
-        SYSTEM_PROMPT_FACTORY,
-        "你是长期陪伴的对方。只根据钉住的事、本轮热卡和最近几轮说话。\
-清楚的可以自然提起；模糊的用不确定的说法，对方否认就放下。没有写在这两处的旧事不要编。"
-    );
-    // 约 80 字量级；按本模块 token 口径估一遍，防止悄悄写长。
-    let tokens = estimate_tokens(SYSTEM_PROMPT_FACTORY);
-    assert!(
-        (60..=110).contains(&tokens),
-        "出厂句应在 80 字量级，实际 {tokens} token"
-    );
-}
-
-#[test]
 fn prompt_budget_measures_the_three_blocks() {
     let card = HotCard::from_lines(card_of(&[(CardTier::Clear, "你好")]), &[]);
     let budget = PromptBudget::measure("系统句", "- 一条", Some(&card));

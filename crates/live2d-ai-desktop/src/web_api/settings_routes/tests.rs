@@ -411,6 +411,39 @@ fn apply_and_write_cleans_tmp_on_rename_failure() {
     let _ = std::fs::remove_file(&base);
 }
 
+/// P0（2026-11-19）：坏 TOML 上点「保存」必须**零写盘**。
+///
+/// 现场路径：运行中用手写编辑器把配置改成坏 TOML → 文件监听刷新失败、界面快照
+/// 仍是旧的 → 用户在设置面板点保存。旧实现会把整份默认配置写回去，用户那份
+///（坏但仍可救的）原文与注释一起消失。现在必须返回 500 `persist_failed`，
+/// 且磁盘上的字节**逐字不变**。
+#[test]
+fn bad_toml_on_disk_is_never_overwritten_by_patch() {
+    let tmp = tempdir_path("patch_bad_toml_no_overwrite");
+    let broken = "# 用户手写的注释\n[llm\nbase_url = \"http://127.0.0.1:11434/v1\"\n";
+    std::fs::write(&tmp, broken).expect("write broken toml");
+    let patch = SettingsPatch {
+        llm: Some(Some(live2d_ai_runtime::settings::patch::LlmPatch {
+            model: Some(Some("new-model".into())),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let err = apply_and_write(
+        &sample(),
+        &patch,
+        &tmp.to_string_lossy(),
+        None,
+        &no_keys,
+        "",
+    )
+    .expect_err("坏 TOML 时必须拒绝写盘");
+    assert_eq!(err.error.code, "persist_failed");
+    let after = std::fs::read_to_string(&tmp).expect("read back");
+    assert_eq!(after, broken, "坏配置被覆盖了：\n{after}");
+    let _ = std::fs::remove_file(&tmp);
+}
+
 // ===== 旧覆盖 =====
 
 #[test]

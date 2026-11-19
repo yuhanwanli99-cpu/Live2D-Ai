@@ -75,7 +75,7 @@ pub use recall::{
 };
 pub use render::{
     HOT_CARD_BUDGET_TOKENS, HOT_CARD_HEADING, PINNED_HEADING, PromptBudget, SUMMARY_HEADING,
-    SYSTEM_PROMPT_FACTORY, compose_system_text, compose_system_text_with_summary, system_sentence,
+    compose_system_text, compose_system_text_with_summary,
 };
 pub use store::{HotMemory, HotMemorySnapshot, NO_SESSION, Recollection, StoredFact};
 

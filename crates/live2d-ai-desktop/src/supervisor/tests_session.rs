@@ -165,7 +165,7 @@ fn spoken_request_carries_the_factory_sentence_and_no_retired_markers() {
 
     let collector: Collector = Arc::new(Mutex::new(Vec::new()));
     let emit_collector = collector.clone();
-    // 工厂为空 + 没有 [persona].system_prompt：出厂句生效的那条路径。
+    // 工厂为空 + 没有 [persona].system_prompt：出厂不设人设的那条路径。
     let handle = spawn_supervisor(
         SupervisorConfig {
             client,
@@ -215,8 +215,8 @@ fn spoken_request_carries_the_factory_sentence_and_no_retired_markers() {
         .unwrap_or_default()
         .to_string();
     assert!(
-        system.contains(live2d_ai_runtime::hotmem::SYSTEM_PROMPT_FACTORY),
-        "出厂系统句必须在请求里，实际 system={system:?}"
+        !system.contains("你是长期陪伴的对方"),
+        "出厂不设人设：请求里不得出现固定人设句，实际 system={system:?}"
     );
     assert!(
         !system.contains("memory-v0"),

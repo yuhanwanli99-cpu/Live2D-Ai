@@ -91,24 +91,22 @@ fn empty_system_prompt_is_omitted_from_wire_messages() {
     assert_eq!(messages, vec![crate::llm::ChatMessage::user("hi")]);
 }
 
-/// **出厂系统句**（2026-11-16 热槽记忆 M2）：`ConversationConfig::new("")`
-/// 不再产出「没有 system」的一轮，而是带上逐字固定的出厂句；用户存过的
-/// **非空**句子原样使用，不被它覆盖。
+/// **出厂不设人设**（2026-11-19 0.7.0 收口）：`ConversationConfig::new("")`
+/// 不产出任何 system 消息（2026-11-16 M2 曾塞一句固定陪伴句，该裁决已撤）；
+/// 用户存过的**非空**句子原样使用。
 #[test]
-fn factory_sentence_replaces_the_empty_default() {
+fn empty_system_prompt_means_no_system_message() {
     let client = OpenAiClient::new(
         LlmConfig::new("http://a/v1", "m"),
         TtsConfig::new("http://b/v1", "v"),
     )
     .expect("client");
     let engine = ConversationEngine::new(client, ConversationConfig::new(""));
-    let messages = engine.build_messages("hi");
     assert_eq!(
-        messages[0],
-        crate::llm::ChatMessage::system(crate::hotmem::SYSTEM_PROMPT_FACTORY),
-        "出厂句必须逐字等于 hotmem::SYSTEM_PROMPT_FACTORY"
+        engine.build_messages("hi"),
+        vec![crate::llm::ChatMessage::user("hi")],
+        "出厂不设人设：这一轮只有 user，没有 system"
     );
-    assert_eq!(messages.last(), Some(&crate::llm::ChatMessage::user("hi")));
 
     // 用户存过的非空句原样使用（不拼接、不覆盖）。
     let client = OpenAiClient::new(
@@ -133,20 +131,16 @@ fn danmaku_preface_only_for_prefixed_turn_and_keeps_user_content() {
     )
     .expect("client");
     let engine = ConversationEngine::new(client, ConversationConfig::new(""));
-    // 2026-11-16（M2）起「出厂」= 出厂系统句，解说接在它**后面**（规则不变）。
+    // 2026-11-19（0.7.0）：出厂不设人设 → 这一轮只有弹幕解说这一句 system。
     assert_eq!(
         engine.build_messages("弹幕消息：你好"),
         vec![
-            crate::llm::ChatMessage::system(format!(
-                "{}\n{}",
-                crate::hotmem::SYSTEM_PROMPT_FACTORY,
-                super::engine::DANMAKU_PREFACE
-            )),
+            crate::llm::ChatMessage::system(super::engine::DANMAKU_PREFACE),
             crate::llm::ChatMessage::user("弹幕消息：你好"),
         ],
-        "出厂句 + 弹幕解说，正文原样"
+        "出厂空人设 + 弹幕解说，正文原样"
     );
-    // 真正「没有任何 system」的配置下，这一轮只有解说这一句。
+    // 显式空 system 配置：同一语义。
     let client = OpenAiClient::new(
         LlmConfig::new("http://a/v1", "m"),
         TtsConfig::new("http://b/v1", "v"),

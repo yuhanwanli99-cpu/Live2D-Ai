@@ -57,6 +57,21 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
     let config_path = config_path_for_web();
     println!("web: 配置文件路径 {config_path}");
 
+    // **`.env` 路径锚定（0.7.0 P1.4 收口）**：配置可能来自 exe 目录 / HOME /
+    // APPDATA，而 `.env` 以前按 cwd 找——启动读、界面写、watcher 监视三处会
+    // 各指一个文件（改完 key 不生效 / 热重载读到旧值，2026-11-19 真机观测）。
+    // 这里在**确定 config_path 之后、refresh_from_disk 之前**锚一次：
+    // `LIVE2D_AI_ENV_FILE` 显式指定时尊重它（不锚），否则用配置同目录的 `.env`。
+    if let Some(env_file) = live2d_ai_runtime::secrets::env_anchor_for_config(
+        std::path::Path::new(&config_path),
+        std::env::var_os("LIVE2D_AI_ENV_FILE"),
+    ) {
+        match live2d_ai_runtime::secrets::anchor_env_file(&env_file) {
+            Ok(()) => println!("web: .env 密钥文件锚定 {}", env_file.display()),
+            Err(e) => eprintln!("[warn] 锚定 .env 失败（退回 cwd 口径）: {e}"),
+        }
+    }
+
     // **密钥真源在启动时读一次**（rc.2 2026-09-12）：`.env` 快照 > 进程环境。
     // 只报键数量，**不报键名也不报值**（键名会出现在日志里，属于不必要的暴露）。
     match live2d_ai_runtime::secrets::refresh_from_disk() {
@@ -240,10 +255,18 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
                             return true;
                         }
                         // **合并写回**：保留现有配置的注释与排版。
-                        let toml_text = next
+                        let toml_text = match next
                             .to_toml_string_merging(std::path::Path::new(
                                 &cfg_path_for_settings,
-                            ));
+                            )) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                // 读 / 解析现有配置失败 → 零写盘（与 settings_routes 同一口径）。
+                                tracing::error!(target: "mod",
+                                    "apply_settings 合并现有配置失败（拒绝覆盖）: {e}");
+                                return false;
+                            }
+                        };
                         let target = std::path::Path::new(&cfg_path_for_settings);
                         if let Some(parent) = target.parent()
                             && !parent.as_os_str().is_empty()
@@ -374,7 +397,10 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
             Some(post_reload),
         ) {
             Ok(w) => {
-                println!("web: 配置文件热重载监听已启用（{}）", config_path);
+                println!(
+                    "web: 配置文件热重载监听已启用（{config_path} + {}）",
+                    live2d_ai_runtime::secrets::env_file_path().display()
+                );
                 Some(w)
             }
             Err(e) => {

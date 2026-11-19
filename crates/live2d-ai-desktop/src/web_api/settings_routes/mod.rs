@@ -209,7 +209,12 @@ pub fn apply_and_write(
         // **合并写回**：保留现有文件里的注释与排版。
         // 直接 `to_toml_string()` 会重新生成整份文档、抹掉所有注释
         //（2026-09-11 实测发生：在界面上切一次 dev_mode，46 行注释全消失）。
-        let toml_text = next.to_toml_string_merging(std::path::Path::new(config_path));
+        let toml_text = next
+            .to_toml_string_merging(std::path::Path::new(config_path))
+            .map_err(|e| {
+                // 读 / 解析现有配置失败 → **零写盘**，绝不整份重写（P0，2026-11-19）。
+                ErrorResponse::new(ErrorDetail::new("persist_failed", e))
+            })?;
         // 写盘前创建父目录（P0-4 关联）：首次保存时 `~/.config/live2d-ai/`
         // 不存在也能成功。
         let target = std::path::Path::new(config_path);

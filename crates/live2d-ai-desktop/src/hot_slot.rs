@@ -34,7 +34,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use live2d_ai_runtime::hotmem::{
     FactKind, HotCard, HotMemory, HotMemorySnapshot, Recollection, compose_card,
-    compose_system_text_with_summary, render_pinned, system_sentence,
+    compose_system_text_with_summary, render_pinned,
 };
 
 /// 「查」的最长等待（毫秒）。超时按空热卡开口，不追改已经送去 TTS 的句子。
@@ -121,13 +121,13 @@ impl HotSlot {
 
     /// **说**：组装这一轮的四块。
     ///
-    /// - `user_prompt`：`[persona].system_prompt` 原文（空 → 出厂句）；
+    /// - `user_prompt`：`[persona].system_prompt` 原文（出厂不设人设：空就是空）；
     /// - `session`：本轮会话（钉住块的复读抑制按会话记）；
     /// - 热卡取该会话**当前**那一张（草稿没来 / 查失败 = 空卡）。
     pub fn compose(&self, user_prompt: &str, session: Option<&str>) -> SpokenBlocks {
         let mut inner = self.guard();
         inner.mem.advance_to(clock_hours());
-        let sentence = system_sentence(user_prompt).to_string();
+        let sentence = user_prompt.to_string();
         let items = inner.mem.pinned_items();
         let spoken = inner.mem.spoken(session).to_vec();
         let pinned = render_pinned(&items, &spoken);

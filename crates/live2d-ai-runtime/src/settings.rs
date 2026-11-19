@@ -577,9 +577,9 @@ impl AppSettings {
             },
             conversation: ConversationConfig {
                 // rc.4 M5：主链只发 `system_prompt` 原文，不再拼角色卡 name/description。
-                // 2026-11-16（热槽记忆 M2）：空串 → **出厂系统句**（用户存过的非空句原样用）。
-                system_prompt: crate::hotmem::system_sentence(&self.persona.system_prompt)
-                    .to_string(),
+                // 2026-11-19（0.7.0 收口）：**出厂不设人设**——空串保持空串，只有用户
+                // 自己写过 `[persona].system_prompt` 才进 system 消息。
+                system_prompt: self.persona.system_prompt.clone(),
                 max_history_pairs: self.persona.max_history_pairs,
                 ..ConversationConfig::default()
             },
@@ -672,14 +672,25 @@ impl AppSettings {
         Ok(doc.to_string())
     }
 
-    /// 合并进**磁盘上现有**的 TOML；读不到就当作「没有现有文件」。
+    /// 合并进**磁盘上现有**的 TOML；**只有**「文件不存在 / 确为空」才允许整份生成。
     ///
     /// 这是写盘点该用的入口——它把「读现有 → 合并」这一步收在一处，
-    /// 避免三个写盘点各写一遍（漏一个就又是一次注释清空）。
-    pub fn to_toml_string_merging(&self, path: &std::path::Path) -> String {
-        let existing = std::fs::read_to_string(path).unwrap_or_default();
-        self.merge_into_toml(&existing)
-            .unwrap_or_else(|_| self.to_toml_string())
+    /// 避免各写盘点各写一遍（漏一个就又是一次注释清空）。
+    ///
+    /// # 为什么返回 `Result`（P0，2026-11-19）
+    ///
+    /// 旧实现把「读不到」与「读到但坏了」都当空文件（`unwrap_or_default`），
+    /// 合并失败再退化成 [`Self::to_toml_string`] 整份重写。于是「运行中把手写
+    /// 配置改成坏 TOML → 文件监听刷新失败、界面仍持旧快照 → 用户在设置里点一次
+    /// 保存」就会把用户那份（坏但仍可救的）原文连同注释一起覆盖；权限错误同理
+    ///（读失败 ≠ 空文件）。现在：`NotFound` 才走整份生成，其它读失败与非空文件
+    /// 解析失败一律返回 `Err`，由调用方**零写盘**地上报。
+    pub fn to_toml_string_merging(&self, path: &std::path::Path) -> Result<String, String> {
+        match std::fs::read_to_string(path) {
+            Ok(existing) => self.merge_into_toml(&existing),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(self.to_toml_string()),
+            Err(e) => Err(format!("读取现有配置失败（拒绝覆盖）: {e}")),
+        }
     }
 }
 

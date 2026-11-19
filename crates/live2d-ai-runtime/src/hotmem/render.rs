@@ -24,25 +24,6 @@ use super::card::{HotCard, render_hot_card};
 /// 热卡的预算（token）。整块替换，超预算整行丢弃。
 pub const HOT_CARD_BUDGET_TOKENS: usize = 200;
 
-/// 出厂系统句（**逐字**；`ConversationConfig::new` 的空串换成这一句）。
-///
-/// 用户保存过的非空 `[persona].system_prompt` 原样使用，**不被它覆盖**。
-pub const SYSTEM_PROMPT_FACTORY: &str = "你是长期陪伴的对方。只根据钉住的事、本轮热卡和最近几轮说话。\
-清楚的可以自然提起；模糊的用不确定的说法，对方否认就放下。没有写在这两处的旧事不要编。";
-
-/// 本轮实际生效的系统句：用户存过非空句就用它，否则用出厂句。
-///
-/// 这是 **`[persona].system_prompt` 空串 → 出厂句** 这条规则**唯一**的实现：
-/// [crate::conversation::ConversationConfig::new] 与
-/// `AppSettings::resolve` 都调这里，别在调用点各写一遍 if。
-pub fn system_sentence(user_prompt: &str) -> &str {
-    if user_prompt.trim().is_empty() {
-        SYSTEM_PROMPT_FACTORY
-    } else {
-        user_prompt
-    }
-}
-
 /// 钉住块的标题行。
 pub const PINNED_HEADING: &str = "【钉住的事】";
 
@@ -55,7 +36,7 @@ pub const SUMMARY_HEADING: &str = "【之前聊过】";
 /// 说话请求的 system 文本 = 系统句 + 钉住块 + 热卡（空块连同标题一起略过）。
 ///
 /// 参数：
-/// - `system_sentence`：本轮的系统句（调用方已算好是出厂句还是用户的）；
+/// - `system_sentence`：本轮的系统句（**出厂不设人设**：用户没写就是空串，空块整段略过）；
 /// - `pinned`：钉住块正文（[render_pinned] 的结果；空 = 没有）；
 /// - `hot_card`：本轮热卡（`None` / 空卡 = 没有）。
 pub fn compose_system_text(

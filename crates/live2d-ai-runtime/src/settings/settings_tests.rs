@@ -93,11 +93,10 @@ fn minimal_file_falls_back_to_defaults() {
         "出厂 TTS 采样率（44.1k）与播放侧默认（24k）是两个口径"
     );
     assert!(resolved.llm.api_key.is_none() && resolved.tts.api_key.is_none());
-    // persona 缺省（2026-11-16 热槽记忆 M2 起）：系统句 = **出厂句**，不保留历史。
+    // persona 缺省（2026-11-19 0.7.0 起）：**出厂不设人设** → 空串保持空串。
     assert_eq!(
-        resolved.conversation.system_prompt,
-        crate::hotmem::SYSTEM_PROMPT_FACTORY,
-        "空 [persona].system_prompt 解析出来必须是出厂系统句"
+        resolved.conversation.system_prompt, "",
+        "空 [persona].system_prompt 解析出来必须还是空串"
     );
     assert_eq!(resolved.conversation.max_history_pairs, 0);
 }
