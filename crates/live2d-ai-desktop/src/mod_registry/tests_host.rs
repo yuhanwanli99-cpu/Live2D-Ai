@@ -77,7 +77,13 @@ fn dispatch_event_and_flush_means_processed_not_queued() {
     }
     struct FlushRuntime;
     impl ModRuntime for FlushRuntime {
-        fn start(&mut self, _: &mut dyn ModRegistrar) -> Result<(), ModError> { Ok(()) }
+        fn start(&mut self, registrar: &mut dyn ModRegistrar) -> Result<(), ModError> {
+            // P1.5：事件按订阅路由；本用例要收 TextDelta + TurnPrompt。
+            for topic in ModEventTopic::ALL {
+                registrar.subscribe(*topic)?;
+            }
+            Ok(())
+        }
         fn on_event(&mut self, topic: ModEventTopic, _: &str) -> Result<(), ModError> {
             FLUSH_RECEIVED.lock().unwrap().push(topic.as_str().to_string());
             Ok(())
@@ -157,7 +163,11 @@ impl ModFactory for FailMod {
 }
 struct FailRuntime;
 impl ModRuntime for FailRuntime {
-    fn start(&mut self, _: &mut dyn ModRegistrar) -> Result<(), ModError> {
+    fn start(&mut self, registrar: &mut dyn ModRegistrar) -> Result<(), ModError> {
+        // P1.5：事件按订阅路由；本用例要能收到 TurnStarted 才会触发隔离路径。
+        for topic in ModEventTopic::ALL {
+            registrar.subscribe(*topic)?;
+        }
         Ok(())
     }
     fn on_event(&mut self, _: ModEventTopic, _: &str) -> Result<(), ModError> {

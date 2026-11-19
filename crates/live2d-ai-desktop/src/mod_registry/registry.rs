@@ -2,9 +2,15 @@
 //!
 //! 从 `mod_registry.rs` 拆出（该文件 1438 行，越 code-stats 的 >1000 棘轮档）。
 //! 类型、常量与模块头注留在父模块 `crate::mod_registry`；本文件只放
-//! `impl ModRegistry`，事件管道（sink / worker / manifest 解析）在 `super::events`。
+//! `impl ModRegistry` 的构造与只读查询面，事件管道（sink / worker / manifest
+//! 解析）在 `super::events`，启停生命周期（start/enable/disable/restart）在
+//! `super::lifecycle`。
+//!
+//! 2026-11-19（P1.5）：启停路径再拆出去——P1.5 要补「先停旧实例 / 失败清槽 /
+//! 订阅随实例作废」，本文件当时已 447 行，继续堆会越 `crates/*/src` 单文件
+//! 500 行硬门禁。
 
-use super::events::{HostRegistrar, event_worker_loop, parse_mod_config, secret_keys_of};
+use super::events::{event_worker_loop, parse_mod_config, secret_keys_of};
 use super::*;
 // 启动原因（2026-10-09）：`local-tts` 按它决定要不要 spawn。
 use live2d_ai_mod_system::{StartCause, set_start_cause};
@@ -65,11 +71,18 @@ impl ModRegistry {
             );
         }
 
+        // P1.5：per-Mod 订阅路由（HostRegistrar 写、worker 读）。worker 只关心
+        // topic 集合，不需要 registry 锁，也不需要订阅 id。
+        let subscription_routes: SharedSubscriptions = Arc::new(Mutex::new(BTreeMap::new()));
+
         let dropped = Arc::clone(&dropped_events);
         let runtimes_for_worker = runtimes.clone();
+        let routes_for_worker = Arc::clone(&subscription_routes);
         let worker_join = std::thread::Builder::new()
             .name("mod-event-worker".into())
-            .spawn(move || event_worker_loop(event_rx, runtimes_for_worker, dropped))
+            .spawn(move || {
+                event_worker_loop(event_rx, runtimes_for_worker, routes_for_worker, dropped)
+            })
             .ok();
         Self {
             entries,
@@ -80,6 +93,7 @@ impl ModRegistry {
             blocking_mods,
             next_sub_id: AtomicU64::new(1),
             subscriptions: BTreeMap::new(),
+            subscription_routes,
             settings_specs,
             say_source: None,
             runtimes,
@@ -113,208 +127,6 @@ impl ModRegistry {
             set_start_cause(StartCause::Boot);
             self.start_one(id);
         }
-    }
-
-    #[rustfmt::skip]
-    fn start_one(&mut self, id: &'static str) {
-        let Some(&factory) = self.factories.iter().find(|f| f.descriptor().id == id) else { return };
-        // M3：启动时校验 API 版本；不兼容 → Failed，主链不崩（factory 不被 create）。
-        if factory.descriptor().api_version != live2d_ai_mod_system::MOD_API_VERSION {
-            let msg = format!(
-                "Mod {id} 声明 api_version={} 与宿主 MOD_API_VERSION={} 不兼容",
-                factory.descriptor().api_version,
-                live2d_ai_mod_system::MOD_API_VERSION
-            );
-            tracing::warn!(target: "mod", "{msg}");
-            if let Some(e) = self.entries.get_mut(id) {
-                e.status = ModStatus::Failed { message: msg.clone() };
-                e.last_error = Some(msg);
-            }
-            return;
-        }
-        let config = self.entries.get(id).map(|r| r.config.clone()).unwrap_or_default();
-        let say = self.say_source.clone()
-            .or_else(|| self.host.as_ref().map(|h| h.say.clone()))
-            .unwrap_or_else(|| Arc::new(|_: String| true));
-        match factory.create(self.make_services(id, say), config) {
-            Ok(mut runtime) => {
-                let mut registrar = HostRegistrar { mod_id: id,
-                    settings_specs: &mut self.settings_specs,
-                    subscriptions: &mut self.subscriptions, next_id: &self.next_sub_id };
-                match runtime.start(&mut registrar) {
-                    Ok(()) => {
-                        if let Some(e) = self.entries.get_mut(id) { e.status = ModStatus::Running; e.last_error = None; }
-                        // W1（2026-10-16）：槽位锁毒化不 panic（旧 `.unwrap()` 会让
-                        // 此后每一次 enable/disable 都 panic，用户再也停不掉那个 Mod）。
-                        if let Some(slot) = self.runtimes.get(id) { *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(runtime); }
-                    }
-                    Err(err) => {
-                        if let Some(e) = self.entries.get_mut(id) {
-                            e.status = ModStatus::Failed { message: err.to_string() };
-                            e.last_error = Some(err.to_string());
-                        }
-                    }
-                }
-            }
-            Err(err) => {
-                if let Some(e) = self.entries.get_mut(id) {
-                    e.status = ModStatus::Failed { message: err.to_string() };
-                    e.last_error = Some(err.to_string());
-                }
-            }
-        }
-    }
-
-    #[rustfmt::skip]
-    fn make_services(&self, mod_id: &'static str, say: Arc<dyn Fn(String) -> bool + Send + Sync>) -> ModServices {
-        let host = self.host.clone();
-        let config_path = host.as_ref().map(|h| h.config_path.clone()).unwrap_or_default();
-        // 脱敏设置读取（rc.4 M5）：无 HostChannels → 空快照。
-        // 日志字段要跨进闭包：clone 一份，避免把 config_path 的所有权交出去。
-        let config_path_for_log = config_path.clone();
-        let reader = match host.as_ref().map(|h| h.read_settings.clone()) {
-            Some(read) => ModSettingsReader::new(move || read()),
-            None => ModSettingsReader::new(|| serde_json::json!({})),
-        };
-        // 一等配置写回（rc.4 M4）：host.apply_settings 包成 `ModSettingsApplier`。
-        // 无 HostChannels（无 supervisor / 单测）→ 默认「拒绝一切 patch」，不静默写盘。
-        let applier = match host.as_ref().map(|h| h.apply_settings.clone()) {
-            Some(apply) => ModSettingsApplier::new(move |patch: serde_json::Value| {
-                let ok = apply(patch.clone());
-                tracing::info!(
-                    target: "mod", mod_id, config_path = %config_path_for_log,
-                    "apply_settings {}: patch={}",
-                    if ok { "success" } else { "failed" }, patch
-                );
-                ok
-            }),
-            None => ModSettingsApplier::new(move |_patch| {
-                tracing::info!(target: "mod", mod_id, "无 HostChannels：apply_settings 被拒绝");
-                false
-            }),
-        };
-        ModServices::new(
-            // 动作：**休眠** sender（rc.2）。`ModServices.action_tx` 是 Mod API 契约，
-            // 但 host 不再有驱动方——请求只留痕、被丢弃，返回 false（= 未被接受）。
-            // 不要在这里接真通道：那会重建一条通往 `RootEvent::Action` 的路。
-            ModActionSender::new(|req| {
-                tracing::debug!(
-                    target: "mod",
-                    action = req.action,
-                    mod_id = req.mod_id,
-                    "动作子系统休眠中（rc.2 起无驱动方）：ActionRequest 被丢弃"
-                );
-                false
-            }),
-            // SaySender 保持现有 say(t)
-            SaySender::new(move |t| say(t)),
-            // Mod→host event：只透传日志。配置写回走一等的 `apply_settings`
-            // （rc.4 M4）——旧的 `{"__apply_settings":true,...}` 事件走私已删除。
-            ModEventSender::new(|topic, payload| {
-                tracing::info!(target: "mod", topic = topic.as_str(), payload, "Mod→host event");
-                true
-            }),
-            ModLogger::new(|_lvl, msg| tracing::info!(target: "mod", "{}", msg)),
-        )
-        .with_apply_settings(applier)
-        .with_settings_reader(reader)
-        .with_config_path(config_path)
-        // L1 基座：会话能力。无 HostChannels（单测）→ 不可用空实现
-        // （Mod 侧必须能靠 `enabled() == false` 察觉并退回全局写回）。
-        .with_session_prompts(
-            host.as_ref()
-                .map(|h| h.session_prompts.clone())
-                .unwrap_or_else(live2d_ai_mod_system::ModSessionPrompts::disabled),
-        )
-        // P1-3：Mod → host 动作 cue（导演按句投递；无 host 时为 disabled）。
-        .with_cues(match host.as_ref().map(|h| h.cues.clone()) {
-            Some(f) => live2d_ai_mod_system::ModCueSender::new(move |cue| f(cue)),
-            None => live2d_ai_mod_system::ModCueSender::disabled(),
-        })
-    }
-
-    /// 用户按下启用开关 → 启动原因恒为 [`StartCause::Enable`]。
-    #[rustfmt::skip]
-    pub fn enable(&mut self, id: &'static str) -> Result<(), ModError> {
-        self.enable_caused(id, StartCause::Enable)
-    }
-
-    /// `enable` 的内核：`cause` 由调用方给定。
-    ///
-    /// 分开的理由只有一条：`restart` 成功停掉旧实例之后要以 `Apply` 启动，
-    /// 而**公开** `enable` 必须始终是 `Enable`（`enable_with_config` 也走它）。
-    #[rustfmt::skip]
-    fn enable_caused(&mut self, id: &'static str, cause: StartCause) -> Result<(), ModError> {
-        let Some(e) = self.entries.get_mut(id) else { return Err(ModError::Other(format!("Mod {id} 不在注册表"))); };
-        e.enabled = true;
-        e.status = ModStatus::Starting;
-        set_start_cause(cause);
-        self.start_one(id);
-        // M1：写回 mods.json，重启状态不丢。**S-003**：写盘失败不许吞——
-        // 内存里已经启用了（这一进程是真的），但持久化没成，必须让调用方拿到
-        // Err（HTTP 409 / 后台 op 把状态标 Failed，界面不写「已启用」）。
-        if let Err(err) = self.persist_manifest() {
-            let msg = format!("Mod {id} 已启用，但 {err}");
-            if let Some(e) = self.entries.get_mut(id) {
-                e.status = ModStatus::Failed { message: msg.clone() };
-                e.last_error = Some(msg.clone());
-            }
-            return Err(ModError::Other(msg));
-        }
-        Ok(())
-    }
-
-    /// 停用：`shutdown` 失败时**不吞**——把 runtime 放回槽位并返回 `Err`。
-    ///
-    /// 旧实现是 `let _ = rt.shutdown()`：失败后 runtime 被丢掉，子进程成了没人
-    /// `wait` 的孤儿，而 `enabled` 照样被写成 `false`（下次启用会**再拉一个**）。
-    /// 现在失败路径什么都不改：`enabled` 仍为 true、不写 `mods.json`、runtime 还在。
-    #[rustfmt::skip]
-    pub fn disable(&mut self, id: &'static str) -> Result<(), ModError> {
-        let Some(e) = self.entries.get_mut(id) else { return Err(ModError::Other(format!("Mod {id} 不在注册表"))); };
-        if let Some(mut rt) = self.runtimes.get(id).and_then(|s| s.lock().unwrap_or_else(|e| e.into_inner()).take())
-            && let Err(err) = rt.shutdown()
-        {
-            if let Some(slot) = self.runtimes.get(id) { *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(rt); }
-            return Err(err);
-        }
-        e.enabled = false;
-        e.status = ModStatus::Disabled;
-        // S-003：同上——停用是**真的**（进程里已经停了），但写盘失败要让调用方
-        // 拿到 Err，界面不写「已停用」，也不会以为「重启后还是停用」。
-        if let Err(err) = self.persist_manifest() {
-            let msg = format!("Mod {id} 已停用，但 {err}");
-            if let Some(e) = self.entries.get_mut(id) {
-                e.status = ModStatus::Failed { message: msg.clone() };
-                e.last_error = Some(msg.clone());
-            }
-            return Err(ModError::Other(msg));
-        }
-        Ok(())
-    }
-
-    /// 保存并应用：先停，**成功停掉之后**再以 `Apply` 启动。
-    ///
-    /// `disable` 失败（停不掉）时直接返回 `Err` ⇒ 这里不会走到 `start`：
-    /// 「停不掉还硬起一个」正是孤儿进程与双份进程的来源。
-    pub fn restart(&mut self, id: &'static str) -> Result<(), ModError> {
-        self.disable(id)?;
-        self.enable_caused(id, StartCause::Apply)
-    }
-
-    /// enable 前注入 config（存在时先 reload_config 再 enable）。
-    ///
-    /// 用于 HTTP `POST /api/v1/mods/{id}/enable` 的 body 透传：
-    /// 前端可在 enable 时同时下发 config，host 先写入 config 再启动 Mod
-    ///（`start_one` 读取 `entries[id].config`），避免「enable 后再 POST
-    /// /config 再 restart」的两步操作。
-    pub fn enable_with_config(
-        &mut self,
-        id: &'static str,
-        config: serde_json::Value,
-    ) -> Result<(), ModError> {
-        self.reload_config(id, config)?;
-        self.enable(id)
     }
 
     /// 保存一份 Mod 配置（`POST /api/v1/mods/{id}/config` 的内核）。

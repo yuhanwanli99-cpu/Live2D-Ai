@@ -4,6 +4,7 @@
 //! 类型与常量在父模块 `crate::mod_registry`；`ModRegistry` 的其它方法面在
 //! `super::registry`。私有项按 `pub(super)` 开放给兄弟模块，不改对外 API。
 
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -13,7 +14,7 @@ impl ModRegistry {
     /// 投递事件到 worker（有界；满则丢弃计数，不阻塞）。
     ///
     /// `session` 是 L1 基座加上的**会话 id**（`None` = 不带会话）；worker 会把它
-    /// 经 `ModRuntime::on_scoped_event` 交给 Mod。
+    /// 经 `ModRuntime::on_scoped_event` 交给**订阅了该 topic** 的 Mod（P1.5）。
     pub fn dispatch_event(
         &self,
         topic: ModEventTopic,
@@ -84,6 +85,13 @@ impl ModRegistry {
                 e.status = ModStatus::Disabled;
             }
         }
+        // P1.5：registry 级停机后订阅也作废（worker 随 event_tx drop 退出，
+        // 路由表不该留下「看起来还在收事件」的残留）。
+        self.subscriptions.clear();
+        self.subscription_routes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         if let Some(j) = self.worker_join.take() {
             let _ = j.join();
         } // drop event_tx → worker 退出。
@@ -147,20 +155,24 @@ fn try_lock_with_retries(
     }
 }
 
-/// 事件 worker 循环：从有界 channel 收事件，对每个 Running Mod 调
-/// `runtime.on_event`（独立线程，不阻塞 supervisor；worker 持 per-Mod
-/// runtime 的 `Arc<Mutex<...>>` clone，**不持 registry 锁**）。
+/// 事件 worker 循环：从有界 channel 收事件，**只对订阅了该 topic 的 Running
+/// Mod** 调 `runtime.on_event`（P1.5 订阅路由；独立线程，不阻塞 supervisor；
+/// worker 持 per-Mod runtime 的 `Arc<Mutex<...>>` clone，**不持 registry 锁**）。
 ///
-/// - `try_lock` 失败（host 正在 restart 持有锁）：`TurnPrompt` 先做 3 次、
-///   每次约 10ms 的短重试，仍失败 → 计入 `dropped_events` 并跳过该 Mod
-///   （不碰槽位、不调 `on_event`，继续处理其它 Mod；回执照常发——宿主继续
-///   这一轮，这一轮就是没注入）；其它话题维持旧行为：直接跳过、不计数。
+/// - 路由：`HostRegistrar::subscribe` 写的 per-Mod topic 集合（`routes`）。没订阅
+///   → 不投递；`unsubscribe` 之后同样不再收到。
+/// - `try_lock` 失败（host 正在 restart 持有锁）：`TurnPrompt` 先做 3 次、每次约
+///   10ms 的短重试，仍失败 → 计入 `dropped_events` 并跳过该 Mod（不碰槽位、不调
+///   `on_event`，继续处理其它 Mod；回执照常发——宿主继续这一轮，这一轮就是没注入）；
+///   其它话题维持旧行为：直接跳过、不计数。
 /// - 槽位为 `None`（Mod 未启用/已停用）→ 跳过。
 /// - `on_event` 返回 `Err` → 清空槽位（失败隔离），host restart 恢复。
 #[rustfmt::skip]
 pub(super) fn event_worker_loop(
     event_rx: std::sync::mpsc::Receiver<EventMsg>,
     runtimes: BTreeMap<&'static str, SharedRuntime>,
+    // P1.5：per-Mod 订阅路由（HostRegistrar 写、worker 只读）。
+    routes: SharedSubscriptions,
     // S-006（2026-10-16）：worker 里的两种 skip（host 持锁 / 该 Mod 未启用）是
     // **正常过滤**，不是「事件被丢」——按 per-Mod 累加会让计数随在册 Mod 数膨胀
     //（rc4 起 5 个在册、2 个启用 ⇒ 每条事件 +3），那是个骗人的数。
@@ -169,10 +181,22 @@ pub(super) fn event_worker_loop(
     dropped: Arc<AtomicU64>,
 ) {
     while let Ok((topic, payload, session, ack)) = event_rx.recv() {
+        // P1.5：按订阅路由。先把「订阅了本 topic 的 Mod id」拷成快照、随即放锁——
+        // worker **绝不**持 routes 锁去跑 `on_event`（慢 Mod 会写盘，registry 线程的
+        // subscribe / unsubscribe 不该被它堵住）。
+        let subscribed: Vec<&'static str> = {
+            let guard = routes.lock().unwrap_or_else(|e| e.into_inner());
+            guard
+                .iter()
+                .filter(|(_, topics)| topics.contains(&topic))
+                .map(|(id, _)| *id)
+                .collect()
+        };
         // 只有 `TurnPrompt` 允许抢锁重试（见 TURN_PROMPT_LOCK_RETRIES）。
         // 其它话题传 0 = 只试一次：保持「host 持锁 → 直接跳过、不计数」的旧行为。
         let lock_retries = if topic == ModEventTopic::TurnPrompt { TURN_PROMPT_LOCK_RETRIES } else { 0 };
-        for (id, slot) in &runtimes {
+        for &id in &subscribed {
+            let Some(slot) = runtimes.get(id) else { continue };
             let Some(mut guard) = try_lock_with_retries(slot, lock_retries) else {
                 // 只有 TurnPrompt 会走到「计丢」分支；其它话题的失败就是既有的静默跳过。
                 if lock_retries > 0 {
@@ -269,10 +293,15 @@ pub(super) fn secret_keys_of(spec: Option<&ModSettingsSpec>) -> Vec<String> {
 }
 
 /// Host 端的 ModRegistrar 实现（借用到 registry 的共享存储）。
+///
+/// P1.5：`subscribe` 不再丢弃 `topic`——除了记订阅 id，还写进 worker 读的
+/// `routes`（按 Mod 存 topic 集合）；`unsubscribe` 按 id 撤销，最后一个引用该
+/// topic 的订阅被撤掉后，路由表里也不再有它（= 不再收到该 topic）。
 pub(super) struct HostRegistrar<'a> {
     pub(super) mod_id: &'static str,
     pub(super) settings_specs: &'a mut BTreeMap<&'static str, ModSettingsSpec>,
-    pub(super) subscriptions: &'a mut BTreeMap<&'static str, Vec<SubscriptionId>>,
+    pub(super) subscriptions: &'a mut SubscriptionBook,
+    pub(super) routes: &'a SharedSubscriptions,
     pub(super) next_id: &'a AtomicU64,
 }
 
@@ -286,16 +315,33 @@ impl ModRegistrar for HostRegistrar<'_> {
         Ok(())
     }
 
+    #[rustfmt::skip]
     fn subscribe(&mut self, topic: ModEventTopic) -> Result<SubscriptionId, ModError> {
         let id = SubscriptionId(self.next_id.fetch_add(1, Ordering::Relaxed));
-        self.subscriptions.entry(self.mod_id).or_default().push(id);
-        let _ = topic; // v1 登记 topic，细粒度路由留 E5。
+        // v1：id 只用于 `unsubscribe`；路由表按 (Mod, topic) 去重（重复订阅同一
+        // topic 不会产生重复投递）。
+        self.subscriptions.entry(self.mod_id).or_default().push((id, topic));
+        self.routes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(self.mod_id)
+            .or_default()
+            .insert(topic);
         Ok(id)
     }
 
+    #[rustfmt::skip]
     fn unsubscribe(&mut self, id: SubscriptionId) -> Result<(), ModError> {
-        if let Some(v) = self.subscriptions.get_mut(self.mod_id) {
-            v.retain(|s| *s != id);
+        let Some(subs) = self.subscriptions.get_mut(self.mod_id) else { return Ok(()) };
+        subs.retain(|(sid, _)| *sid != id);
+        // 同一 topic 可能被订阅多次（不同 id）：只有最后一个引用被撤掉才从路由表
+        // 移除，否则「撤掉一个 id」会误伤还在用的订阅。
+        let remaining: HashSet<ModEventTopic> = subs.iter().map(|(_, topic)| *topic).collect();
+        let mut routes = self.routes.lock().unwrap_or_else(|e| e.into_inner());
+        if remaining.is_empty() {
+            let _ = routes.remove(self.mod_id);
+        } else {
+            routes.insert(self.mod_id, remaining);
         }
         Ok(())
     }

@@ -45,7 +45,12 @@ pub(super) fn watch_delivery() -> std::sync::mpsc::Receiver<String> {
 
 pub(super) struct TestRuntime;
 impl ModRuntime for TestRuntime {
-    fn start(&mut self, _: &mut dyn ModRegistrar) -> Result<(), ModError> {
+    fn start(&mut self, registrar: &mut dyn ModRegistrar) -> Result<(), ModError> {
+        // P1.5：事件按订阅路由；测试桩显式订阅全部主题，保住既有「全收」用例
+        // 的语义。真正的「只收订阅」行为由 `tests_subscriptions` 覆盖。
+        for topic in ModEventTopic::ALL {
+            registrar.subscribe(*topic)?;
+        }
         Ok(())
     }
     fn on_event(&mut self, topic: ModEventTopic, _: &str) -> Result<(), ModError> {

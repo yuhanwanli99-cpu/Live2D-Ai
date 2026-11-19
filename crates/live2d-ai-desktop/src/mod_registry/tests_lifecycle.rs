@@ -380,7 +380,12 @@ struct StallingRuntime {
 }
 
 impl ModRuntime for StallingRuntime {
-    fn start(&mut self, _: &mut dyn ModRegistrar) -> Result<(), ModError> {
+    fn start(&mut self, registrar: &mut dyn ModRegistrar) -> Result<(), ModError> {
+        // P1.5：事件按订阅路由。本桩必须真收到事件才会卡在闸门上——显式订阅
+        // 全部主题（否则 worker 直接跳过它，队列填不满，丢事件计数不会增长）。
+        for topic in ModEventTopic::ALL {
+            registrar.subscribe(*topic)?;
+        }
         Ok(())
     }
     fn on_event(&mut self, _: ModEventTopic, _: &str) -> Result<(), ModError> {

@@ -8,9 +8,18 @@
 //! # 事件隔离（E0 ADR §2.2）
 //!
 //! host → Mod 经**有界 channel + 独立 worker 线程**：`dispatch_event` 用
-//! `try_send` 入队（满则丢弃 + dropped 计数，不阻塞 supervisor）；worker 对
-//! 每个 Running Mod 调 `runtime.on_event`，`Err` → 清空该 Mod runtime 槽位
-//! 并记录 `last_error`（失败隔离，核心继续）。慢/失败 Mod 不影响主链路。
+//! `try_send` 入队（满则丢弃 + dropped 计数，不阻塞 supervisor）；worker 只对
+//! **订阅了该 topic** 的 Running Mod 调 `runtime.on_event`（P1.5 订阅路由），
+//! `Err` → 清空该 Mod runtime 槽位并记录 `last_error`（失败隔离，核心继续）。
+//! 慢/失败 Mod 不影响主链路。
+//!
+//! # 订阅路由（P1.5，2026-11-19）
+//!
+//! `ModRegistrar::subscribe` 不再丢弃 topic：host 按 Mod 存 topic 集合，事件
+//! worker **只向订阅了该 topic** 的 Mod 投递。没订阅任何 topic 的 Mod 收不到
+//! 事件（这是契约，不是故障）——旧实现把 topic 丢掉、向所有 Mod 广播，等于
+//! 「订阅」形同虚设。既有实现（director / template / memory / desk-pet /
+//! external-input）都在 `start` 里显式订阅所需 topic，行为不变。
 //!
 //! # 动作：无 host 通道（2026-09-12，rc.2）
 //!
@@ -29,7 +38,7 @@
 //! `try_lock` 失败（host 正在 restart）时跳过不阻塞；`on_event` 返回
 //! `Err` 时清空槽位，待 host restart 恢复。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
@@ -84,6 +93,18 @@ pub struct HostChannels {
 
 /// worker 线程可安全访问的 per-Mod runtime 快照（ModRuntime: Send）.
 type SharedRuntime = Arc<Mutex<Option<Box<dyn ModRuntime>>>>;
+
+/// registry 侧订阅账本：Mod id → `(订阅 id, topic)`。
+///
+/// 只有 registry 线程用（`subscribe` 追加 / `unsubscribe` 按 id 撤销）；worker 读的
+/// 是下面的 [`SharedSubscriptions`]（按 topic 集合路由）。
+type SubscriptionBook = BTreeMap<&'static str, Vec<(SubscriptionId, ModEventTopic)>>;
+
+/// per-Mod 已订阅 topic 的路由表（P1.5）：`HostRegistrar` 写、event worker 读。
+///
+/// 与 [`SubscriptionBook`] 分开存：worker 只关心「这个 Mod 订阅了哪些 topic」，
+/// 不需要订阅 id，也不需要持 registry 锁。
+type SharedSubscriptions = Arc<Mutex<BTreeMap<&'static str, HashSet<ModEventTopic>>>>;
 
 /// 已注册的 Mod 条目。
 pub struct RegisteredMod {
@@ -166,7 +187,10 @@ pub struct ModRegistry {
     #[allow(dead_code)]
     blocking_mods: Arc<Mutex<Vec<&'static str>>>,
     next_sub_id: AtomicU64,
-    subscriptions: BTreeMap<&'static str, Vec<SubscriptionId>>,
+    /// registry 侧订阅账本：Mod id → `(订阅 id, topic)`（`unsubscribe` 按 id 移除）。
+    subscriptions: SubscriptionBook,
+    /// worker 侧订阅路由（P1.5）：Mod id → 已订阅 topic 集合。
+    subscription_routes: SharedSubscriptions,
     settings_specs: BTreeMap<&'static str, ModSettingsSpec>,
     say_source: Option<Arc<dyn Fn(String) -> bool + Send + Sync>>,
     runtimes: BTreeMap<&'static str, SharedRuntime>, // per-Mod runtime 槽位。
@@ -183,11 +207,13 @@ pub struct ModRegistry {
 }
 
 // 文件拆分（2026-10-05 债轮 R4-T1）：本文件只留类型、常量与模块头注；
-// `impl ModRegistry` 在 `registry`，事件管道（sink / worker / manifest 解析）在
-// `events`。内联 `mod tests` 拆成 `tests_support`（脚手架）+ `tests_lifecycle`
+// `impl ModRegistry` 在 `registry`，启停生命周期在 `lifecycle`，事件管道
+// （sink / worker / manifest 解析）在 `events`。内联 `mod tests` 拆成
+// `tests_support`（脚手架）+ `tests_lifecycle`
 // + `tests_host` 三个场景文件，外加既有的 `tests_secret`——搬出去的每一份都必须
 // <500 行，否则 >500 棘轮会变红（先例 `models_routes/tests_models_*`）。
 mod events;
+mod lifecycle;
 mod persist;
 mod registry;
 /// 2026-10-09：语音模式对本地引擎的去留 + 自重启前的收尾（见文件头注）。
@@ -201,6 +227,11 @@ pub use self::events::{merge_mod_config, mod_event_sink};
 mod tests_host;
 #[cfg(test)]
 mod tests_lifecycle;
+/// P1.5（2026-11-19，0.7.0 收口）：Mod 生命周期幂等 / 失败一致性 / 停用 teardown。
+/// 单列文件：`tests_lifecycle.rs` 已 477 行（500 行棘轮）；挂法照上面 `#[path]` 先例。
+#[cfg(test)]
+#[path = "mod_registry/tests_lifecycle_p15.rs"]
+mod tests_lifecycle_p15;
 /// F-0062-01（2026-10-05）：保存 Mod 配置不抹 secret 的专项回归。
 /// 单列文件：与生命周期 / HostChannels 场景分开，便于按缺陷追（先例 `tests_models_*`）。
 #[cfg(test)]
@@ -211,6 +242,10 @@ mod tests_secret;
 #[cfg(test)]
 #[path = "mod_registry/tests_start_cause.rs"]
 mod tests_start_cause;
+/// P1.5：事件订阅路由（subscribe 记录 topic / 只投递已订阅 / unsubscribe 生效）。
+#[cfg(test)]
+#[path = "mod_registry/tests_subscriptions.rs"]
+mod tests_subscriptions;
 #[cfg(test)]
 mod tests_support;
 /// rc.3（2026-10-23）：`TurnPrompt` 抢 runtime 锁的短重试 / 记丢回归。

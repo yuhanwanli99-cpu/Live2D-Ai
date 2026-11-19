@@ -46,7 +46,12 @@ impl ModFactory for LockHoldMod {
 struct LockHoldRuntime;
 
 impl ModRuntime for LockHoldRuntime {
-    fn start(&mut self, _: &mut dyn ModRegistrar) -> Result<(), ModError> {
+    fn start(&mut self, registrar: &mut dyn ModRegistrar) -> Result<(), ModError> {
+        // P1.5：事件按订阅路由；本用例要收到 TurnPrompt / TurnStarted 才谈得上
+        // 「抢锁失败」与「释放后照常送达」。
+        for topic in ModEventTopic::ALL {
+            registrar.subscribe(*topic)?;
+        }
         Ok(())
     }
     fn on_event(&mut self, topic: ModEventTopic, _: &str) -> Result<(), ModError> {
