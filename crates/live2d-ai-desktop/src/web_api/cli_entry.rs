@@ -542,15 +542,18 @@ pub(crate) fn build_web_supervisor(
     let audio: Option<Box<dyn crate::audio::PcmProducer>> = if server_audio {
         match AudioOutputFacade::open_default(resolved.tts.spec, Duration::from_millis(200)) {
             Ok(facade) => {
+                crate::desk_pet::bridge::install_mouth_snapshot(Some(facade.mouth_snapshot()));
                 println!("[web] LIVE2D_AI_WEB_AUDIO=server —— 服务端 cpal 输出已开启");
                 Some(Box::new(facade))
             }
             Err(e) => {
+                crate::desk_pet::bridge::install_mouth_snapshot(None);
                 warn!("web audio 打开失败（按 dry-run 继续）: {e}");
                 None
             }
         }
     } else {
+        crate::desk_pet::bridge::install_mouth_snapshot(None);
         println!(
             "[web] 音频单源=browser —— 服务端不开 cpal；PCM 经 WS 交给浏览器播放，口型由浏览器 RMS 驱动"
         );

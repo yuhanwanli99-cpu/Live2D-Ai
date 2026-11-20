@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
 
 use crate::app_event::{AppEvent, ConversationUiEvent};
+use crate::audio::MouthSnapshot;
 
 /// 进程内「说一句话」的出口（启动期注入，等于 `SupervisorHandle::say`）。
 pub type SayFn = Arc<dyn Fn(String) -> bool + Send + Sync>;
@@ -52,6 +53,8 @@ static EVENT_TX: Mutex<Option<mpsc::Sender<PetEvent>>> = Mutex::new(None);
 /// 正在播自己的声音：按住说话在这段时间不听（与 Flutter
 /// `suspendForPlayback` 同一条理由，避免把喇叭录回去）。
 static PLAYING: AtomicBool = AtomicBool::new(false);
+/// 当前 cpal facade 的实际输出快照；浏览器 / 无声卡时必须为 None。
+static MOUTH_SNAPSHOT: Mutex<Option<MouthSnapshot>> = Mutex::new(None);
 
 /// 启动期注入（见 `web_api::cli_entry::run_web_mode`）。重复调用只认第一次。
 pub fn install_host(say: Option<SayFn>, asr_key: Option<String>) {
@@ -75,6 +78,47 @@ pub fn asr_key() -> Option<String> {
 
 pub fn is_playing() -> bool {
     PLAYING.load(Ordering::SeqCst)
+}
+
+/// cpal 打开成功后安装实际输出快照；切换到浏览器 / 无声卡时显式装 None，
+/// 防止下一次开窗读到上一路播放器留下的陈旧 RMS。
+pub fn install_mouth_snapshot(snapshot: Option<MouthSnapshot>) {
+    let mut guard = MOUTH_SNAPSHOT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *guard = snapshot;
+}
+
+fn mouth_open() -> f32 {
+    let guard = MOUTH_SNAPSHOT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    mouth_open_from_snapshot(guard.as_ref(), is_playing())
+}
+
+fn mouth_open_from_snapshot(snapshot: Option<&MouthSnapshot>, playing: bool) -> f32 {
+    if !playing {
+        return 0.0;
+    }
+    mouth_open_from_rms(snapshot.map_or(0.0, MouthSnapshot::level))
+}
+
+/// 与 `l2d-wasm-demo/src/mouth.rs` 同一标定：-36..-6 dBFS → 0..1。
+fn mouth_open_from_rms(level: f32) -> f32 {
+    if !level.is_finite() || level <= 0.0 {
+        return 0.0;
+    }
+    let db = 20.0 * level.min(1.0).log10();
+    ((db + 36.0) / 30.0).clamp(0.0, 1.0)
+}
+
+/// 原生渲染唯一口型入口：先写实际输出 RMS 的映射值，再推进 renderer。
+#[cfg(windows)]
+pub fn update_renderer(
+    renderer: &mut l2d::renderer::OffscreenRenderer,
+) -> Result<(), l2d::renderer::RenderError> {
+    renderer.core().set_mouth_open(mouth_open());
+    renderer.update(l2d::renderer::FIXED_DT_60HZ)
 }
 
 /// `AppEvent` → `PetEvent` 的纯映射（单测钉住；不碰全局状态）。
@@ -206,5 +250,49 @@ mod tests {
         publish(PetEvent::VoiceStarted);
         publish(PetEvent::VoiceEnded);
         assert!(!is_playing(), "窗没开时不应留下播放态");
+    }
+
+    #[test]
+    fn no_snapshot_or_not_playing_means_closed_mouth() {
+        assert_eq!(mouth_open_from_snapshot(None, true), 0.0);
+        assert_eq!(mouth_open_from_snapshot(None, false), 0.0);
+    }
+
+    #[test]
+    fn rms_mapping_covers_calibration_boundaries_and_bad_input() {
+        let floor = 10.0_f32.powf(-36.0 / 20.0);
+        let ceiling = 10.0_f32.powf(-6.0 / 20.0);
+        let midpoint = 10.0_f32.powf(-21.0 / 20.0);
+        assert_eq!(mouth_open_from_rms(floor / 2.0), 0.0);
+        assert!(mouth_open_from_rms(floor).abs() < 1e-6);
+        assert!((mouth_open_from_rms(midpoint) - 0.5).abs() < 1e-5);
+        assert_eq!(mouth_open_from_rms(ceiling), 1.0);
+        assert_eq!(mouth_open_from_rms(1.0), 1.0);
+        for silent in [0.0, -0.5, f32::NAN, f32::INFINITY] {
+            assert_eq!(mouth_open_from_rms(silent), 0.0);
+        }
+    }
+
+    #[test]
+    fn detached_snapshot_uses_actual_output_rms_and_silence() {
+        use crate::audio::ring::detached_pair_with;
+        use live2d_ai_runtime::AudioSpec;
+
+        let spec = AudioSpec::new(48_000, 1).expect("valid spec");
+        let (mut handle, mut render) =
+            detached_pair_with(4096, spec, spec, 10.0, 0.0, 0.0).expect("detached pair");
+        let snapshot = handle.mouth_snapshot();
+        assert_eq!(mouth_open_from_snapshot(Some(&snapshot), true), 0.0);
+
+        let tone = [0.5_f32, -0.5].repeat(480);
+        handle.enqueue_pcm_f32(&tone);
+        render.render_f32(&mut vec![0.0; tone.len()]);
+        assert!(mouth_open_from_snapshot(Some(&snapshot), true) > 0.99);
+        assert_eq!(mouth_open_from_snapshot(Some(&snapshot), false), 0.0);
+
+        let silence = vec![0.0_f32; 960];
+        handle.enqueue_pcm_f32(&silence);
+        render.render_f32(&mut vec![0.0; silence.len()]);
+        assert_eq!(mouth_open_from_snapshot(Some(&snapshot), true), 0.0);
     }
 }

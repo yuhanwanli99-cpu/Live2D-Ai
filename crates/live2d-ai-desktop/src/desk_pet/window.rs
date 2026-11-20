@@ -29,6 +29,7 @@ use l2d::asset::ModelPackage;
 use l2d::model::LoadedModel;
 use l2d::renderer::{FIXED_DT_60HZ, OffscreenRenderer, RgbaFrame};
 
+use super::capture::{self, ChromaMode};
 use super::config::{HitMode, PetConfig};
 use super::hit;
 use super::win32::*;
@@ -248,7 +249,12 @@ impl PetWindow {
     ///
     /// `opacity` 只进 `SourceConstantAlpha`（整窗淡出）；命中测试读的是**原始**
     /// alpha，所以淡出到 0.1 时依然能点中角色。
-    fn present(&mut self, frame: &RgbaFrame, opacity: f32) -> Result<(), String> {
+    fn present(
+        &mut self,
+        frame: &RgbaFrame,
+        opacity: f32,
+        chroma: ChromaMode,
+    ) -> Result<(), String> {
         if frame.width != self.width as u32 || frame.height != self.height as u32 {
             return Err(format!(
                 "帧尺寸 {}x{} 与窗 {}x{} 不一致",
@@ -259,21 +265,13 @@ impl PetWindow {
         // SAFETY: bits 来自 CreateDIBSection，长度 = width*height*4（上面刚校验过帧
         // 尺寸），且这块 DIB 只有本结构这一个写入者。
         let pixels = unsafe { std::slice::from_raw_parts_mut(self.bits, len) };
-        super::fill_premultiplied_bgra(frame, pixels);
+        capture::fill_dib(frame, pixels, chroma);
         let size = Size {
             cx: self.width,
             cy: self.height,
         };
         let src = Point { x: 0, y: 0 };
-        // 配置层已钳在 0.1..=1.0；这里再兜到 1..=255，永不把整窗画成 0。
-        let source_constant_alpha =
-            ((opacity.clamp(0.0, 1.0) * 255.0).round() as i32).clamp(1, 255) as u8;
-        let blend = BlendFunction {
-            blend_op: AC_SRC_OVER,
-            blend_flags: 0,
-            source_constant_alpha,
-            alpha_format: AC_SRC_ALPHA, // 源是预乘 alpha
-        };
+        let blend = capture::blend_function(opacity, chroma);
         // 窗位置以 `hit.rs` 的状态为准（拖动会改它）；只读一次，避免两次加锁。
         let origin = hit::origin();
         let screen_dc = unsafe { GetDC(std::ptr::null_mut()) };
@@ -347,6 +345,7 @@ fn pump_messages() -> Result<bool, String> {
 pub fn run_once(config: PetConfig) -> Result<(), String> {
     // 0) DPI 感知：必须赶在建任何窗之前（坐标、`WM_NCHITTEST`、窗口尺寸全是物理像素）。
     let dpi_note = enable_dpi_awareness();
+    let chroma = ChromaMode::from_env(); // 仅开窗时读取；默认 transparent。
 
     // 1) 屏幕几何 → 窗矩形（纯函数在父模块，Linux 单测钉住）。
     let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
@@ -391,9 +390,7 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
     );
 
     // 3) 首帧先渲染、再开窗：避免「窗先出来、内容还空着」的那一小段。
-    renderer
-        .update(FIXED_DT_60HZ)
-        .map_err(|e| format!("首帧 update 失败: {e}"))?;
+    super::bridge::update_renderer(&mut renderer).map_err(|e| format!("首帧 update 失败: {e}"))?;
     let mut first = renderer
         .render_frame()
         .map_err(|e| format!("首帧渲染失败: {e}"))?;
@@ -428,7 +425,7 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
     hit::install(config, Point { x, y });
     let mut companion = super::companion::Companion::new(); // 窗开好后才分配事件通道
     hit::refresh_map(&first);
-    window.present(&first, crate::desk_pet::live::opacity())?;
+    window.present(&first, crate::desk_pet::live::opacity(), chroma)?;
     unsafe {
         ShowWindow(window.hwnd, SW_SHOWNOACTIVATE);
     }
@@ -455,8 +452,7 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
         last = now;
         let mut steps = 0;
         while accumulated >= step && steps < MAX_STEPS_PER_FRAME {
-            renderer
-                .update(FIXED_DT_60HZ)
+            super::bridge::update_renderer(&mut renderer)
                 .map_err(|e| format!("update 失败: {e}"))?;
             accumulated -= step;
             steps += 1;
@@ -471,7 +467,7 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
             }
             companion.tick(&mut frame); // 气泡画进同一帧（上屏前）
             hit::refresh_map(&frame); // 命中表读最近一帧，含气泡像素
-            window.present(&frame, crate::desk_pet::live::opacity())?;
+            window.present(&frame, crate::desk_pet::live::opacity(), chroma)?;
             render_time += started.elapsed();
             frames += 1;
         }

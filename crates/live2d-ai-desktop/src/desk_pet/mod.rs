@@ -40,6 +40,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use l2d::renderer::RgbaFrame;
 
+/// OBS 捕获：透明 / 绿幕 DIB 合成（纯函数，开窗时读取一次环境变量）。
+mod capture;
 /// 配置解析（纯函数，`hit` / `opacity` / `always_on_top` / `height_ratio`）。
 mod config;
 /// 命中与拖动（`hit = opaque` 时按 alpha 采样；纯采样部分 Linux 单测）。
