@@ -18,11 +18,13 @@ from scripts import pack_windows_glue as pack
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERSION = "0.7.0-rc.1"
+DEEPSEEK_CHAN_SOURCE_URL = "https://www.bilibili.com/video/BV1KmxY66EZ3/"
+DEEPSEEK_CHAN_TITLE = "【免费live2D模型】大肥鱼人手一只的时代到了！？｜Deepseek小鲸鱼｜连带psd一起分享！"
 
 
 def _complete_stage(tmp_path: Path, prompt: str = "") -> Path:
     stage = tmp_path / "windows"
-    for relative in pack.ZIP_REQUIRED_PATHS:
+    for relative in sorted(set(pack.ZIP_REQUIRED_PATHS) | pack.ASSET_PUBLISH_ALLOWLIST):
         path = stage / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         if relative == "live2d-ai.toml":
@@ -31,6 +33,10 @@ def _complete_stage(tmp_path: Path, prompt: str = "") -> Path:
             content = json.dumps({"version": VERSION, "includes_bai": True}) + "\n"
         elif relative == "start-desk-pet-obs.cmd":
             content = pack.DESK_PET_OBS_LAUNCHER
+        elif relative == "README.txt":
+            content = pack.PACKAGE_README
+        elif relative == "RELEASE_NOTES.md":
+            content = (REPO_ROOT / "docs/versions/0.7.md").read_text(encoding="utf-8")
         else:
             content = relative + "\n"
         path.write_text(content, encoding="utf-8")
@@ -55,6 +61,23 @@ def test_example_template_has_no_factory_persona() -> None:
     assert parsed["persona"]["system_prompt"] == ""
     assert "你是长期陪伴的对方" not in raw
     assert "你是桌面上的 Live2D 桌宠" not in raw
+
+
+def test_deepseek_chan_release_texts_use_author_source_and_no_distribution() -> None:
+    materials = {
+        "release notes": (REPO_ROOT / "docs/versions/0.7.md").read_text(encoding="utf-8"),
+        "credits": (REPO_ROOT / "CREDITS.md").read_text(encoding="utf-8"),
+        "package README": pack.PACKAGE_README,
+    }
+    for label, text in materials.items():
+        assert DEEPSEEK_CHAN_SOURCE_URL in text, label
+        assert DEEPSEEK_CHAN_TITLE in text, label
+        assert "原画及拆分" in text and "神宫凉子" in text, label
+        assert "Live2D 建模" in text and "霓虹猫_NeonNeko" in text, label
+        assert "模型来源" in text and "神宫凉子免费配布模型" in text, label
+        assert "DeepSeek-chan 模型与 PSD 不随主仓、不随包分发" in text, label
+        assert "未经作者明确授权不得再分发" in text, label
+        assert "用户原 zip 保持不动" in text, label
 
 
 def test_release_workflow_uses_only_the_complete_package() -> None:
@@ -122,9 +145,9 @@ def test_partial_flags_cannot_create_formal_zip(skip: str, tmp_path: Path) -> No
     assert not (tmp_path / pack.PACKAGE_ZIP_NAME).exists()
 
 
-def test_required_assets_are_real_tracked_payload() -> None:
-    for relative in pack.ZIP_REQUIRED_PATHS:
-        if not relative.startswith("assets/"):
+def test_required_and_allowlisted_assets_are_real_tracked_payload() -> None:
+    for relative in sorted(set(pack.ZIP_REQUIRED_PATHS) | pack.ASSET_PUBLISH_ALLOWLIST):
+        if not relative.startswith(pack.ASSET_PUBLISH_ROOTS):
             continue
         path = REPO_ROOT / relative
         assert path.is_file() and path.stat().st_size > 0, relative
@@ -135,6 +158,15 @@ def test_required_assets_are_real_tracked_payload() -> None:
             check=False,
         )
         assert tracked.returncode == 0, f"git archive 不会包含未跟踪文件：{relative}"
+    head_assets = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "HEAD", "--", "assets/models", "assets/actions"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert head_assets.returncode == 0, head_assets.stderr
+    assert set(head_assets.stdout.splitlines()) - {"assets/models/.gitkeep"} == pack.ASSET_PUBLISH_ALLOWLIST
 
 
 def test_final_zip_crc_required_entries_and_standard_sha256(tmp_path: Path) -> None:
@@ -151,6 +183,14 @@ def test_final_zip_crc_required_entries_and_standard_sha256(tmp_path: Path) -> N
         assert config["persona"]["system_prompt"] == ""
         launcher = zf.read("start-desk-pet-obs.cmd").decode("ascii")
         assert launcher == pack.DESK_PET_OBS_LAUNCHER
+        asset_entries = {
+            name for name in zf.namelist() if name.startswith(pack.ASSET_PUBLISH_ROOTS)
+        }
+        assert asset_entries == pack.ASSET_PUBLISH_ALLOWLIST
+        release_notes = zf.read("RELEASE_NOTES.md").decode("utf-8")
+        assert DEEPSEEK_CHAN_SOURCE_URL in release_notes
+        assert "不随包分发" in release_notes
+        assert DEEPSEEK_CHAN_SOURCE_URL in zf.read("README.txt").decode("utf-8")
     assert digest == hashlib.sha256(zip_path.read_bytes()).hexdigest()
     assert sha_path.read_text(encoding="utf-8") == f"{digest}  {zip_path.name}\n"
     checked = subprocess.run(
@@ -162,6 +202,33 @@ def test_final_zip_crc_required_entries_and_standard_sha256(tmp_path: Path) -> N
     )
     assert checked.returncode == 0, checked.stderr
     assert pack.PACKAGE_ZIP_NAME + ": OK" in checked.stdout
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "assets/models/大肥鱼/runtime/大肥鱼.model3.json",
+        "assets/models/大肥鱼/作者原始发布.zip",
+        "assets/models/大肥鱼/大肥鱼.psd",
+        "assets/models/ordinary-model/runtime/renamed.moc3",
+        "assets/models/DeepSeek-chan/runtime/DeepSeek-chan.model3.json",
+        "assets/models/deepseek_chan/runtime/renamed.moc3",
+        "assets/models/DeepSeek chan/renamed.psd",
+        "assets/actions/new-presets.json",
+    ],
+)
+def test_unapproved_asset_payload_is_rejected(tmp_path: Path, relative: str) -> None:
+    stage = _complete_stage(tmp_path)
+    payload = stage / relative
+    payload.parent.mkdir(parents=True, exist_ok=True)
+    payload.write_bytes(b"payload is rejected by its path, not by inspecting its contents")
+    zip_path = tmp_path / pack.PACKAGE_ZIP_NAME
+
+    with pytest.raises(SystemExit, match="只允许明确发布白名单"):
+        pack.write_release_zip(stage, zip_path)
+    assert not zip_path.exists()
+    assert not zip_path.with_name(zip_path.name + ".sha256").exists()
+    assert list(tmp_path.glob(".*.tmp")) == []
 
 
 def test_nonempty_persona_is_rejected_without_same_name_artifacts(tmp_path: Path) -> None:

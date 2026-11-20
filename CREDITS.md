@@ -105,6 +105,18 @@ Under the [Live2D Free Material License Agreement](https://www.live2d.com/eula/l
 
 ---
 
+## 4c. DeepSeek-chan 公皮 — 只放作者原始链接
+
+**Original release:** [【免费live2D模型】大肥鱼人手一只的时代到了！？｜Deepseek小鲸鱼｜连带psd一起分享！](https://www.bilibili.com/video/BV1KmxY66EZ3/)（UP主：神宫凉子）
+
+- **原画及拆分：** 神宫凉子
+- **Live2D 建模：** 霓虹猫_NeonNeko
+- **模型来源：** 神宫凉子免费配布模型
+
+> **不随包分发：** DeepSeek-chan 模型与 PSD 不随主仓、不随包分发（含 Windows zip）；未经作者明确授权不得再分发。用户原 zip 保持不动，本项目不读取、不复制、不重打包其中内容。
+
+---
+
 ## 5. Live2D Sample Model — shizuku（已删除，K1）
 
 **Source:** `app/src/main/assets/live2d/shizuku/`（PC: `live2d-models/shizuku/`）

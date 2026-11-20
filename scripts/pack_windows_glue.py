@@ -106,6 +106,12 @@ tools/cosyvoice3/start.cmd 起 sidecar；sidecar 没起时测试 TTS 会报 netw
 原生 RMS 口型要求 server/cpal 成功。
 本包包含 Bai 渲染必需文件。作者条款未明确授权公开再分发；维护者 2026-11-20 决定
 本轮继续分发，这不表示已获授权或法律合规结论；作者提出后即移除。
+DeepSeek-chan 公皮只放作者原始发布页（UP主：神宫凉子）：
+【免费live2D模型】大肥鱼人手一只的时代到了！？｜Deepseek小鲸鱼｜连带psd一起分享！
+https://www.bilibili.com/video/BV1KmxY66EZ3/
+署名：原画及拆分 神宫凉子；Live2D 建模 霓虹猫_NeonNeko；模型来源 神宫凉子免费配布模型。
+DeepSeek-chan 模型与 PSD 不随主仓、不随包分发（含本 Windows zip）；未经作者明确授权不得再分发。
+用户原 zip 保持不动，本包不读取、不复制、不重打包其中内容。
 """
 
 DESK_PET_OBS_LAUNCHER = (
@@ -127,6 +133,21 @@ ZIP_REQUIRED_PATHS = (
     "assets/models/bai/MODEL_LICENSE.md", "assets/models/bai/runtime/bai.model3.json", "assets/models/bai/runtime/bai.moc3",
     "assets/models/bai/runtime/bai.cdi3.json", "assets/models/bai/runtime/bai.physics3.json", "assets/models/bai/runtime/bai.16384/texture_00_4096.png", "tools/cosyvoice3/README.md",
 )
+
+# 这两个资产目录只发布明确列出的文件；HEAD 的 .gitkeep 只是仓库占位，不进包。
+# 其它模型、PSD、原始 zip 或重命名文件无论叫什么，都不在发布白名单内。
+ASSET_PUBLISH_ROOTS = ("assets/models/", "assets/actions/")
+ASSET_PUBLISH_ALLOWLIST = frozenset({
+    "assets/models/README.md",
+    "assets/models/bai/MODEL_LICENSE.md",
+    "assets/models/bai/runtime/bai.model3.json",
+    "assets/models/bai/runtime/bai.moc3",
+    "assets/models/bai/runtime/bai.cdi3.json",
+    "assets/models/bai/runtime/bai.physics3.json",
+    "assets/models/bai/runtime/bai.16384/texture_00_4096.png",
+    "assets/actions/presets.json",
+    "assets/actions/preset_labels.json",
+})
 
 PROXY_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]
 
@@ -418,7 +439,7 @@ def archive_paths(wtree: Path, paths: list, dest: Path) -> None:
 
 
 def validate_release_zip(zip_path: Path) -> None:
-    """重开最终形态 zip：CRC、完整条目、RC manifest 与出厂空人设缺一不可。"""
+    """重开最终形态 zip：CRC、完整条目、资产白名单、RC manifest 与空人设缺一不可。"""
     with zipfile.ZipFile(zip_path) as zf:
         bad = zf.testzip()
         if bad is not None:
@@ -426,6 +447,17 @@ def validate_release_zip(zip_path: Path) -> None:
         missing = sorted(set(ZIP_REQUIRED_PATHS) - set(zf.namelist()))
         if missing:
             die("zip 缺必需条目：" + "、".join(missing))
+        unexpected_assets = []
+        for name in zf.namelist():
+            normalized = name.replace("\\", "/")
+            if normalized.endswith("/"):
+                continue
+            if (normalized.casefold().startswith(ASSET_PUBLISH_ROOTS)
+                    and normalized not in ASSET_PUBLISH_ALLOWLIST):
+                unexpected_assets.append(name)
+        if unexpected_assets:
+            die("assets/models 与 assets/actions 只允许明确发布白名单，拒绝条目："
+                + "、".join(sorted(unexpected_assets)))
         manifest = json.loads(zf.read("pack-manifest.json"))
         if manifest.get("version") != PACKAGE_VERSION:
             die("pack-manifest.json 版本不是 " + PACKAGE_VERSION)
@@ -829,7 +861,8 @@ def main() -> int:
             copy_tree_contents(flutter_web, stage / "web")
         if trunk_dist is not None:
             copy_tree_contents(trunk_dist, stage / "web/render")
-        archive_paths(wtree, ["assets/models", "assets/actions"], stage)
+        # 资产只按白名单导出；最终 zip 再逐项复核，重命名与文件类型均不能绕过。
+        archive_paths(wtree, sorted(ASSET_PUBLISH_ALLOWLIST), stage)
         if not (stage / "assets/models/README.md").is_file():
             warn("assets/models/README.md 不在导出里（检查基线的 tracked 白名单）")
         # 0.6.0：Windows 原生 sidecar 安装脚本随包（tools/cosyvoice3/）。
