@@ -74,6 +74,20 @@ def test_release_workflow_uses_only_the_complete_package() -> None:
     assert "dtolnay/rust-toolchain@1.98.1" in raw
     assert "flutter-version: 3.47.3" in raw
     assert "mingw-w64" in run_blocks
+    assert "${{ runner." not in raw
+    assert "$SIBLING_ROOT" not in run_blocks
+    clone_run = next(
+        step["run"]
+        for step in steps
+        if step.get("name") == "Checkout six Mod repositories at pack script pins"
+    )
+    build_run = next(
+        step["run"]
+        for step in steps
+        if step.get("name") == "Build and verify the complete package through the single entrypoint"
+    )
+    for command in (clone_run, build_run):
+        assert "$RUNNER_TEMP/live2d-ai-pack-siblings" in command
     assert pack.PACKAGE_ZIP_NAME in upload_paths
     assert pack.PACKAGE_ZIP_NAME + ".sha256" in upload_paths
     assert "dist/RELEASE_NOTES.md" in upload_paths

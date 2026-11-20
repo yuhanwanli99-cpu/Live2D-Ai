@@ -15,8 +15,6 @@ jobs:
     name: Windows complete package (v0.7.0-rc.1)
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    env:
-      SIBLING_ROOT: ${{ runner.temp }}/live2d-ai-pack-siblings
     steps:
       - name: Checkout core
         uses: actions/checkout@v4
@@ -53,7 +51,7 @@ jobs:
       - name: Checkout six Mod repositories at pack script pins
         run: |
           set -euo pipefail
-          mkdir -p "$SIBLING_ROOT"
+          mkdir -p "$RUNNER_TEMP/live2d-ai-pack-siblings"
           python3 - <<'PY' > "$RUNNER_TEMP/live2d-ai-mod-pins.tsv"
           from scripts.pack_windows_glue import INFO, MOD_NAMES, PINNED
           for name in MOD_NAMES:
@@ -61,9 +59,9 @@ jobs:
           PY
           while IFS=$'\t' read -r repo sha; do
             git clone --quiet --filter=blob:none --no-checkout \
-              "https://github.com/yuhanwanli99-cpu/${repo}.git" "$SIBLING_ROOT/$repo"
-            git -C "$SIBLING_ROOT/$repo" checkout --detach "$sha"
-            test "$(git -C "$SIBLING_ROOT/$repo" rev-parse HEAD)" = "$sha"
+              "https://github.com/yuhanwanli99-cpu/${repo}.git" "$RUNNER_TEMP/live2d-ai-pack-siblings/$repo"
+            git -C "$RUNNER_TEMP/live2d-ai-pack-siblings/$repo" checkout --detach "$sha"
+            test "$(git -C "$RUNNER_TEMP/live2d-ai-pack-siblings/$repo" rev-parse HEAD)" = "$sha"
           done < "$RUNNER_TEMP/live2d-ai-mod-pins.tsv"
 
       - name: Build and verify the complete package through the single entrypoint
@@ -71,7 +69,7 @@ jobs:
           set -euo pipefail
           ./scripts/pack-windows.sh \
             --base "$GITHUB_SHA" \
-            --sibling-root "$SIBLING_ROOT" \
+            --sibling-root "$RUNNER_TEMP/live2d-ai-pack-siblings" \
             --flutter-bin "$(command -v flutter)"
 
       - name: Verify SHA256 with standard sha256sum
