@@ -36,7 +36,7 @@
 | 已**删除** Mod（local-llm / wallpaper / pet-desktop） | `docs/architecture/ARCHIVED-mods.md` | §1.4/§2.4/§3.1 删除记录（W2-A，2026-10-01）；**禁止挂回** |
 | TTS 是核心（不是 Mod） | `docs/architecture/tts-is-core.md` | 2026-10-19：`[tts]` 那跳出声仍是核心，可以是云端 API。拉起 Melo 的 `local-tts-melo` 是 Mod。以 CURRENT §1 为准 |
 | 渲染算法 / 纹理档位 | `docs/architecture/renderer-*.md`、`mask-*.md` | |
-| 逐版发布说明 | **`docs/releases/v0.3.1.md`（当前）**、`v0.2.7.md`、`v0.2.6-rc.1.md`、`v0.2.5-rc.1.md`、`v0.2.4-rc.1.md`、`v0.2.3-rc.2.md`、`v0.2.3-rc.1.md`、`v0.2.2.md`、`v0.2.1-rc.1.md`、`docs/releases/v0.2.0*.md`（更早） | 版本四处以源码为准 |
+| 逐版发布说明 | **`docs/versions/0.7.md` §7（当前 v0.7.0-rc.1）**、`docs/releases/v0.3.1.md`、`v0.2.7.md`、`v0.2.6-rc.1.md`、`v0.2.5-rc.1.md`、`v0.2.4-rc.1.md`、`v0.2.3-rc.2.md`、`v0.2.3-rc.1.md`、`v0.2.2.md`、`v0.2.1-rc.1.md`、`docs/releases/v0.2.0*.md`（更早） | 版本四处以源码为准 |
 | 2026-10-07 任务账（历史） | **已移出工作树**（2026-10-17 rc2）——取回见 [REMOVED-docs-index-2026-10-06.md](REMOVED-docs-index-2026-10-06.md) §8 | T1–T9 已收口；现行计划见上文 3.0 行 |
 | **D1 休眠资产裁决 + 红线修订（W2）** | `docs/audit/2026-10-01-debloat/W2/D1-IMPACT-BRIEF.md` | 删/移边界、5 处主链触点、**红线修订 1/2**；`W2-A` = `d140604f`、`W2-B` = `03765bd3`（**两段均已执行**，见下 §3「结构性变更」） |
 | **0.2.0 阶段报告（欠账 / 事故 / 口径更正）** | `docs/audit/2026-10-01-debloat/PHASE-REPORT-0.2.0.md` | 与发布说明互指；**已入库**（`e8da68c0`，与发布说明同一次提交） |

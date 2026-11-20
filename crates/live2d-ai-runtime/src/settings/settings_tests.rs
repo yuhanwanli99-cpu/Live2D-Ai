@@ -211,6 +211,7 @@ fn example_template_parses_and_resolves_without_env() {
         .resolve_with(|_| None)
         .expect("模板必须可无环境变量解析");
     assert!(!resolved.llm.base_url.is_empty());
+    assert_eq!(resolved.conversation.system_prompt, "");
 }
 
 /// 0.6.0：Windows 的「本地 TTS」缺省 = 随包 CosyVoice3 sidecar（8011 / dafeiyu）。

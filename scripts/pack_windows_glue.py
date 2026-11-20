@@ -18,7 +18,7 @@
      `--features packed-mods`；
   5. trunk 构建 /render wasm、flutter build web、组装 dist/（包根含出厂
      mods.json + README.txt；0.6.0 起额外带 tools/cosyvoice3/ sidecar 安装脚本）、
-     可选 zip（0.6.0 = live2d-ai-windows-0.6.0.zip）；
+     可选 zip（当前 = live2d-ai-windows-0.7.0-rc.1.zip + .sha256）；
   6. 临时树一律删除（含失败路径），并验证 git worktree list 恢复原状。
 
 红线：不改主仓、不提交、不 push；不克隆兄弟仓库、不下载权重；不拷维护者的
@@ -28,12 +28,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -57,11 +59,7 @@ INFO = {
     "local-tts": ("live2d-ai-mod-local-tts", "live2d_ai_mod_local_tts", "MELO_FACTORY"),
     "local-engine": ("live2d-ai-mod-local-engine", "live2d_ai_mod_local_engine", "FACTORY"),
     "a2a": ("live2d-ai-mod-a2a", "live2d_ai_mod_a2a", "FACTORY"),
-    "cosyvoice3-tts": (
-        "live2d-ai-mod-cosyvoice3",
-        "live2d_ai_mod_cosyvoice3",
-        "COSYVOICE3_FACTORY",
-    ),
+    "cosyvoice3-tts": ("live2d-ai-mod-cosyvoice3", "live2d_ai_mod_cosyvoice3", "COSYVOICE3_FACTORY"),
     "desk-pet": ("live2d-ai-mod-desk-pet", "live2d_ai_mod_desk_pet", "FACTORY"),
 }
 
@@ -97,25 +95,40 @@ PACKAGE_MODS_JSON = """{
 PACKAGE_README = """进入本目录后双击 live2d-ai-desktop.exe。它听 127.0.0.1:18080。
 不要用 WSL 里的 mods.json、.env、live2d-ai.toml 覆盖本目录。
 出厂只启用 external-input。local-tts-melo 没有 Windows 可执行文件，保持关闭。
-六个 Mod 已经编进 exe，不是旁边的 dll。
-desk-pet（桌宠配置 Mod）出厂停用；桌宠窗仍用命令行 --desk-pet 打开。
+六个 Mod 已经编进 exe，不是旁边的 dll；desk-pet 是较大的独立可选 Mod，不是核心。
+desk-pet 出厂停用；桌宠窗仍用命令行 --desk-pet 打开，桌宠直播专项不阻塞核心 RC。
 cosyvoice3-tts 是 Windows 专属（不依赖 WSL2），出厂停用；用户自备 CosyVoice3 权重与
 参考音色后，按 tools/cosyvoice3/README.md 装 sidecar，再在设置里启用。权重/参考音色不进本包。
 本包 [tts] 已指向 127.0.0.1:8011：先跑 tools/cosyvoice3/setup.ps1，再跑
 tools/cosyvoice3/start.cmd 起 sidecar；sidecar 没起时测试 TTS 会报 network_failed。
+实验功能：双击 start-desk-pet-obs.cmd 后，用 OBS Window Capture + Chroma Key #00FF00。
+启动器设 green：桌面显示绿底并强制 opacity=1；不设变量默认透明。
+原生 RMS 口型要求 server/cpal 成功。
+本包包含 Bai 渲染必需文件。作者条款未明确授权公开再分发；维护者 2026-11-20 决定
+本轮继续分发，这不表示已获授权或法律合规结论；作者提出后即移除。
 """
 
-# 0.6.0 交付 zip 名（固定版本号；不跟 base sha）。
-PACKAGE_ZIP_NAME = "live2d-ai-windows-0.6.0.zip"
+DESK_PET_OBS_LAUNCHER = (
+    "@echo off\r\n"
+    "setlocal\r\n"
+    "cd /d \"%~dp0\"\r\n"
+    "set \"LIVE2D_AI_WEB_AUDIO=server\"\r\n"
+    "set \"LIVE2D_AI_DESK_PET_CHROMA=green\"\r\n"
+    "set \"LIVE2D_AI_WS_AUDIO=\"\r\n"
+    "\"%~dp0live2d-ai-desktop.exe\" --desk-pet --http-port 18080\r\n"
+    "endlocal\r\n"
+)
 
-PROXY_KEYS = [
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "ALL_PROXY",
-    "http_proxy",
-    "https_proxy",
-    "all_proxy",
-]
+PACKAGE_VERSION = "0.7.0-rc.1"
+PACKAGE_ZIP_NAME = "live2d-ai-windows-" + PACKAGE_VERSION + ".zip"
+ZIP_REQUIRED_PATHS = (
+    "README.txt", "start-desk-pet-obs.cmd", "RELEASE_NOTES.md", "pack-manifest.json", "mods.json", "live2d-ai.toml",
+    "live2d-ai-desktop.exe", "web/index.html", "web/render/index.html", "assets/actions/presets.json",
+    "assets/models/bai/MODEL_LICENSE.md", "assets/models/bai/runtime/bai.model3.json", "assets/models/bai/runtime/bai.moc3",
+    "assets/models/bai/runtime/bai.cdi3.json", "assets/models/bai/runtime/bai.physics3.json", "assets/models/bai/runtime/bai.16384/texture_00_4096.png", "tools/cosyvoice3/README.md",
+)
+
+PROXY_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]
 
 MSVC_TARGET = "x86_64-pc-windows-msvc"
 GNU_TARGET = "x86_64-pc-windows-gnu"
@@ -404,6 +417,52 @@ def archive_paths(wtree: Path, paths: list, dest: Path) -> None:
             + "，tar rc=" + str(rc2) + "）")
 
 
+def validate_release_zip(zip_path: Path) -> None:
+    """重开最终形态 zip：CRC、完整条目、RC manifest 与出厂空人设缺一不可。"""
+    with zipfile.ZipFile(zip_path) as zf:
+        bad = zf.testzip()
+        if bad is not None:
+            die("zip CRC 校验失败：" + bad)
+        missing = sorted(set(ZIP_REQUIRED_PATHS) - set(zf.namelist()))
+        if missing:
+            die("zip 缺必需条目：" + "、".join(missing))
+        manifest = json.loads(zf.read("pack-manifest.json"))
+        if manifest.get("version") != PACKAGE_VERSION:
+            die("pack-manifest.json 版本不是 " + PACKAGE_VERSION)
+        config = tomllib.loads(zf.read("live2d-ai.toml").decode("utf-8"))
+        if config.get("persona", {}).get("system_prompt") != "":
+            die("最终包 [persona].system_prompt 必须为空")
+
+
+def write_release_zip(dist_dir: Path, zip_path: Path) -> tuple[Path, str]:
+    """先打临时 zip 并全检；已有正式 zip/SHA256 时拒绝覆盖或删除。"""
+    sha_path = zip_path.with_name(zip_path.name + ".sha256")
+    existing = [str(path) for path in (zip_path, sha_path) if path.exists()]
+    if existing:
+        die("正式产物已存在，拒绝覆盖或删除：" + "、".join(existing)
+            + "；请先人工备份/移动旧产物或换输出位置")
+    tmp_zip = zip_path.with_name("." + zip_path.name + "." + str(os.getpid()) + ".tmp")
+    tmp_sha = sha_path.with_name("." + sha_path.name + "." + str(os.getpid()) + ".tmp")
+    try:
+        with zipfile.ZipFile(tmp_zip, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+            for base, dirs, files in os.walk(dist_dir):
+                dirs.sort()
+                for name in sorted(files):
+                    full = Path(base) / name
+                    # zip 内不带 dist 目录名前缀；从刚落好的干净 stage 打包。
+                    zf.write(full, os.path.relpath(full, dist_dir))
+        validate_release_zip(tmp_zip)
+        digest = hashlib.sha256(tmp_zip.read_bytes()).hexdigest()
+        write_text(tmp_sha, digest + "  " + zip_path.name + "\n")
+        os.replace(tmp_zip, zip_path)
+        os.replace(tmp_sha, sha_path)
+        return sha_path, digest
+    finally:
+        # 只清理本次隐藏临时文件；第二次 replace 失败时已验证的 zip 保留人工处理。
+        tmp_zip.unlink(missing_ok=True)
+        tmp_sha.unlink(missing_ok=True)
+
+
 def main() -> int:
     here = Path(__file__).resolve().parent
     repo_root = Path(git(here, "rev-parse", "--show-toplevel").stdout.strip())
@@ -411,7 +470,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         prog="pack-windows.sh",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="0.6.0 带 Mod 的 Windows 包组装：临时 worktree + 兄弟仓库固定提交导出 + 交叉编译 + dist/",
+        description=PACKAGE_VERSION + " 带 Mod 的 Windows 完整包：固定提交 + 交叉编译 + dist/ + 校验 zip",
         epilog=(
             "前置条件：\n"
             "  * 六个兄弟仓库：/home/skystar/live2d-ai-mod-<id>（external-input\n"
@@ -453,18 +512,23 @@ def main() -> int:
         "FLUTTER_BIN", str(Path.home() / "flutter/bin/flutter")),
                         metavar="PATH", help="flutter 可执行文件（默认 ~/flutter/bin/flutter）")
     parser.add_argument("--no-zip", action="store_true",
-                        help="不生成 dist/live2d-ai-windows-0.6.0.zip")
+                        help="只生成解压目录，不生成 dist/" + PACKAGE_ZIP_NAME)
     parser.add_argument("--keep-temp", action="store_true", help="保留临时 worktree（调试用）")
     parser.add_argument("--keep-target", action="store_true", help="保留 target 目录（调试用）")
     parser.add_argument("--skip-cargo", action="store_true",
-                        help="跳过 cargo 检查/编译（调试用，交付禁用）")
+                        help="跳过 cargo 检查/编译（调试用，必须同时 --no-zip）")
     parser.add_argument("--skip-linux-check", action="store_true",
                         help="跳过 Linux 主机目标 check（调试用，交付禁用）")
     parser.add_argument("--skip-msvc-check", action="store_true",
                         help="跳过 MSVC 目标 check（调试用；上一轮失败原文已记录时）")
-    parser.add_argument("--skip-flutter", action="store_true", help="跳过 Flutter Web 构建（调试用）")
-    parser.add_argument("--skip-trunk", action="store_true", help="跳过 /render wasm 构建（调试用）")
+    parser.add_argument("--skip-flutter", action="store_true",
+                        help="跳过 Flutter Web 构建（调试用，必须同时 --no-zip）")
+    parser.add_argument("--skip-trunk", action="store_true",
+                        help="跳过 /render wasm 构建（调试用，必须同时 --no-zip）")
     args = parser.parse_args()
+    if (args.skip_cargo or args.skip_flutter or args.skip_trunk) and not args.no_zip:
+        parser.error("--skip-cargo/--skip-flutter/--skip-trunk 只能与 --no-zip 同用；"
+                     "正式模式不得生成缺组件的 " + PACKAGE_ZIP_NAME)
 
     dist_dir = Path(args.dist).resolve()
     log_dir = Path(repo_root) / "dist" / "pack-logs"
@@ -526,6 +590,8 @@ def main() -> int:
         "exe_file": "",
         "exe_sha": "",
         "zip": "",
+        "zip_sha256": "",
+        "zip_sha256_file": "",
     }
     try:
         log("基线：" + args.base + " = " + base_sha + "；临时树 " + str(tmp))
@@ -780,13 +846,27 @@ def main() -> int:
         example = wtree / "live2d-ai.toml.example"
         if not example.is_file():
             die("基线没有 live2d-ai.toml.example，无法生成空密钥模板")
+        example_config = tomllib.loads(read_text(example))
+        if example_config.get("persona", {}).get("system_prompt") != "":
+            die("出厂模板 [persona].system_prompt 必须为空，不组装固定人设包")
         shutil.copy2(example, stage / "live2d-ai.toml")
-        # 包根出厂配置（0.4.6）：mods.json 只启用 external-input；README.txt 四行
-        # 写明双击入口 / 端口 / 不要用 WSL 配置覆盖 / local-tts-melo 保持关闭 /
-        # 六个 Mod 编进 exe。内容与行数由 task 钉死，别顺手美化。
+        notes = wtree / "docs/versions/0.7.md"
+        if not notes.is_file():
+            die("基线没有 docs/versions/0.7.md，无法随包提供发布说明与限制")
+        shutil.copy2(notes, stage / "RELEASE_NOTES.md")
         write_text(stage / "mods.json", PACKAGE_MODS_JSON)
         write_text(stage / "README.txt", PACKAGE_README)
-        note("包根：mods.json（出厂只启用 external-input）+ README.txt（四行）")
+        write_text(stage / "start-desk-pet-obs.cmd", DESK_PET_OBS_LAUNCHER)
+        manifest = {
+            "format": 1,
+            "version": PACKAGE_VERSION,
+            "base_sha": base_sha,
+            "mod_pins": PINNED,
+            "includes_bai": True,
+        }
+        write_text(stage / "pack-manifest.json",
+                   json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+        note("包根：出厂配置 / 说明 / " + PACKAGE_VERSION + " manifest 已就位")
         # 临时树若有文件夹 Mod（缺省提交没有），才带 mods/。
         mods_tracked = git(wtree, "ls-tree", "-r", "--name-only",
                            "HEAD", "mods").stdout.strip()
@@ -802,6 +882,9 @@ def main() -> int:
         # 那时对应项不参与检查（报告里也记 skip）。
         required = [
             stage / "README.txt",
+            stage / "start-desk-pet-obs.cmd",
+            stage / "RELEASE_NOTES.md",
+            stage / "pack-manifest.json",
             stage / "mods.json",
             stage / "live2d-ai.toml",
             stage / "assets",
@@ -825,23 +908,17 @@ def main() -> int:
         log("产物已就绪：" + str(dist_dir))
         stage_snapshot("组装完成（dist 已就位）")
 
-        # ------------------------------------------------ 可选 zip
+        # ------------------------------------------------ 可选 zip（正式路径 = 完整包 + CRC + SHA256）
         if not args.no_zip and result["exe"] == "built_gnu":
             zip_path = dist_dir.parent / PACKAGE_ZIP_NAME
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED,
-                                 compresslevel=6) as zf:
-                for base, _dirs, files in os.walk(dist_dir):
-                    for name in sorted(files):
-                        full = Path(base) / name
-                        # zip 内**不带 dist 目录名前缀**：解压出来就是包根
-                        #（README.txt / live2d-ai-desktop.exe / web/ / assets/ / tools/ …），
-                        # 与 v0.5.1 / v0.5.2 的包一致；zip 始终从刚落好的干净 stage 打，
-                        # 不含运行期 logs/ 与用户改过的 toml。
-                        zf.write(full, os.path.relpath(full, dist_dir))
+            sha_path, zip_digest = write_release_zip(dist_dir, zip_path)
             result["zip"] = str(zip_path)
-            log("zip：" + str(zip_path))
+            result["zip_sha256"] = zip_digest
+            result["zip_sha256_file"] = str(sha_path)
+            log("zip（已重开校验 CRC / 必需条目）：" + str(zip_path))
+            log("SHA256：" + str(sha_path))
         elif not args.no_zip:
-            note("跳过 zip：没有 exe（不产半成品压缩包）")
+            die("正式完整包没有 exe，不生成 zip")
 
         # ------------------------------------------------ 摘要 + 报告
         dist_files = sorted(
@@ -853,7 +930,7 @@ def main() -> int:
                                 capture_output=True, text=True).stdout.split()
             dist_du = du[0] if du else "0"
         report_lines = [
-            "0.6.0 带 " + str(len(MOD_NAMES)) + " 个 Mod 的 Windows 包（scripts/pack-windows.sh）",
+            PACKAGE_VERSION + " 带 " + str(len(MOD_NAMES)) + " 个 Mod 的 Windows 完整包（scripts/pack-windows.sh）",
             "主仓临时树基线（full）：" + base_sha + "（--base " + args.base + "）",
             "六个兄弟仓库固定提交（full，git archive <sha>）：",
         ]
@@ -884,9 +961,11 @@ def main() -> int:
         report_lines.append("产物：" + str(dist_dir) + "（" + dist_du + "）")
         if result["zip"]:
             report_lines.append("zip：" + result["zip"])
+            report_lines.append("zip sha256：" + result["zip_sha256"])
+            report_lines.append("zip sha256 文件：" + result["zip_sha256_file"])
         report_lines.append(
-            "Windows 实机：同轮人工验收（记录在 D:/live2dai/logs/；"
-            "6 个 Mod 列表 / cosyvoice3-tts ready / TTS 测试 / 端口释放）")
+            "Windows 实机：本脚本未执行；构建成功不代表 stop/TTS/桌宠或 Windows 真机验收已通过。"
+            "已知限制见包内 RELEASE_NOTES.md。")
         report_lines.append("")
         report_lines.append("产物清单（最多 80 个文件）：")
         report_lines.extend(dist_files[:80])

@@ -362,9 +362,8 @@ mod tests {
         let info = capabilities_info();
         let json = serde_json::to_value(&info).unwrap();
         assert_eq!(json["app"], "live2d-ai-desktop");
-        // version 来自编译期 CARGO_PKG_VERSION，非空字符串即可。
-        assert!(json["version"].is_string());
-        assert!(!json["version"].as_str().unwrap().is_empty());
+        // version 来自编译期 CARGO_PKG_VERSION，与 workspace 的 RC 串一致。
+        assert_eq!(json["version"], "0.7.0-rc.1");
         // v2 = 删掉动作/上传/脚本字段后的形状。
         assert_eq!(json["schema_version"], 2);
         // WS 路径。

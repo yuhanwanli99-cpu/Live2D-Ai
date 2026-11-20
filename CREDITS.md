@@ -90,7 +90,7 @@ Under the [Live2D Free Material License Agreement](https://www.live2d.com/eula/l
 **Development locations:** Live2D-Ai-pc/open-llm-vtuber/live2d-models/bai/（Android: Live2D-Ai-Android/app/src/main/assets/live2d/bai/）
 **License:** 模型作者自定义使用条约（非 MIT / 非 AGPL）
 **Copyright:** 模型作者保留，按作者声明执行
-**Public Preview distribution:** 不捆绑模型原文件；用户从作者渠道取得后自行导入
+**v0.7.0-rc.1 distribution:** 公开 Windows zip 包含 Bai 渲染必需文件与使用条约
 
 作者声明要点：
 - 允许盈利直播使用
@@ -99,9 +99,9 @@ Under the [Live2D Free Material License Agreement](https://www.live2d.com/eula/l
 - 使用本模型发生的纠纷与创作者无关，后果由使用者自行承担
 - 如恶意使用本模型，创作者有权收回使用授权
 
-> **⚠️ 许可隔离：** 该模型资源不适用本项目代码的 AGPL-3.0 许可，也不得
-> 被重新授权为 MIT/AGPL。现有条约未明确授予公开 Git 原文件再分发权，因此
-> PC-only Preview 公共发布树排除模型二进制和纹理。
+> **⚠️ 许可隔离：** 该模型资源不适用本项目代码的 AGPL-3.0 许可，也不得重新授权为 MIT/AGPL。
+> 现有条约未明确授予公开再分发权。维护者 2026-11-20 决定本轮继续分发（原话“bai依旧分发 作者反馈了再删除”），
+> 这不表示已获授权或法律合规结论；作者提出后即移除。
 
 ---
 

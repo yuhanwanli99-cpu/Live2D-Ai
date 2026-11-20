@@ -103,7 +103,8 @@ members = [
 #
 # 2026-10-17（0.2.7 → 0.3.1）：外部事件忙时合并。
 # 发布说明见 `docs/releases/v0.3.1.md`。
-version = "0.3.1"
+# 2026-11-20：companion 核心 RC 收口，发布说明见 `docs/versions/0.7.md`。
+version = "0.7.0-rc.1"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。

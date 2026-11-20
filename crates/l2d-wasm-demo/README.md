@@ -43,9 +43,9 @@ trunk serve --release          # 默认 http://127.0.0.1:8080
 ### 模型静态目录挂载要求
 
 页面从**同源** `/models/<...>` 路径取模型资产，而 `trunk serve` 只输出构建产物，
-**不会自动提供模型文件**。Bai 资产不进仓库、不进公共包（分发口径见
-`docs/legal/pc-preview-publication.md`），需要你在本地把合法取得的模型目录
-挂到可服务的路径上，二选一：
+**不会自动提供模型文件**。Bai 资产不复制进本 crate；主仓与 v0.7.0-rc.1 Windows zip
+按维护者本轮例外包含 Bai（条款未明确授权公开再分发，作者提出后即移除，见
+`docs/legal/publication.md`）。独立预览其它模型时，把合法取得的目录挂到可服务路径，二选一：
 
 - **代理方式（推荐，配合 `trunk serve`）**：把模型目录用任意静态服务暴露，
   并启用 `Trunk.toml` 中现成的 `[[proxy]]` 示例：
@@ -76,7 +76,7 @@ trunk serve --release          # 默认 http://127.0.0.1:8080
   `l2d` 的离屏管线）；渲染核心复用 `ModelRendererCore::render_to_view`；
 - 兼容报告口径与 `crates/l2d` 一致：非 v0 锚定档位照常预览，但状态栏明确标注
   「v0 支持=否」及问题条数，不做静默放行；
-- Bai 资产**未复制**进本 crate 或任何公共包；`dist/` 已被仓库根 `.gitignore` 覆盖。
+- Bai 资产**未复制**进本 crate；完整 Windows 包的 Bai 例外见 `docs/versions/0.7.md` §7，`dist/` 已被仓库根 `.gitignore` 覆盖。
 
 ## 许可
 

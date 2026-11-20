@@ -1,225 +1,106 @@
-# =============================================================================
-# Release Build — 跨平台发布产物构建 + Artifact 上传
-# 触发器: push tags 'v*' | workflow_dispatch
-# 说明:
-#   - 仅产出 live2d-ai-desktop 的 release 二进制（--web 后端，纯 HTTP 服务）。
-#   - 桌面壳（Tauri）与 Android 壳（G1）**不**在此矩阵，它们为独立工程。
-#   - 不发布到 GitHub Releases，仅 upload-artifact（用户下载）。
-#   - wasm 产物（l2d-wasm-demo）可选：留作注释，不在默认矩阵构建。
-# 平台:
-#   - ubuntu-latest   x86_64-unknown-linux-gnu      （headless 服务端）
-#   - windows-latest  x86_64-pc-windows-msvc        （Windows 后端）
-#   - macos-latest    aarch64-apple-darwin          （macOS Apple Silicon）
-# =============================================================================
+# v0.7.0-rc.1：唯一 Windows 完整包路径。只上传 pack-windows.sh 的同一份
+# zip + SHA256 + 发布说明/构建报告；不上传裸 exe，不创建 GitHub Release。
 name: Release Build
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v0.7.0-rc.1"]
   workflow_dispatch:
-    inputs:
-      build_wasm:
-        description: "同时构建 wasm 产物（l2d-wasm-demo）"
-        type: boolean
-        default: false
+
+permissions:
+  contents: read
 
 jobs:
-  # ────────────────────────────────────────────────────────────────────────────
-  # Job: 跨平台 release 构建 + artifact 上传
-  # ────────────────────────────────────────────────────────────────────────────
-  build:
-    name: Build ${{ matrix.os }} (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-
-    # **必需**：`windows-latest` 上 `run:` 的默认 shell 是 **PowerShell**，
-    # 而本 workflow 的步骤用的是 POSIX 语法（`if [ ]; then … fi`、`ls -lh`、
-    # `printf` + quoted heredoc、`"$GITHUB_STEP_SUMMARY"`）。PowerShell 解析不了，
-    # 步骤会以 exit 1 立刻失败——2026-09-11 实测：`windows-latest` 的
-    # `Build desktop binary (release)` 就是死在这里（同一 run 里 macOS 正常）。
-    # windows-latest 自带 Git Bash，所以统一用 bash。
-    defaults:
-      run:
-        shell: bash
-
-    strategy:
-      fail-fast: false
-      # 三个平台各自构建 desktop 二进制；不做交叉编译（各自 runner 原生 toolchains）。
-      matrix:
-        include:
-          # Linux：headless 服务端。注意 desktop crate 用 cpal（ALSA/libasound）
-          # + winit（libxkbcommon / libdbus），标准 ubuntu-latest 需 apt 安装系统库。
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            bin_name: live2d-ai-desktop
-            system_deps: true
-            # webkit2gtk **不**需要——本 crate 不用 WebView/Tauri；仅 winit+egui 原生渲染。
-          # Windows：x86_64-pc-windows-msvc。二进制为 .exe；无 WebView2 需求
-          # （--web 纯 tiny_http 服务，前端通过浏览器访问，非嵌入浏览器）。
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            bin_name: live2d-ai-desktop.exe
-            system_deps: false
-          # macOS：Apple Silicon。标准 macos-latest 自带 clang toolchain，无额外系统包。
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            bin_name: live2d-ai-desktop
-            system_deps: false
-
+  windows-complete-package:
+    name: Windows complete package (v0.7.0-rc.1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SIBLING_ROOT: ${{ runner.temp }}/live2d-ai-pack-siblings
     steps:
-      - name: Checkout code
+      - name: Checkout core
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain (1.92 — egui 0.35 MSRV floor)
-        uses: dtolnay/rust-toolchain@1.92.0
+      - name: Install Rust 1.98.1 and package targets
+        uses: dtolnay/rust-toolchain@1.98.1
         with:
           profile: minimal
+          targets: x86_64-pc-windows-gnu, wasm32-unknown-unknown
 
-      - name: Cache cargo registry & build artifacts
-        uses: Swatinem/rust-cache@v2
+      - name: Install Flutter 3.47.3
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.3
+          channel: stable
+          cache: true
 
-      # Linux-only: 安装 ALSA 的 dev 头文件（Windows/macOS runner 自带所需 runtime，故跳过）。
-      #   - `libasound2-dev`：`alsa-sys` 经 pkg-config 在**构建期**链接 ALSA（cpal 的 Linux 后端）。
-      #     `cpal` 是 `live2d-ai-desktop` 的**无条件**依赖（无 target 门控、无 feature），
-      #     所以这一步绕不过去——除非改 Cargo 语义，那不该由 CI 修复来承担。
-      #   - `pkg-config`：上面那条的查找工具（runner 镜像其实已预装，列着无害）。
-      #     `x11-dl`/`xkbcommon-dl` 是 dlopen 包装、`zbus` 是纯 Rust，都不需要对应 -dev 包。
-      #
-      # 2026-09-11 起这步在 Linux 上以 **exit 100** 反复失败（runs/34659978040、34660260293）。
-      # **已排除「包名不存在」**：`libasound2-dev` / `libxkbcommon-x11-0` / `libdbus-1-dev`
-      # 在 Ubuntu noble 上**都存在且都在 main**（`pool/main/…`）；而且收窄到两个包之后
-      # **同样失败**，所以**根因至今未确定**——不要再写「多余包导致失败」这类未经证实的结论。
-      #
-      # 因此这一步把**判定依据**打进日志，并且**不用 apt 的退出码当成功判据**：
-      #   - `lsb_release` → 坐实 runner 到底是不是 noble（镜像漂移）
-      #   - update **前/后**各打一次 `apt-cache policy` → 区分「索引本来就不全」
-      #     与「update 把索引弄坏了」（pre 有候选、post 变没）
-      #   - `Candidate` 非空硬校验 → 没有候选就立刻在这里失败，不拖到编译期报 alsa-sys 的天书
-      #   - `pkg-config --modversion alsa` → 装上了没；构建期真能找到 ALSA 才算过
-      - name: Install system dependencies (Linux)
-        if: matrix.system_deps == true
+      - name: Install Trunk 0.21.14
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk@0.21.14
+
+      - name: Install GNU cross-linker and Linux build headers
         run: |
-          set -x
-          lsb_release -a || cat /etc/os-release
-          echo "--- update 前（runner 自带索引，仅作基线）---"
-          apt-cache policy libasound2-dev || true
+          set -euo pipefail
           sudo apt-get -o Acquire::Retries=3 update
-          echo "--- update 后（install 实际会看到的索引）---"
-          apt-cache policy libasound2-dev || true
-          candidate="$(apt-cache policy libasound2-dev | awk '/Candidate:/ {print $2}')"
-          test -n "$candidate" && test "$candidate" != "(none)"
           sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
-            libasound2-dev pkg-config
+            mingw-w64 libasound2-dev pkg-config
+          x86_64-w64-mingw32-gcc --version
           pkg-config --modversion alsa
 
-      # **不做 `+crt-static` 静态链接**（2026-09-12 移除，此前从未验证过）。
-      #
-      # 原先 Linux 走 `RUSTFLAGS="-C target-feature=+crt-static"`，意图是「避免服务器 glibc
-      # 版本不匹配」。实测这条路**结构性走不通**，而且是两个独立问题叠在一起：
-      #   ① `RUSTFLAGS` 是全局注入的，会一并作用到**过程宏**上 → 一旦依赖里有 proc-macro
-      #      （这里 `async-recursion`），直接报
-      #      `cannot produce proc-macro … does not support these crate types`。
-      #      改成显式 `--target x86_64-unknown-linux-gnu` 可以让 Cargo 区分 host/target
-      #      单元、绕开①，但随即暴露②：
-      #   ② `+crt-static` 让链接器走 `-static-pie`，于是 `-lasound` 要解析到**静态库**，
-      #      而 Ubuntu 的 `libasound2-dev` **只提供 `libasound.so`，没有 `libasound.a`**
-      #      → `rust-lld: error: unable to find library -lasound`。
-      #
-      # 所以 Linux 与其他平台一样**动态链接**：glibc 跟随构建 runner（Ubuntu 24.04），
-      # 运行时另需系统的 libasound / libxkbcommon / libdbus（均为常见系统库）。
-      # 真要做「可移植的静态二进制」得换 **musl** 目标（`x86_64-unknown-linux-musl`），
-      # 那是另一件需要 `musl-tools` 并单独处理 cpal/ALSA 的事，不在本 RC 范围内。
-      - name: Build desktop binary (release)
-        run: cargo build -p live2d-ai-desktop --release
-      - name: Verify binary exists
-        run: ls -lh target/release/${{ matrix.bin_name }}
-
-      # release note：摘录 README Quick Start 片段，写入工件目录。
-      - name: Generate release notes
-        # 版本号用 printf 写入（模板表达式需展开，不能用 quoted heredoc）。
+      # PINNED/INFO 只在打包脚本维护。完整克隆引用但按需取 blob，随后硬校验
+      # checkout 的完整 SHA；缺仓库或缺 pin 都直接失败，不回退 HEAD。
+      - name: Checkout six Mod repositories at pack script pins
         run: |
-          printf '# Live2D-Ai %s\n\n来自 `release-build.yml` 的跨平台二进制，**不发布到 GitHub Releases**。\n\n' '${{ github.ref_name }}' > RELEASE_NOTE.md
-          cat >> RELEASE_NOTE.md <<'EOF'
+          set -euo pipefail
+          mkdir -p "$SIBLING_ROOT"
+          python3 - <<'PY' > "$RUNNER_TEMP/live2d-ai-mod-pins.tsv"
+          from scripts.pack_windows_glue import INFO, MOD_NAMES, PINNED
+          for name in MOD_NAMES:
+              print(f"{INFO[name][0]}\t{PINNED[name]}")
+          PY
+          while IFS=$'\t' read -r repo sha; do
+            git clone --quiet --filter=blob:none --no-checkout \
+              "https://github.com/yuhanwanli99-cpu/${repo}.git" "$SIBLING_ROOT/$repo"
+            git -C "$SIBLING_ROOT/$repo" checkout --detach "$sha"
+            test "$(git -C "$SIBLING_ROOT/$repo" rev-parse HEAD)" = "$sha"
+          done < "$RUNNER_TEMP/live2d-ai-mod-pins.tsv"
 
-          来自 `release-build.yml` 的跨平台二进制，**不发布到 GitHub Releases**。
+      - name: Build and verify the complete package through the single entrypoint
+        run: |
+          set -euo pipefail
+          ./scripts/pack-windows.sh \
+            --base "$GITHUB_SHA" \
+            --sibling-root "$SIBLING_ROOT" \
+            --flutter-bin "$(command -v flutter)"
 
-          ## 运行方式
-          ```bash
-          # 解压后，启动 --web 后端（loopback HTTP 服务）
-          ./live2d-ai-desktop --web --http-port 18080
-          # 浏览器访问 http://localhost:18080/
-          ```
+      - name: Verify SHA256 with standard sha256sum
+        working-directory: dist
+        run: sha256sum -c live2d-ai-windows-0.7.0-rc.1.zip.sha256
 
-          ## 平台说明
-          - **Linux**：headless 服务端，**动态链接**（glibc 跟随构建 runner = Ubuntu 24.04，
-            另需系统库 libasound / libxkbcommon / libdbus）。旧的 `+crt-static` 静态链接已移除：
-            它要求 `libasound.a`，而 Ubuntu 的 `libasound2-dev` 不提供该静态库。
-            桌面窗口模式（--pet-mode）需 X11/Wayland。
-          - **Windows**：x86_64-pc-windows-msvc。`--web` 为纯 HTTP，**无 WebView2/Runtime 需求**
-            （不使用嵌入浏览器）。桌面窗口模式（--pet-mode）仍为 v1 骨架。
-          - **macOS**：aarch64-apple-darwin（Apple Silicon）。x86_64 需用户自行 Rosetta 构建。
+      - name: Collect release notes
+        run: cp docs/versions/0.7.md dist/RELEASE_NOTES.md
 
-          ## 边界约束
-          - 桌面壳（Tauri）与 Android 壳（G1）为独立工程，**不**含于本矩阵。
-          - 模型不捆绑分发，需用户从合法渠道导入。
-
-          ---
-          Live2D-Ai 🐱 — Rust 主线
-          (c) 2026 Sakura Motion Project — AGPL-3.0-only
-          EOF
-
-      - name: Upload desktop binary artifact
+      - name: Upload the same zip, SHA256 and required notes
         uses: actions/upload-artifact@v4
         with:
-          name: live2d-ai-desktop-${{ github.ref_name }}-${{ matrix.target }}
+          name: live2d-ai-windows-0.7.0-rc.1
           path: |
-            target/release/${{ matrix.bin_name }}
-            RELEASE_NOTE.md
+            dist/live2d-ai-windows-0.7.0-rc.1.zip
+            dist/live2d-ai-windows-0.7.0-rc.1.zip.sha256
+            dist/RELEASE_NOTES.md
+            dist/pack-logs/report-*.txt
           if-no-files-found: error
           retention-days: 60
-          compression-level: 6
+          compression-level: 0
 
       - name: Build summary
         run: |
-          echo "## Release Build Summary — ${{ matrix.target }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Tag**: ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Platform**: ${{ matrix.os }} / ${{ matrix.target }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Commit**: ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Binary**: target/release/${{ matrix.bin_name }}" >> "$GITHUB_STEP_SUMMARY"
-          ls -lh target/release/${{ matrix.bin_name }} >> "$GITHUB_STEP_SUMMARY"
-
-  # ────────────────────────────────────────────────────────────────────────────
-  # Job: 可选 wasm 产物（l2d-wasm-demo）——默认不构建，workflow_dispatch 勾选时运行
-  # ────────────────────────────────────────────────────────────────────────────
-  wasm:
-    name: Build WASM (l2d-wasm-demo)
-    # 仅当手动触发且勾选 build_wasm 时才运行。
-    if: github.event_name == 'workflow_dispatch' && inputs.build_wasm == true
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.92.0
-        with:
-          profile: minimal
-          targets: wasm32-unknown-unknown
-
-      - name: Cache cargo registry & build artifacts
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build wasm demo
-        run: cargo build -p l2d-wasm-demo --release --target wasm32-unknown-unknown
-
-      - name: Upload wasm artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: l2d-wasm-demo-${{ github.ref_name }}
-          path: target/wasm32-unknown-unknown/release/l2d-wasm-demo.wasm
-          if-no-files-found: error
-          retention-days: 60
+          {
+            echo "## Windows complete package — v0.7.0-rc.1"
+            echo
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Entrypoint: scripts/pack-windows.sh"
+            echo "- Artifact: live2d-ai-windows-0.7.0-rc.1.zip + .zip.sha256"
+            echo "- GitHub Release creation: not performed by this workflow"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -64,7 +64,7 @@ pub fn clock_hours() -> f64 {
 /// 一次说话请求的四块（**只用于这一轮**，不落盘）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpokenBlocks {
-    /// 系统句（用户存的非空句，或出厂句）。
+    /// 系统句（用户存的非空句；出厂为空，不补固定人设）。
     pub sentence: String,
     /// 钉住块正文（空 = 没有）。
     pub pinned: String,

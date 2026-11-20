@@ -205,7 +205,7 @@ pub(super) async fn run_forever(
                     // **2026-11-16（热槽记忆 M2）**：说话用的 system 文本 = 四块
                     // （系统句 + 钉住的事 + 最近对话 + 热卡）。最近对话走历史，
                     // 另外三块在这里拼：
-                    // - 系统句来自 `[persona].system_prompt`（空 → 出厂句）；
+                    // - 系统句来自 `[persona].system_prompt`（出厂为空，空就是不发固定人设）；
                     // - 钉住 / 热卡来自热槽（`POST /api/v1/chat/draft` 写）；
                     // - 会话槽只贡献**未退休** owner 的文本（`speak_prompt_for`）。
                     // 四块只进这一轮请求：不写 toml、不写会话槽、不打 marker。
