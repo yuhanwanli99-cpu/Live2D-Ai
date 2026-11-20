@@ -25,8 +25,12 @@ use std::time::{Duration, Instant};
 
 use l2d::renderer::RgbaFrame;
 
-/// 最多 48 个字，超了截断并加「…」。
-pub const MAX_CHARS: usize = 48;
+pub use super::bubble_layout::BubbleRect;
+#[cfg(windows)]
+use super::bubble_layout::{self, DpiMetrics};
+
+/// 仅对异常长句省略；普通长句交给 GDI 实测后换行、增高。
+pub const MAX_CHARS: usize = 240;
 /// 没有 TTS 时气泡停留 4 秒。
 pub const TEXT_ONLY_TTL: Duration = Duration::from_secs(4);
 /// 播放中的保险丝（声卡异常、VoiceEnded 丢失时不让气泡永远挂着）。
@@ -35,12 +39,8 @@ pub const PLAYING_MAX_TTL: Duration = Duration::from_secs(120);
 const BG: [u8; 4] = [250, 250, 252, 238];
 /// 深色字。
 const INK: [u8; 3] = [32, 34, 40];
-/// 圆角半径 / 内边距 / 字号（物理像素）。
-const RADIUS: i32 = 14;
-const PAD: i32 = 12;
-const FONT_PX: i32 = 16;
 
-/// 超过 48 字截断并加「…」；空串 / 纯空白一律返回空串（不画）。
+/// 超过安全字符上限才省略；空串 / 纯空白一律返回空串（不画）。
 #[must_use]
 pub fn truncate(text: &str) -> String {
     if text.trim().is_empty() {
@@ -187,15 +187,6 @@ impl BubbleState {
     }
 }
 
-/// 气泡矩形（客户区像素，`x/y` 允许为负，绘制时逐像素裁到帧内）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BubbleRect {
-    pub x: i32,
-    pub y: i32,
-    pub w: i32,
-    pub h: i32,
-}
-
 fn inside_rounded(x: i32, y: i32, w: i32, h: i32, r: i32) -> bool {
     let r = r.min(w / 2).min(h / 2).max(0);
     let cx = x.clamp(r, (w - 1 - r).max(r));
@@ -205,31 +196,8 @@ fn inside_rounded(x: i32, y: i32, w: i32, h: i32, r: i32) -> bool {
     dx * dx + dy * dy <= r * r
 }
 
-/// 在角色上方（有可见包围盒时）或窗顶居中放一条气泡；小屏也不越界。
-#[must_use]
-pub fn layout(frame: &RgbaFrame, _text_chars: usize) -> BubbleRect {
-    let fw = frame.width as i32;
-    let fh = frame.height as i32;
-    let margin = 10;
-    let w = if fw > 2 * margin {
-        (fw - 2 * margin).min(420)
-    } else {
-        fw.max(1)
-    };
-    let h = fh.clamp(1, 88);
-    let x = ((fw - w) / 2).max(0);
-    let mut y = 12.min((fh - h).max(0));
-    if let Some((_x0, y0, _x1, _y1)) = frame.visible_bbox() {
-        let above = y0 as i32 - h - 12;
-        if above > 0 && above + h <= fh {
-            y = above;
-        }
-    }
-    BubbleRect { x, y, w, h }
-}
-
-/// 把圆角矩形写进帧（直通 alpha）。返回值只是便于单测定位。
-pub fn paint_background(frame: &mut RgbaFrame, rect: BubbleRect) {
+/// 把圆角矩形写进帧（直通 alpha）。半径与文字一样按当前 DPI 缩放。
+pub fn paint_background(frame: &mut RgbaFrame, rect: BubbleRect, radius: i32) {
     for ly in 0..rect.h {
         let y = rect.y + ly;
         if y < 0 || y >= frame.height as i32 {
@@ -240,7 +208,7 @@ pub fn paint_background(frame: &mut RgbaFrame, rect: BubbleRect) {
             if x < 0 || x >= frame.width as i32 {
                 continue;
             }
-            if !inside_rounded(lx, ly, rect.w, rect.h, RADIUS) {
+            if !inside_rounded(lx, ly, rect.w, rect.h, radius) {
                 continue;
             }
             let idx = ((y as u32 * frame.width + x as u32) * 4) as usize;
@@ -255,15 +223,16 @@ pub fn paint_background(frame: &mut RgbaFrame, rect: BubbleRect) {
 #[path = "bubble_text.rs"]
 mod text;
 
-/// 文字栅格缓存：一句只排版 / 栅格化一次。
-///
-/// `layout` 要读一次整帧的 `visible_bbox`（找角色头顶），60 Hz 里每帧扫
-/// 一百万像素太浪费；窗尺寸固定、同一句期间角色位置近似不变，所以把矩形
-/// 与蒙版一起按「上台词文本」缓存。
+/// 同一句、同一 DPI 与同一可用宽度只测量一次；蒙版只在文字或尺寸变化时重画。
+/// 位置不参与蒙版键，因此角色 bbox 每帧移动会挪泡，但不会重复栅格化。
 #[cfg(windows)]
 pub struct TextCache {
     rendered: String,
-    rect: Option<BubbleRect>,
+    dpi: u32,
+    max_w: i32,
+    max_h: i32,
+    size: (i32, i32),
+    raster_size: Option<(i32, i32)>,
     mask: Option<text::TextMask>,
 }
 
@@ -272,18 +241,45 @@ impl TextCache {
     pub fn new() -> Self {
         Self {
             rendered: String::new(),
-            rect: None,
+            dpi: 0,
+            max_w: 0,
+            max_h: 0,
+            size: (1, 1),
+            raster_size: None,
             mask: None,
         }
     }
 
-    /// 换了一句 / 换了位置才重新栅格化；同一句每帧复用同一个蒙版。
-    /// `rect` 由调用方给（`overlay_pair` 决定两块各放哪），这里只管缓存。
-    pub fn place_at(&mut self, shown: &str, rect: BubbleRect) {
-        if self.rendered != shown || self.rect != Some(rect) {
+    pub fn measure(
+        &mut self,
+        shown: &str,
+        max_w: i32,
+        max_h: i32,
+        dpi: u32,
+        metrics: DpiMetrics,
+    ) -> (i32, i32) {
+        if self.rendered != shown || self.dpi != dpi || self.max_w != max_w || self.max_h != max_h {
             self.rendered = shown.to_string();
-            self.rect = Some(rect);
-            self.mask = text::rasterize(shown, rect.w as u32, rect.h as u32);
+            self.dpi = dpi;
+            self.max_w = max_w;
+            self.max_h = max_h;
+            let measured = text::measure(shown, max_w, max_h, dpi);
+            if measured.is_none() {
+                tracing::warn!(target: "desk_pet", "气泡文字测量失败，使用可见降级尺寸");
+            }
+            self.size = measured
+                .unwrap_or_else(|| bubble_layout::fallback_size(shown, max_w, max_h, metrics));
+            self.raster_size = None;
+            self.mask = None;
+        }
+        self.size
+    }
+
+    fn place_at(&mut self, shown: &str, rect: BubbleRect, dpi: u32) {
+        let size = (rect.w, rect.h);
+        if self.raster_size != Some(size) {
+            self.raster_size = Some(size);
+            self.mask = text::rasterize(shown, rect.w as u32, rect.h as u32, dpi);
             if self.mask.is_none() {
                 tracing::warn!(target: "desk_pet", "气泡文字栅格失败（只画底色，不关 HTTP）");
             }
@@ -295,30 +291,23 @@ impl TextCache {
     }
 }
 
-/// 第二块气泡摞在第一块上方；上边放不下就落到下方。
 #[cfg(windows)]
-#[must_use]
-pub fn stack(base: BubbleRect) -> BubbleRect {
-    let above = base.y - base.h - 8;
-    let y = if above >= 0 {
-        above
-    } else {
-        base.y + base.h + 8
-    };
-    BubbleRect { y, ..base }
-}
-
-#[cfg(windows)]
-fn paint_one(frame: &mut RgbaFrame, shown: &str, rect: BubbleRect, cache: &mut TextCache) {
-    cache.place_at(shown, rect);
-    paint_background(frame, rect);
+fn paint_one(
+    frame: &mut RgbaFrame,
+    shown: &str,
+    rect: BubbleRect,
+    cache: &mut TextCache,
+    dpi: u32,
+    metrics: DpiMetrics,
+) {
+    cache.place_at(shown, rect, dpi);
+    paint_background(frame, rect, metrics.radius);
     if let Some(mask) = cache.mask() {
         text::paint(frame, rect, mask);
     }
 }
 
-/// 每帧：把两块气泡按菜单开关叠进帧。`base` 由调用方缓存一次
-/// （`layout` 要扫整帧 bbox，不该在 60 Hz 里反复做）。
+/// 每帧重读角色 bbox，并按两块各自的实测高堆叠；不再有首次位置或 88px 缓存。
 #[cfg(windows)]
 pub fn overlay_pair(
     frame: &mut RgbaFrame,
@@ -327,18 +316,31 @@ pub fn overlay_pair(
     user_cache: &mut TextCache,
     show_user: bool,
     show_ai: bool,
-    base: BubbleRect,
+    dpi: u32,
 ) {
     let ai = if show_ai { state.text() } else { None };
     let user = if show_user { state.user_text() } else { None };
-    match (ai, user) {
-        (Some(a), Some(u)) => {
-            paint_one(frame, a, base, ai_cache);
-            paint_one(frame, u, stack(base), user_cache);
-        }
-        (Some(a), None) => paint_one(frame, a, base, ai_cache),
-        (None, Some(u)) => paint_one(frame, u, base, user_cache),
-        (None, None) => {}
+    if ai.is_none() && user.is_none() {
+        return;
+    }
+    let metrics = DpiMetrics::new(dpi);
+    let max_w = metrics.max_bubble_width(frame.width as i32);
+    let max_h = metrics.max_bubble_height(frame.height as i32);
+    let ai_size = ai.map(|shown| ai_cache.measure(shown, max_w, max_h, dpi, metrics));
+    let user_size = user.map(|shown| user_cache.measure(shown, max_w, max_h, dpi, metrics));
+    let placed = bubble_layout::place_pair(
+        frame.width as i32,
+        frame.height as i32,
+        frame.visible_bbox(),
+        ai_size,
+        user_size,
+        metrics,
+    );
+    if let (Some(shown), Some(rect)) = (ai, placed.ai) {
+        paint_one(frame, shown, rect, ai_cache, dpi, metrics);
+    }
+    if let (Some(shown), Some(rect)) = (user, placed.user) {
+        paint_one(frame, shown, rect, user_cache, dpi, metrics);
     }
 }
 

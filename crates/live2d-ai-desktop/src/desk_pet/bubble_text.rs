@@ -5,8 +5,9 @@
 //! **不引新依赖**（`win32.rs` 手写 FFI），也不碰主 DIB 的 alpha 通道。
 use std::ffi::c_void;
 
+use super::super::bubble_layout::DpiMetrics;
 use super::super::win32::*;
-use super::{BubbleRect, FONT_PX, INK, PAD, RgbaFrame};
+use super::{BubbleRect, INK, RgbaFrame};
 
 pub struct TextMask {
     pub w: u32,
@@ -15,8 +16,95 @@ pub struct TextMask {
     pub coverage: Vec<u8>,
 }
 
+/// 测量与最终栅格共用这一份字体创建参数，避免量一套、画一套。
+unsafe fn create_font(dpi: u32) -> Handle {
+    let face = wide("Microsoft YaHei");
+    unsafe {
+        CreateFontW(
+            -DpiMetrics::new(dpi).font_px,
+            0,
+            0,
+            0,
+            FW_NORMAL,
+            0,
+            0,
+            0,
+            DEFAULT_CHARSET,
+            0,
+            0,
+            ANTIALIASED_QUALITY,
+            0,
+            face.as_ptr(),
+        )
+    }
+}
+
+/// 用最终绘制同款字体先量单行自然宽，再按同一内容宽量换行后的实际高。
+pub fn measure(text: &str, max_w: i32, max_h: i32, dpi: u32) -> Option<(i32, i32)> {
+    if text.is_empty() || max_w <= 0 || max_h <= 0 {
+        return None;
+    }
+    let metrics = DpiMetrics::new(dpi);
+    let content_max = (max_w - 2 * metrics.pad).max(1);
+    unsafe {
+        let screen_dc = GetDC(std::ptr::null_mut());
+        if screen_dc.is_null() {
+            return None;
+        }
+        let dc = CreateCompatibleDC(screen_dc);
+        ReleaseDC(std::ptr::null_mut(), screen_dc);
+        if dc.is_null() {
+            return None;
+        }
+        let font = create_font(dpi);
+        if font.is_null() {
+            DeleteDC(dc);
+            return None;
+        }
+        let old_font = SelectObject(dc, font);
+        let wide_text = wide(text);
+        let mut natural = Rect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        let natural_ok = DrawTextW(
+            dc,
+            wide_text.as_ptr(),
+            -1,
+            &mut natural,
+            DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX,
+        );
+        let content_w = (natural.right - natural.left).clamp(1, content_max);
+        let mut wrapped = Rect {
+            left: 0,
+            top: 0,
+            right: content_w,
+            bottom: 0,
+        };
+        let text_h = DrawTextW(
+            dc,
+            wide_text.as_ptr(),
+            -1,
+            &mut wrapped,
+            DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX,
+        );
+        SelectObject(dc, old_font);
+        DeleteObject(font);
+        DeleteDC(dc);
+        if natural_ok <= 0 || text_h <= 0 {
+            return None;
+        }
+        Some((
+            (content_w + 2 * metrics.pad).min(max_w).max(1),
+            (text_h + 2 * metrics.pad).min(max_h).max(1),
+        ))
+    }
+}
+
 /// 失败返回 `None`（调用方只记日志，气泡底色照样在）。
-pub fn rasterize(text: &str, w: u32, h: u32) -> Option<TextMask> {
+pub fn rasterize(text: &str, w: u32, h: u32, dpi: u32) -> Option<TextMask> {
     if w == 0 || h == 0 || text.is_empty() {
         return None;
     }
@@ -73,39 +161,30 @@ pub fn rasterize(text: &str, w: u32, h: u32) -> Option<TextMask> {
                 px.copy_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
             }
         }
-        let face = wide("Microsoft YaHei");
-        let font = CreateFontW(
-            -FONT_PX,
-            0,
-            0,
-            0,
-            FW_NORMAL,
-            0,
-            0,
-            0,
-            DEFAULT_CHARSET,
-            0,
-            0,
-            ANTIALIASED_QUALITY,
-            0,
-            face.as_ptr(),
-        );
+        let font = create_font(dpi);
+        if font.is_null() {
+            SelectObject(dc, old_bitmap);
+            DeleteObject(bitmap);
+            DeleteDC(dc);
+            return None;
+        }
         let old_font = SelectObject(dc, font);
         SetTextColor(dc, 0x0000_0000); // COLORREF 黑色
         SetBkMode(dc, TRANSPARENT);
         let wide_text = wide(text);
+        let pad = DpiMetrics::new(dpi).pad;
         let mut bounds = Rect {
-            left: PAD,
-            top: PAD,
-            right: (iw - PAD).max(PAD + 1),
-            bottom: (ih - PAD).max(PAD + 1),
+            left: pad,
+            top: pad,
+            right: (iw - pad).max(pad + 1),
+            bottom: (ih - pad).max(pad + 1),
         };
         DrawTextW(
             dc,
             wide_text.as_ptr(),
             -1,
             &mut bounds,
-            DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX,
+            DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX | DT_WORD_ELLIPSIS,
         );
         // 覆盖率 = 255 - 亮度（黑字→255，白底→0）；取 RGB 均值兼容
         // ClearType 的彩色亚像素。

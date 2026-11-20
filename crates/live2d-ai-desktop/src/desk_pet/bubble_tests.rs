@@ -23,14 +23,20 @@ fn empty_and_whitespace_sentences_are_not_drawn() {
 }
 
 #[test]
-fn overlong_sentence_is_truncated_to_48_chars_plus_ellipsis() {
-    let long = "中".repeat(60);
+fn only_abnormally_long_sentence_is_truncated() {
+    let ordinary_long = "中".repeat(60);
+    assert_eq!(
+        truncate(&ordinary_long),
+        ordinary_long,
+        "60 字不再截成 48 字"
+    );
+    let long = "中".repeat(MAX_CHARS + 10);
     let shown = truncate(&long);
     assert_eq!(shown.chars().count(), MAX_CHARS + 1);
     assert!(shown.ends_with('…'));
     assert_eq!(shown.chars().take(MAX_CHARS).count(), MAX_CHARS);
     let exact = "好".repeat(MAX_CHARS);
-    assert_eq!(truncate(&exact), exact, "正好 48 字不加省略号");
+    assert_eq!(truncate(&exact), exact, "正好到上限不加省略号");
 }
 
 #[test]
@@ -101,7 +107,7 @@ fn bubble_pixels_are_part_of_the_hit_map() {
         w: 40,
         h: 20,
     };
-    paint_background(&mut frame, rect);
+    paint_background(&mut frame, rect, 14);
     let mut map = HitMap::new();
     map.refresh(&frame);
     assert!(map.hits_at(20, 12), "点在气泡字上等于点在角色上");

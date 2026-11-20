@@ -1,35 +1,42 @@
-//! 简易会话框：角色旁边一块**纯 Win32 文本小窗**（不加载 Flutter / WebView）。
+//! 简易会话框：角色旁边的纯 Win32 小窗，正文是真正的只读多行 EDIT。
 //!
-//! - 最近几轮「我 / AI」的句子，来自 `bridge` 的 `PetEvent`，每帧追加；
-//! - `WS_OVERLAPPEDWINDOW` 自带 `WS_THICKFRAME`，**拖边缩放由系统处理**；
-//! - 置顶只作用在这块小窗 HWND 上，与角色窗的置顶各存各的、互不影响；
-//! - 窗口过程独立于宠物窗：`WM_DESTROY` **不** `PostQuitMessage`（否则会把
-//!   宠物窗一起关掉）；用户点 X 只把菜单状态改回「关」。
+//! - `WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY` 提供真滚动；
+//!   新句写入后 `EM_SETSEL(end,end) + EM_SCROLLCARET` 自动滚到底；
+//! - 父窗仍用 `WS_OVERLAPPEDWINDOW`，拖边缩放时 EDIT 跟随客户区；
+//! - 置顶只作用于这块小窗，与角色窗互不影响；
+//! - `WM_DESTROY` 不 `PostQuitMessage`，用户点 X 或角色关闭都不会误杀别的窗。
 //!
-//! 全部失败语义与宠物窗同款：建窗/绘制失败只记 `desk_pet` 日志，窗继续跑。
+//! 历史与工作区几何在平台无关模块；本文件只保留 Win32 行为。
 
 #![allow(unsafe_code)]
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use super::bubble_layout::dpi_scale;
+use super::chat_history::History;
+use super::chat_layout::{self, Rect as LayoutRect};
 use super::menu_state;
 use super::win32::*;
 
-/// 最多留几轮（一轮 = 用户句 + AI 句，所以 12 行约 6 轮）。
-const MAX_LINES: usize = 12;
 const CHAT_W: i32 = 360;
 const CHAT_H: i32 = 260;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Line {
-    who: &'static str,
-    text: String,
+#[derive(Default)]
+struct Native {
+    pet: Option<usize>,
+    chat: Option<usize>,
+    edit: Option<usize>,
+    font: Option<usize>,
 }
 
-static LINES: Mutex<Vec<Line>> = Mutex::new(Vec::new());
-static PET_HWND: Mutex<Option<usize>> = Mutex::new(None);
-static CHAT_HWND: Mutex<Option<usize>> = Mutex::new(None);
+static HISTORY: Mutex<History> = Mutex::new(History::new());
+static NATIVE: Mutex<Native> = Mutex::new(Native {
+    pet: None,
+    chat: None,
+    edit: None,
+    font: None,
+});
 static DIRTY: AtomicBool = AtomicBool::new(false);
 static LAST_TOPMOST: AtomicBool = AtomicBool::new(false);
 
@@ -37,113 +44,114 @@ fn hwnd(value: usize) -> Hwnd {
     value as Hwnd
 }
 
-fn with_chat<R>(f: impl FnOnce(&mut Option<usize>) -> R) -> R {
-    match CHAT_HWND.lock() {
+fn with_native<R>(f: impl FnOnce(&mut Native) -> R) -> R {
+    match NATIVE.lock() {
+        Ok(mut guard) => f(&mut guard),
+        Err(poisoned) => f(&mut poisoned.into_inner()),
+    }
+}
+
+fn with_history<R>(f: impl FnOnce(&mut History) -> R) -> R {
+    match HISTORY.lock() {
         Ok(mut guard) => f(&mut guard),
         Err(poisoned) => f(&mut poisoned.into_inner()),
     }
 }
 
 pub fn set_pet_hwnd(h: Hwnd) {
-    if let Ok(mut slot) = PET_HWND.lock() {
-        *slot = Some(h as usize);
-    }
+    with_native(|native| native.pet = Some(h as usize));
 }
 
-/// 追加一句；超出上限丢最旧的。空串不进（气泡也不用画空句）。
+/// 追加完整一句；只有很大的安全上限防无界，气泡省略策略不参与。
 pub fn push(who: &'static str, text: &str) {
     if text.trim().is_empty() {
         return;
     }
-    if let Ok(mut lines) = LINES.lock() {
-        lines.push(Line {
-            who,
-            text: super::bubble::truncate(text),
-        });
-        let len = lines.len();
-        if len > MAX_LINES {
-            lines.drain(..len - MAX_LINES);
-        }
-    }
+    with_history(|history| history.push(who, text));
     DIRTY.store(true, Ordering::SeqCst);
 }
 
-/// 给 `WM_PAINT` 用的纯文本（也方便单测钉住「最近几轮」）。
 #[must_use]
 pub fn rendered_text() -> String {
-    let lines = LINES.lock().map(|g| g.clone()).unwrap_or_default();
-    if lines.is_empty() {
-        return "（还没有对话）".to_string();
-    }
-    lines
-        .iter()
-        .map(|line| format!("{}：{}", line.who, line.text))
-        .collect::<Vec<_>>()
-        .join("\n")
+    with_history(|history| history.rendered_text())
 }
 
-/// 角色窗关掉时：销毁这块小窗、同步菜单状态、清掉 HWND 引用。
+/// 角色窗关掉时销毁小窗并同步菜单；EDIT 与字体由父窗 WM_DESTROY 收尾。
 pub fn close() {
-    let existing = with_chat(Option::take);
+    let existing = with_native(|native| native.chat.take());
     if let Some(value) = existing {
         unsafe { DestroyWindow(hwnd(value)) };
     }
-    if let Ok(mut slot) = PET_HWND.lock() {
-        *slot = None;
-    }
+    with_native(|native| native.pet = None);
     menu_state::close_chat();
     DIRTY.store(false, Ordering::SeqCst);
 }
 
-unsafe extern "system" fn wnd_proc(
-    hwnd: Hwnd,
-    message: u32,
-    wparam: Wparam,
-    lparam: Lparam,
-) -> Lresult {
-    match message {
-        // 注意：**不能** PostQuitMessage —— 宠物窗与这块小窗共用同一个消息循环。
-        WM_DESTROY => {
-            with_chat(|slot| *slot = None);
-            0
-        }
-        WM_CLOSE => {
-            menu_state::close_chat();
-            unsafe { DestroyWindow(hwnd) };
-            0
-        }
-        WM_PAINT => {
-            unsafe { paint(hwnd) };
-            0
-        }
-        _ => unsafe { DefWindowProcW(hwnd, message, wparam, lparam) },
+fn current_edit() -> Option<Hwnd> {
+    with_native(|native| native.edit.map(hwnd))
+}
+
+fn current_dpi(window: Hwnd) -> u32 {
+    let dpi = unsafe { GetDpiForWindow(window) };
+    if dpi == 0 {
+        unsafe { GetDpiForSystem() }
+    } else {
+        dpi
     }
 }
 
-/// `WM_PAINT`：GDI 画字，背景由窗口类的 `COLOR_WINDOW+1` 伪刷子擦。
-unsafe fn paint(hwnd: Hwnd) {
-    let mut ps: PaintStruct = unsafe { std::mem::zeroed() };
-    let dc = unsafe { BeginPaint(hwnd, &mut ps) };
-    if dc.is_null() {
+fn scroll_to_bottom() {
+    let Some(edit) = current_edit() else {
         return;
+    };
+    unsafe {
+        let end = GetWindowTextLengthW(edit).max(0);
+        SendMessageW(edit, EM_SETSEL, end as usize, end as isize);
+        SendMessageW(edit, EM_SCROLLCARET, 0, 0);
     }
-    let mut client = Rect {
-        left: 0,
-        top: 0,
-        right: 0,
-        bottom: 0,
+}
+
+fn update_text() {
+    let Some(edit) = current_edit() else {
+        return;
     };
-    unsafe { GetClientRect(hwnd, &mut client) };
-    let mut bounds = Rect {
-        left: client.left + 12,
-        top: client.top + 10,
-        right: (client.right - 12).max(client.left + 13),
-        bottom: (client.bottom - 10).max(client.top + 11),
+    // EDIT 只认 CRLF；History 内部正文仍保留原始内容。
+    let text = rendered_text()
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .replace('\n', "\r\n");
+    let text = wide(&text);
+    unsafe {
+        SetWindowTextW(edit, text.as_ptr());
+    }
+    scroll_to_bottom();
+}
+
+fn resize_edit(parent: Hwnd) {
+    let Some(edit) = current_edit() else {
+        return;
     };
+    let mut client = Rect::default();
+    unsafe {
+        GetClientRect(parent, &mut client);
+        SetWindowPos(
+            edit,
+            std::ptr::null_mut(),
+            0,
+            0,
+            (client.right - client.left).max(1),
+            (client.bottom - client.top).max(1),
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+    scroll_to_bottom();
+}
+
+fn create_chat_font(dpi: u32) -> Handle {
     let face = wide("Microsoft YaHei");
-    let font = unsafe {
+    unsafe {
         CreateFontW(
-            -16,
+            -dpi_scale(16, dpi),
             0,
             0,
             0,
@@ -158,22 +166,111 @@ unsafe fn paint(hwnd: Hwnd) {
             0,
             face.as_ptr(),
         )
+    }
+}
+
+fn refresh_font(parent: Hwnd) {
+    let Some(edit) = current_edit() else {
+        return;
     };
-    let text = wide(&rendered_text());
+    let font = create_chat_font(current_dpi(parent));
+    if font.is_null() {
+        return;
+    }
     unsafe {
-        let old_font = SelectObject(dc, font);
-        SetTextColor(dc, 0x0022_2228); // COLORREF 是 0x00BBGGRR，深色字
-        SetBkMode(dc, TRANSPARENT);
-        DrawTextW(
-            dc,
-            text.as_ptr(),
-            -1,
-            &mut bounds,
-            DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX,
-        );
-        SelectObject(dc, old_font);
-        DeleteObject(font);
-        EndPaint(hwnd, &ps);
+        SendMessageW(edit, WM_SETFONT, font as usize, 1);
+    }
+    let old = with_native(|native| native.font.replace(font as usize));
+    if let Some(old) = old {
+        unsafe { DeleteObject(old as Handle) };
+    }
+}
+
+unsafe extern "system" fn wnd_proc(
+    window: Hwnd,
+    message: u32,
+    wparam: Wparam,
+    lparam: Lparam,
+) -> Lresult {
+    match message {
+        WM_DESTROY => {
+            let font = with_native(|native| {
+                native.chat = None;
+                native.edit = None;
+                native.font.take()
+            });
+            if let Some(font) = font {
+                unsafe { DeleteObject(font as Handle) };
+            }
+            0
+        }
+        WM_CLOSE => {
+            menu_state::close_chat();
+            unsafe { DestroyWindow(window) };
+            0
+        }
+        WM_SIZE => {
+            resize_edit(window);
+            0
+        }
+        WM_DPICHANGED => {
+            let suggested = lparam as *const Rect;
+            if !suggested.is_null() {
+                let rect = unsafe { *suggested };
+                unsafe {
+                    SetWindowPos(
+                        window,
+                        std::ptr::null_mut(),
+                        rect.left,
+                        rect.top,
+                        rect.right - rect.left,
+                        rect.bottom - rect.top,
+                        SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
+                }
+            }
+            refresh_font(window);
+            resize_edit(window);
+            0
+        }
+        _ => unsafe { DefWindowProcW(window, message, wparam, lparam) },
+    }
+}
+
+fn work_area(pet: Hwnd) -> Rect {
+    if !pet.is_null() {
+        let monitor = unsafe { MonitorFromWindow(pet, MONITOR_DEFAULTTONEAREST) };
+        if !monitor.is_null() {
+            let mut info = MonitorInfo {
+                cb_size: std::mem::size_of::<MonitorInfo>() as u32,
+                monitor: Rect::default(),
+                work: Rect::default(),
+                flags: 0,
+            };
+            if unsafe { GetMonitorInfoW(monitor, &mut info) } != 0 {
+                return info.work;
+            }
+        }
+    }
+    let mut work = Rect::default();
+    if unsafe { SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut work as *mut Rect).cast(), 0) } != 0
+    {
+        return work;
+    }
+    Rect {
+        left: 0,
+        top: 0,
+        right: unsafe { GetSystemMetrics(SM_CXSCREEN) },
+        bottom: unsafe { GetSystemMetrics(SM_CYSCREEN) },
+    }
+}
+
+fn layout_rect(rect: Rect) -> LayoutRect {
+    LayoutRect {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
     }
 }
 
@@ -197,73 +294,96 @@ fn create(pet: Hwnd) -> Option<usize> {
         lpsz_class_name: class_name.as_ptr(),
         h_icon_sm: std::ptr::null_mut(),
     };
-    // 同一进程里关掉再开：类已注册（1410）不是错误。
     let registered = unsafe { RegisterClassExW(&wnd_class) } != 0;
     if !registered && last_os().raw_os_error() != Some(1410) {
         tracing::warn!(target: "desk_pet", "简易会话框窗口类注册失败");
         return None;
     }
-    let mut r = Rect {
-        left: 0,
-        top: 0,
-        right: 0,
-        bottom: 0,
-    };
-    let (x, y) = if !pet.is_null() && unsafe { GetWindowRect(pet, &mut r) } != 0 {
-        (r.right + 8, r.top + 120)
-    } else {
-        (120, 120)
-    };
+
+    let mut pet_rect = Rect::default();
+    let has_pet = !pet.is_null() && unsafe { GetWindowRect(pet, &mut pet_rect) } != 0;
+    let dpi = current_dpi(pet);
+    let placement = chat_layout::place(
+        layout_rect(work_area(pet)),
+        has_pet.then(|| layout_rect(pet_rect)),
+        dpi_scale(CHAT_W, dpi),
+        dpi_scale(CHAT_H, dpi),
+        dpi_scale(8, dpi),
+        dpi_scale(120, dpi),
+    );
+    let p = placement.rect;
     let title = wide("简易会话");
-    let h = unsafe {
+    let window = unsafe {
         CreateWindowExW(
             0,
             class_name.as_ptr(),
             title.as_ptr(),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            x,
-            y,
-            CHAT_W,
-            CHAT_H,
+            p.left,
+            p.top,
+            p.right - p.left,
+            p.bottom - p.top,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             instance,
             std::ptr::null_mut(),
         )
     };
-    if h.is_null() {
+    if window.is_null() {
         tracing::warn!(target: "desk_pet", "简易会话框创建失败");
         return None;
     }
-    let value = h as usize;
-    with_chat(|slot| *slot = Some(value));
+    let edit_class = wide("EDIT");
+    let edit = unsafe {
+        CreateWindowExW(
+            WS_EX_CLIENTEDGE,
+            edit_class.as_ptr(),
+            std::ptr::null(),
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+            0,
+            0,
+            p.right - p.left,
+            p.bottom - p.top,
+            window,
+            std::ptr::null_mut(),
+            instance,
+            std::ptr::null_mut(),
+        )
+    };
+    if edit.is_null() {
+        tracing::warn!(target: "desk_pet", "只读多行 EDIT 创建失败");
+        unsafe { DestroyWindow(window) };
+        return None;
+    }
+    let value = window as usize;
+    with_native(|native| {
+        native.chat = Some(value);
+        native.edit = Some(edit as usize);
+    });
     LAST_TOPMOST.store(false, Ordering::SeqCst);
-    DIRTY.store(true, Ordering::SeqCst);
-    tracing::info!(target: "desk_pet", x, y, "简易会话框已打开（可拖边缩放）");
+    refresh_font(window);
+    resize_edit(window);
+    update_text();
+    DIRTY.store(false, Ordering::SeqCst);
+    tracing::info!(target: "desk_pet", x = p.left, y = p.top, side = ?placement.side, dpi, "简易会话框已打开（只读 EDIT / 可滚动 / 自动到底）");
     Some(value)
 }
 
-/// 每帧一次（由 `companion.tick` 调）：按菜单状态开 / 关 / 置顶 / 重绘。
+/// 每帧一次：按菜单状态开 / 关 / 独立置顶；有新历史时更新并滚到底。
 pub fn poll() {
     let state = menu_state::get();
-    let existing = with_chat(|slot| *slot);
+    let existing = with_native(|native| native.chat);
     match (state.chat_open, existing) {
         (true, None) => {
-            let pet = PET_HWND
-                .lock()
-                .ok()
-                .and_then(|slot| *slot)
-                .map(hwnd)
-                .unwrap_or(std::ptr::null_mut());
+            let pet = with_native(|native| native.pet.map(hwnd)).unwrap_or(std::ptr::null_mut());
             create(pet);
         }
         (false, Some(value)) => {
             unsafe { DestroyWindow(hwnd(value)) };
-            with_chat(|slot| *slot = None);
         }
         _ => {}
     }
-    let Some(value) = with_chat(|slot| *slot) else {
+    let Some(value) = with_native(|native| native.chat) else {
         return;
     };
     if LAST_TOPMOST.swap(state.chat_topmost, Ordering::SeqCst) != state.chat_topmost {
@@ -286,27 +406,6 @@ pub fn poll() {
         tracing::info!(target: "desk_pet", on = state.chat_topmost, "简易会话框置顶");
     }
     if DIRTY.swap(false, Ordering::SeqCst) {
-        unsafe { InvalidateRect(hwnd(value), std::ptr::null(), 1) };
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn history_keeps_only_the_last_lines() {
-        if let Ok(mut lines) = LINES.lock() {
-            lines.clear();
-        }
-        push("我", "");
-        assert_eq!(rendered_text(), "（还没有对话）");
-        for i in 0..(MAX_LINES + 5) {
-            push("我", &format!("第 {i} 句"));
-        }
-        let text = rendered_text();
-        assert!(text.contains(&format!("第 {} 句", MAX_LINES + 4)));
-        assert!(!text.contains("第 0 句"));
-        assert_eq!(text.lines().count(), MAX_LINES);
+        update_text();
     }
 }

@@ -423,7 +423,7 @@ pub fn run_once(config: PetConfig) -> Result<(), String> {
     }
     crate::desk_pet::live::publish(config);
     hit::install(config, Point { x, y });
-    let mut companion = super::companion::Companion::new(); // 窗开好后才分配事件通道
+    let mut companion = super::companion::Companion::new(window.hwnd); // 窗开好后才分配事件通道
     hit::refresh_map(&first);
     window.present(&first, crate::desk_pet::live::opacity(), chroma)?;
     unsafe {

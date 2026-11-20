@@ -4,15 +4,18 @@
 //! 撑过 500 行。构造时才 `bridge::open_events()`——**窗没开不分配通道**；
 //! `Drop` 时撤掉，之后 supervisor 的事件重新变回 no-op。
 
+#![allow(unsafe_code)]
+
 use std::sync::mpsc;
 use std::time::Instant;
 
 use l2d::renderer::RgbaFrame;
 
 use super::bridge::{self, PetEvent};
-use super::bubble::{self, BubbleRect, BubbleState, TextCache};
+use super::bubble::{self, BubbleState, TextCache};
 use super::menu_state;
 use super::talk;
+use super::win32::{GetDpiForSystem, GetDpiForWindow, Hwnd};
 
 pub struct Companion {
     events: mpsc::Receiver<PetEvent>,
@@ -20,19 +23,19 @@ pub struct Companion {
     cache: TextCache,
     /// 用户句自己的文字栅格缓存，与 AI 句分开。
     user_cache: TextCache,
-    /// `bubble::layout` 要扫整帧 bbox，窗尺寸固定 ⇒ 只算一次。
-    base: Option<BubbleRect>,
+    /// 每帧读当前窗 DPI，跨显示器移动后不会继续用首次缩放。
+    pet_hwnd: Hwnd,
 }
 
 impl Companion {
     /// 建窗成功后调；此刻才有接收端，也才有麦克风/气泡这条旁路。
-    pub fn new() -> Self {
+    pub fn new(pet_hwnd: Hwnd) -> Self {
         Self {
             events: bridge::open_events(),
             bubble: BubbleState::default(),
             cache: TextCache::new(),
             user_cache: TextCache::new(),
-            base: None,
+            pet_hwnd,
         }
     }
 
@@ -70,7 +73,10 @@ impl Companion {
         // 5) 画进这一帧：两块气泡各自受菜单开关控制，像素同时进命中表。
         let state = menu_state::get();
         let (show_user, show_ai) = menu_state::bubble_visibility(&state);
-        let base = *self.base.get_or_insert_with(|| bubble::layout(frame, 0));
+        let mut dpi = unsafe { GetDpiForWindow(self.pet_hwnd) };
+        if dpi == 0 {
+            dpi = unsafe { GetDpiForSystem() };
+        }
         bubble::overlay_pair(
             frame,
             &self.bubble,
@@ -78,14 +84,8 @@ impl Companion {
             &mut self.user_cache,
             show_user,
             show_ai,
-            base,
+            dpi,
         );
-    }
-}
-
-impl Default for Companion {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

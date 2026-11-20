@@ -66,9 +66,14 @@ pub use runtime::{close_pet, http_port, open_pet, set_http_port};
 /// Linux 单测同样真跑；Win32 绘制与 cpal 输入流只在 Windows 目标编译。
 pub(crate) mod bridge;
 pub(crate) mod bubble;
+/// 气泡的 DPI 与双泡动态几何（平台无关，Linux 单测真跑）。
+mod bubble_layout;
 /// 简易会话框：独立 Win32 小窗、可拖边缩放、置顶与角色窗互不影响。
 #[cfg(windows)]
 mod chat;
+/// 会话历史与工作区放置（平台无关；不使用气泡的短句省略）。
+mod chat_history;
+mod chat_layout;
 /// 窗线程每帧编排（气泡 + 按住说话收在一处，`window.rs` 只多两行）。
 #[cfg(windows)]
 mod companion;

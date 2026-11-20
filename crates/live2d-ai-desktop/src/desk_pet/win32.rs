@@ -91,7 +91,19 @@ pub(super) const MF_GRAYED: u32 = 0x0000_0001;
 pub(super) const MF_DISABLED: u32 = 0x0000_0002;
 /// 简易会话框用标准重叠窗：带 WS_THICKFRAME，系统自带拖边缩放。
 pub(super) const WS_OVERLAPPEDWINDOW: u32 = 0x00CF_0000;
-pub(super) const WM_PAINT: u32 = 0x000F;
+pub(super) const WM_SIZE: u32 = 0x0005;
+pub(super) const WM_SETFONT: u32 = 0x0030;
+pub(super) const WM_DPICHANGED: u32 = 0x02E0;
+pub(super) const WS_CHILD: u32 = 0x4000_0000;
+pub(super) const WS_VSCROLL: u32 = 0x0020_0000;
+pub(super) const WS_EX_CLIENTEDGE: u32 = 0x0000_0200;
+pub(super) const ES_MULTILINE: u32 = 0x0004;
+pub(super) const ES_AUTOVSCROLL: u32 = 0x0040;
+pub(super) const ES_READONLY: u32 = 0x0800;
+pub(super) const EM_SETSEL: u32 = 0x00B1;
+pub(super) const EM_SCROLLCARET: u32 = 0x00B7;
+pub(super) const SPI_GETWORKAREA: u32 = 0x0030;
+pub(super) const MONITOR_DEFAULTTONEAREST: u32 = 2;
 pub(super) const CHAT_CLASS_NAME: &str = "live2d-ai-desk-chat";
 /// `COLOR_WINDOW + 1` 作为 WNDCLASSEXW.hbrBackground 的伪刷子句柄。
 pub(super) const COLOR_WINDOW_BRUSH: Handle = 6_isize as Handle;
@@ -102,7 +114,10 @@ pub(super) const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: Handle = -4_isize a
 
 // ── 气泡文字栅格（2026-11-17）：临时 DIB 上用 GDI 画字，读回覆盖率 ──
 pub(super) const DT_WORDBREAK: u32 = 0x0010;
+pub(super) const DT_SINGLELINE: u32 = 0x0020;
+pub(super) const DT_CALCRECT: u32 = 0x0400;
 pub(super) const DT_NOPREFIX: u32 = 0x0800;
+pub(super) const DT_WORD_ELLIPSIS: u32 = 0x0004_0000;
 pub(super) const DT_LEFT: u32 = 0x0000;
 pub(super) const DT_TOP: u32 = 0x0000;
 pub(super) const TRANSPARENT: i32 = 1;
@@ -144,6 +159,7 @@ pub(super) struct Size {
 
 /// `RECT`（DrawTextW 的排版边界）。
 #[repr(C)]
+#[derive(Clone, Copy, Default)]
 pub(super) struct Rect {
     pub(super) left: i32,
     pub(super) top: i32,
@@ -151,15 +167,13 @@ pub(super) struct Rect {
     pub(super) bottom: i32,
 }
 
-/// `PAINTSTRUCT`（x64 = 72 字节，与 mingw-w64 `winuser.h` 一致）。
+/// `MONITORINFO`：用 rcWork 而非整屏，会话框不会压到任务栏或跑出屏。
 #[repr(C)]
-pub(super) struct PaintStruct {
-    pub(super) hdc: Hdc,
-    pub(super) f_erase: Bool,
-    pub(super) rc_paint: Rect,
-    pub(super) f_restore: Bool,
-    pub(super) f_inc_update: Bool,
-    pub(super) rgb_reserved: [u8; 32],
+pub(super) struct MonitorInfo {
+    pub(super) cb_size: u32,
+    pub(super) monitor: Rect,
+    pub(super) work: Rect,
+    pub(super) flags: u32,
 }
 
 #[repr(C)]
@@ -273,6 +287,7 @@ unsafe extern "system" {
     pub(super) fn SetThreadDpiAwarenessContext(context: Handle) -> Handle;
     pub(super) fn SetProcessDPIAware() -> Bool;
     pub(super) fn GetDpiForSystem() -> u32;
+    pub(super) fn GetDpiForWindow(hwnd: Hwnd) -> u32;
     // 关窗：PostMessageW(WM_CLOSE) 复用现成的退出链，不新造停止协议。
     pub(super) fn PostMessageW(hwnd: Hwnd, msg: u32, wparam: Wparam, lparam: Lparam) -> Bool;
     // 右键菜单（TPM_RETURNCMD 路线，不接 WM_COMMAND）。
@@ -290,12 +305,21 @@ unsafe extern "system" {
         rect: *const Rect,
     ) -> Bool;
     pub(super) fn SetForegroundWindow(hwnd: Hwnd) -> Bool;
-    // 简易会话框：标准 GDI 文本窗（不加载 Flutter / WebView）。
+    // 简易会话框：工作区定位 + 只读多行 EDIT（不加载 Flutter / WebView）。
     pub(super) fn GetWindowRect(hwnd: Hwnd, rect: *mut Rect) -> Bool;
     pub(super) fn GetClientRect(hwnd: Hwnd, rect: *mut Rect) -> Bool;
-    pub(super) fn InvalidateRect(hwnd: Hwnd, rect: *const Rect, erase: Bool) -> Bool;
-    pub(super) fn BeginPaint(hwnd: Hwnd, ps: *mut PaintStruct) -> Hdc;
-    pub(super) fn EndPaint(hwnd: Hwnd, ps: *const PaintStruct) -> Bool;
+    pub(super) fn MonitorFromWindow(hwnd: Hwnd, flags: u32) -> Handle;
+    pub(super) fn GetMonitorInfoW(monitor: Handle, info: *mut MonitorInfo) -> Bool;
+    pub(super) fn SystemParametersInfoW(
+        action: u32,
+        param: u32,
+        data: *mut c_void,
+        update: u32,
+    ) -> Bool;
+    pub(super) fn SetWindowTextW(hwnd: Hwnd, text: *const u16) -> Bool;
+    pub(super) fn GetWindowTextLengthW(hwnd: Hwnd) -> i32;
+    pub(super) fn SendMessageW(hwnd: Hwnd, message: u32, wparam: Wparam, lparam: Lparam)
+    -> Lresult;
 }
 
 #[link(name = "gdi32")]
